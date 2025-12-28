@@ -147,24 +147,38 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if len(msg.pats) > 0 {
 			for _, pat := range msg.pats {
 				if pat.IsActive {
-					m.topBar.SetActivePAT(pat.Name)
+					m.topBar.SetActivePAT(pat.Name, string(pat.Provider))
 					m.provider = m.createProvider(pat)
 					break
 				}
 			}
 		}
+		m.topBar.SetView("PATs")
+		m.updateShortcuts()
 		return m, nil
 
 	case PRsLoadedMsg:
 		m.prListView.SetPRs(msg.prs)
 
 		repoMap := make(map[string]bool)
+		authored, assigned, other := 0, 0, 0
 		for _, pr := range msg.prs {
 			repoMap[pr.Repository.FullName] = true
+			switch pr.Category {
+			case domain.PRCategoryAuthored:
+				authored++
+			case domain.PRCategoryAssigned:
+				assigned++
+			default:
+				other++
+			}
 		}
 		m.topBar.SetStats(len(msg.prs), len(repoMap))
+		m.topBar.SetPRBreakdown(authored, assigned, other)
+		m.topBar.SetView("PR List")
 
 		m.state = ViewPRList
+		m.updateShortcuts()
 		return m, nil
 
 	case PRDetailLoadedMsg:
@@ -263,6 +277,8 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 		if pr != nil {
 			m.state = ViewPRInspect
 			m.topBar.SetContext(pr.Repository.FullName, fmt.Sprintf("%d", pr.Number))
+			m.topBar.SetView("PR Inspect")
+			m.updateShortcuts()
 			return m, tea.Batch(
 				m.loadPRDetail(*pr),
 				m.loadDiff(*pr),
@@ -297,7 +313,7 @@ func (m Model) handlePATEnter() (tea.Model, tea.Cmd) {
 			}
 		}
 		m.provider = m.createProvider(*pat)
-		m.topBar.SetActivePAT(pat.Name)
+		m.topBar.SetActivePAT(pat.Name, string(pat.Provider))
 		m.statusBar.SetMessage(fmt.Sprintf("Activated PAT: %s", pat.Name), false)
 		return m, m.loadPATs()
 	}
@@ -326,10 +342,15 @@ func (m Model) navigateBack() (tea.Model, tea.Cmd) {
 		m.state = ViewPATs
 		m.topBar.SetContext("", "")
 		m.topBar.SetStats(0, 0)
+		m.topBar.SetPRBreakdown(0, 0, 0)
+		m.topBar.SetView("PATs")
+		m.updateShortcuts()
 		return m, nil
 	case ViewPRInspect:
 		m.state = ViewPRList
 		m.topBar.SetContext("", "")
+		m.topBar.SetView("PR List")
+		m.updateShortcuts()
 		return m, nil
 	}
 	return m, nil
@@ -442,6 +463,42 @@ func (m Model) loadComments(pr domain.PullRequest) tea.Cmd {
 		}
 		return CommentsLoadedMsg{comments: comments}
 	}
+}
+
+func (m Model) updateShortcuts() {
+	var shortcuts []string
+
+	switch m.state {
+	case ViewPATs:
+		shortcuts = []string{
+			"<enter> Select PAT",
+			"<a> Add PAT",
+			"<d> Delete PAT",
+			"<:> Command",
+			"<q> Quit",
+		}
+	case ViewPRList:
+		shortcuts = []string{
+			"<enter> Inspect PR",
+			"<r> Refresh",
+			"</> Filter",
+			"<j/k> Navigate",
+			"<q> Back",
+			"<:> Command",
+		}
+	case ViewPRInspect:
+		shortcuts = []string{
+			"<n/p> Next/Prev File",
+			"<c> Toggle Comments",
+			"<a> Approve",
+			"<r> Request Changes",
+			"<enter> Add Comment",
+			"<j/k> Scroll",
+			"<q> Back",
+		}
+	}
+
+	m.topBar.SetShortcuts(shortcuts)
 }
 
 type PATsLoadedMsg struct {

@@ -8,13 +8,27 @@ import (
 )
 
 type TopBarModel struct {
-	width       int
-	totalPRs    int
-	repoCount   int
-	currentRepo string
-	currentPR   string
-	activePAT   string
+	width          int
+	totalPRs       int
+	authoredPRs    int
+	assignedPRs    int
+	otherPRs       int
+	repoCount      int
+	currentRepo    string
+	currentPR      string
+	activePAT      string
+	patProvider    string
+	currentView    string
+	shortcuts      []string
 }
+
+var (
+	titleStyle       = lipgloss.NewStyle().Padding(1, 2)
+	titleOrangeStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true)
+	valueWhiteStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("15"))
+	shortcutBlueStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("33")).Bold(true)
+	descGrayStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("246"))
+)
 
 func NewTopBar() *TopBarModel {
 	return &TopBarModel{}
@@ -29,69 +43,187 @@ func (m *TopBarModel) SetStats(totalPRs, repoCount int) {
 	m.repoCount = repoCount
 }
 
+func (m *TopBarModel) SetPRBreakdown(authored, assigned, other int) {
+	m.authoredPRs = authored
+	m.assignedPRs = assigned
+	m.otherPRs = other
+}
+
 func (m *TopBarModel) SetContext(repo, pr string) {
 	m.currentRepo = repo
 	m.currentPR = pr
 }
 
-func (m *TopBarModel) SetActivePAT(pat string) {
+func (m *TopBarModel) SetActivePAT(pat, provider string) {
 	m.activePAT = pat
+	m.patProvider = provider
+}
+
+func (m *TopBarModel) SetView(view string) {
+	m.currentView = view
+}
+
+func (m *TopBarModel) SetShortcuts(shortcuts []string) {
+	m.shortcuts = shortcuts
 }
 
 func (m *TopBarModel) View() string {
-	leftSection := m.renderLeftSection()
-	rightSection := m.renderRightSection()
+	titleLine := titleOrangeStyle.Render("LGTMFaster")
 
-	availableWidth := m.width - lipgloss.Width(leftSection) - lipgloss.Width(rightSection)
-	if availableWidth < 0 {
-		availableWidth = 0
+	contextLines := m.buildContextInfo()
+	shortcutCol1, shortcutCol2, col1Width := m.buildShortcutsDisplay(len(contextLines))
+
+	var topSection []string
+	topSection = append(topSection, titleLine)
+	topSection = append(topSection, "")
+
+	maxLines := len(contextLines)
+	if len(shortcutCol1) > maxLines {
+		maxLines = len(shortcutCol1)
 	}
 
-	middle := strings.Repeat(" ", availableWidth)
+	const contextColWidth = 45
+	const colMargin = 4
 
-	content := leftSection + middle + rightSection
+	for i := 0; i < maxLines; i++ {
+		var contextCol, sc1, sc2 string
 
-	style := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#F9FAFB")).
-		Background(lipgloss.Color("#7C3AED")).
-		Bold(true).
-		Width(m.width)
+		if i < len(contextLines) {
+			contextCol = contextLines[i]
+		}
 
-	return style.Render(content)
+		if i < len(shortcutCol1) {
+			sc1 = shortcutCol1[i]
+		}
+
+		if i < len(shortcutCol2) {
+			sc2 = shortcutCol2[i]
+		}
+
+		contextVisible := lipgloss.Width(contextCol)
+		padding1 := contextColWidth - contextVisible
+		if padding1 < 0 {
+			padding1 = 1
+		}
+
+		line := contextCol + strings.Repeat(" ", padding1) + sc1
+
+		if sc2 != "" {
+			sc1Visible := lipgloss.Width(sc1)
+			padding2 := col1Width - sc1Visible + colMargin
+			if padding2 < colMargin {
+				padding2 = colMargin
+			}
+			line += strings.Repeat(" ", padding2) + sc2
+		}
+
+		topSection = append(topSection, line)
+	}
+
+	content := strings.Join(topSection, "\n")
+	return titleStyle.Width(m.width).Render(content)
 }
 
-func (m *TopBarModel) renderLeftSection() string {
-	parts := []string{"LGTMFaster"}
+func (m *TopBarModel) buildContextInfo() []string {
+	var lines []string
 
-	if m.currentRepo != "" {
-		parts = append(parts, fmt.Sprintf("| %s", m.currentRepo))
-	}
-
-	if m.currentPR != "" {
-		parts = append(parts, fmt.Sprintf("#%s", m.currentPR))
-	}
-
-	return " " + strings.Join(parts, " ") + " "
-}
-
-func (m *TopBarModel) renderRightSection() string {
-	parts := []string{}
-
+	patName := "none"
+	patEmoji := "🔑"
 	if m.activePAT != "" {
-		parts = append(parts, fmt.Sprintf("PAT: %s", m.activePAT))
+		patName = m.activePAT
+		if m.patProvider != "" {
+			patName = fmt.Sprintf("%s (%s)", patName, m.patProvider)
+		}
+		if len(patName) > 25 {
+			patName = patName[:22] + "..."
+		}
 	}
+	lines = append(lines,
+		patEmoji+" "+
+			titleOrangeStyle.Render("PAT: ")+
+			valueWhiteStyle.Render(patName))
 
-	if m.repoCount > 0 {
-		parts = append(parts, fmt.Sprintf("Repos: %d", m.repoCount))
-	}
-
+	prEmoji := "📋"
 	if m.totalPRs > 0 {
-		parts = append(parts, fmt.Sprintf("PRs: %d", m.totalPRs))
+		prBreakdown := fmt.Sprintf("%d (✎%d →%d ○%d)",
+			m.totalPRs, m.authoredPRs, m.assignedPRs, m.otherPRs)
+		lines = append(lines,
+			prEmoji+" "+
+				titleOrangeStyle.Render("PRs: ")+
+				valueWhiteStyle.Render(prBreakdown))
+	} else {
+		lines = append(lines,
+			prEmoji+" "+
+				titleOrangeStyle.Render("PRs: ")+
+				valueWhiteStyle.Render("0"))
 	}
 
-	if len(parts) == 0 {
-		return ""
+	repoEmoji := "📦"
+	lines = append(lines,
+		repoEmoji+" "+
+			titleOrangeStyle.Render("Repositories: ")+
+			valueWhiteStyle.Render(fmt.Sprintf("%d", m.repoCount)))
+
+	contextEmoji := "📍"
+	contextValue := "none"
+	if m.currentRepo != "" {
+		contextValue = m.currentRepo
+		if m.currentPR != "" {
+			contextValue = fmt.Sprintf("%s #%s", m.currentRepo, m.currentPR)
+		}
+		if len(contextValue) > 25 {
+			contextValue = contextValue[:22] + "..."
+		}
+	}
+	lines = append(lines,
+		contextEmoji+" "+
+			titleOrangeStyle.Render("Context: ")+
+			valueWhiteStyle.Render(contextValue))
+
+	viewEmoji := "🎯"
+	viewName := m.currentView
+	if viewName == "" {
+		viewName = "PATs"
+	}
+	lines = append(lines,
+		viewEmoji+" "+
+			titleOrangeStyle.Render("View: ")+
+			valueWhiteStyle.Render(viewName))
+
+	return lines
+}
+
+func (m *TopBarModel) buildShortcutsDisplay(contextHeight int) ([]string, []string, int) {
+	var formattedShortcuts []string
+	maxWidth := 0
+
+	for _, shortcut := range m.shortcuts {
+		parts := strings.SplitN(shortcut, ">", 2)
+		if len(parts) != 2 {
+			continue
+		}
+
+		key := strings.TrimPrefix(parts[0], "<")
+		desc := strings.TrimSpace(parts[1])
+
+		formatted := shortcutBlueStyle.Render("<"+key+">") + " " + descGrayStyle.Render(desc)
+		formattedShortcuts = append(formattedShortcuts, formatted)
+
+		width := lipgloss.Width(formatted)
+		if width > maxWidth {
+			maxWidth = width
+		}
 	}
 
-	return " " + strings.Join(parts, " | ") + " "
+	var col1, col2 []string
+
+	if len(formattedShortcuts) <= contextHeight {
+		col1 = formattedShortcuts
+	} else {
+		splitPoint := contextHeight
+		col1 = formattedShortcuts[:splitPoint]
+		col2 = formattedShortcuts[splitPoint:]
+	}
+
+	return col1, col2, maxWidth
 }
