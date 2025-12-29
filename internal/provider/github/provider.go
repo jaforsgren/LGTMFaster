@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/go-github/v57/github"
 	"github.com/johanforsgren/lgtmfaster/internal/domain"
+	"github.com/johanforsgren/lgtmfaster/internal/provider/common"
 )
 
 type Provider struct {
@@ -68,7 +69,7 @@ func (p *Provider) GetDiff(ctx context.Context, identifier domain.PRIdentifier) 
 		return nil, err
 	}
 
-	return parseDiff(diffText), nil
+	return common.ParseUnifiedDiff(diffText), nil
 }
 
 func (p *Provider) GetComments(ctx context.Context, identifier domain.PRIdentifier) ([]domain.Comment, error) {
@@ -113,14 +114,10 @@ func (p *Provider) AddComment(ctx context.Context, identifier domain.PRIdentifie
 }
 
 func (p *Provider) SubmitReview(ctx context.Context, review domain.Review) error {
-	parts := strings.Split(review.PRIdentifier, "/")
-	if len(parts) != 3 {
-		return fmt.Errorf("invalid PR identifier format: %s", review.PRIdentifier)
+	owner, repo, prNumber, err := common.ParseGitHubIdentifier(review.PRIdentifier)
+	if err != nil {
+		return fmt.Errorf("failed to parse PR identifier: %w", err)
 	}
-
-	owner, repo := parts[0], parts[1]
-	prNumber := 0
-	fmt.Sscanf(parts[2], "%d", &prNumber)
 
 	event := convertReviewAction(review.Action)
 	ghReview := &github.PullRequestReviewRequest{
@@ -236,78 +233,4 @@ func convertReviewAction(action domain.ReviewAction) string {
 	default:
 		return "COMMENT"
 	}
-}
-
-func parseDiff(diffText string) *domain.Diff {
-	lines := strings.Split(diffText, "\n")
-	files := []domain.FileDiff{}
-	var currentFile *domain.FileDiff
-	var currentHunk *domain.DiffHunk
-	oldLine, newLine := 0, 0
-
-	for _, line := range lines {
-		if strings.HasPrefix(line, "diff --git") {
-			if currentFile != nil {
-				files = append(files, *currentFile)
-			}
-			currentFile = &domain.FileDiff{
-				Hunks: []domain.DiffHunk{},
-			}
-		} else if strings.HasPrefix(line, "---") {
-			if currentFile != nil {
-				path := strings.TrimPrefix(line, "--- ")
-				if path != "/dev/null" {
-					currentFile.OldPath = strings.TrimPrefix(path, "a/")
-				} else {
-					currentFile.IsNew = true
-				}
-			}
-		} else if strings.HasPrefix(line, "+++") {
-			if currentFile != nil {
-				path := strings.TrimPrefix(line, "+++ ")
-				if path != "/dev/null" {
-					currentFile.NewPath = strings.TrimPrefix(path, "b/")
-				} else {
-					currentFile.IsDeleted = true
-				}
-			}
-		} else if strings.HasPrefix(line, "@@") {
-			if currentFile != nil && currentHunk != nil {
-				currentFile.Hunks = append(currentFile.Hunks, *currentHunk)
-			}
-			currentHunk = &domain.DiffHunk{
-				Header: line,
-				Lines:  []domain.DiffLine{},
-			}
-			fmt.Sscanf(line, "@@ -%d", &oldLine)
-			fmt.Sscanf(line, "@@ -%*d,%*d +%d", &newLine)
-		} else if currentHunk != nil {
-			diffLine := domain.DiffLine{Content: line}
-			if strings.HasPrefix(line, "+") {
-				diffLine.Type = "add"
-				diffLine.NewLine = newLine
-				newLine++
-			} else if strings.HasPrefix(line, "-") {
-				diffLine.Type = "delete"
-				diffLine.OldLine = oldLine
-				oldLine++
-			} else {
-				diffLine.Type = "context"
-				diffLine.OldLine = oldLine
-				diffLine.NewLine = newLine
-				oldLine++
-				newLine++
-			}
-			currentHunk.Lines = append(currentHunk.Lines, diffLine)
-		}
-	}
-
-	if currentFile != nil && currentHunk != nil {
-		currentFile.Hunks = append(currentFile.Hunks, *currentHunk)
-	}
-	if currentFile != nil {
-		files = append(files, *currentFile)
-	}
-
-	return &domain.Diff{Files: files}
 }
