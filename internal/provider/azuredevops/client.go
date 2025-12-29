@@ -53,6 +53,11 @@ func (c *Client) ValidateCredentials(ctx context.Context) error {
 	return nil
 }
 
+func (c *Client) GetAuthenticatedUserID(ctx context.Context) (string, error) {
+	connectionData := c.connection.AuthorizationString
+	return connectionData, nil
+}
+
 func (c *Client) ListProjects(ctx context.Context) (*[]core.TeamProjectReference, error) {
 	response, err := c.coreClient.GetProjects(ctx, core.GetProjectsArgs{})
 	if err != nil {
@@ -184,6 +189,60 @@ func (c *Client) GetPullRequestThreads(ctx context.Context, projectID string, re
 		return nil, fmt.Errorf("failed to get threads for PR %d: %w", pullRequestID, err)
 	}
 	return threads, nil
+}
+
+func (c *Client) CreateCommentThread(ctx context.Context, projectID string, repoID string, pullRequestID int, body string, filePath string, line int) error {
+	thread := git.GitPullRequestCommentThread{
+		Comments: &[]git.Comment{
+			{
+				Content:     &body,
+				CommentType: &git.CommentTypeValues.Text,
+			},
+		},
+	}
+
+	if filePath != "" && line > 0 {
+		thread.ThreadContext = &git.CommentThreadContext{
+			FilePath: &filePath,
+			RightFileStart: &git.CommentPosition{
+				Line:   &line,
+				Offset: intPtr(1),
+			},
+			RightFileEnd: &git.CommentPosition{
+				Line:   &line,
+				Offset: intPtr(1),
+			},
+		}
+	}
+
+	_, err := c.gitClient.CreateThread(ctx, git.CreateThreadArgs{
+		CommentThread: &thread,
+		RepositoryId:  &repoID,
+		PullRequestId: &pullRequestID,
+		Project:       &projectID,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create comment thread: %w", err)
+	}
+	return nil
+}
+
+func (c *Client) CreatePullRequestReview(ctx context.Context, projectID string, repoID string, pullRequestID int, reviewerID string, vote int) error {
+	reviewer := git.IdentityRefWithVote{
+		Vote: &vote,
+	}
+
+	_, err := c.gitClient.CreatePullRequestReviewer(ctx, git.CreatePullRequestReviewerArgs{
+		Reviewer:      &reviewer,
+		RepositoryId:  &repoID,
+		PullRequestId: &pullRequestID,
+		ReviewerId:    &reviewerID,
+		Project:       &projectID,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create review: %w", err)
+	}
+	return nil
 }
 
 func intPtr(i int) *int {

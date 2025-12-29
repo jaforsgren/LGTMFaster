@@ -2,7 +2,6 @@ package azuredevops
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -13,10 +12,6 @@ import (
 	"github.com/microsoft/azure-devops-go-api/azuredevops/v7/webapi"
 )
 
-var (
-	ErrAddCommentNotImplemented   = errors.New("AddComment not yet implemented for Azure DevOps")
-	ErrSubmitReviewNotImplemented = errors.New("SubmitReview not yet implemented for Azure DevOps")
-)
 
 type Provider struct {
 	client *Client
@@ -293,11 +288,50 @@ func (p *Provider) GetComments(ctx context.Context, identifier domain.PRIdentifi
 }
 
 func (p *Provider) AddComment(ctx context.Context, identifier domain.PRIdentifier, body string, filePath string, line int) error {
-	return ErrAddCommentNotImplemented
+	projectID, repoID, err := p.resolveProjectAndRepo(ctx, identifier.Repository)
+	if err != nil {
+		return err
+	}
+
+	return p.client.CreateCommentThread(ctx, projectID, repoID, identifier.Number, body, filePath, line)
 }
 
 func (p *Provider) SubmitReview(ctx context.Context, review domain.Review) error {
-	return ErrSubmitReviewNotImplemented
+	parts := strings.Split(review.PRIdentifier, "/")
+	if len(parts) != 3 {
+		return fmt.Errorf("invalid PR identifier format: %s", review.PRIdentifier)
+	}
+
+	repository := fmt.Sprintf("%s/%s", parts[0], parts[1])
+	prNumber := 0
+	fmt.Sscanf(parts[2], "%d", &prNumber)
+
+	projectID, repoID, err := p.resolveProjectAndRepo(ctx, repository)
+	if err != nil {
+		return err
+	}
+
+	for _, comment := range review.Comments {
+		if err := p.client.CreateCommentThread(ctx, projectID, repoID, prNumber, comment.Body, comment.FilePath, comment.Line); err != nil {
+			return err
+		}
+	}
+
+	if review.Action != domain.ReviewActionComment {
+		vote := convertReviewActionToVote(review.Action)
+		userID := p.client.username
+		if err := p.client.CreatePullRequestReview(ctx, projectID, repoID, prNumber, userID, vote); err != nil {
+			return err
+		}
+	}
+
+	if review.Body != "" && review.Action == domain.ReviewActionComment {
+		if err := p.client.CreateCommentThread(ctx, projectID, repoID, prNumber, review.Body, "", 0); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (p *Provider) ValidateCredentials(ctx context.Context) error {
@@ -495,4 +529,56 @@ func parseDiff(diffText string) *domain.Diff {
 	}
 
 	return &domain.Diff{Files: files}
+}
+
+func (p *Provider) resolveProjectAndRepo(ctx context.Context, repository string) (projectID, repoID string, err error) {
+	projectName, repoName, err := parseRepositoryIdentifier(repository)
+	if err != nil {
+		return "", "", err
+	}
+
+	projects, err := p.client.ListProjects(ctx)
+	if err != nil {
+		return "", "", err
+	}
+
+	for _, project := range *projects {
+		if getString(project.Name) == projectName {
+			projectID = getUUIDString(project.Id)
+			break
+		}
+	}
+
+	if projectID == "" {
+		return "", "", fmt.Errorf("project not found: %s", projectName)
+	}
+
+	repos, err := p.client.ListRepositories(ctx, projectID)
+	if err != nil {
+		return "", "", err
+	}
+
+	for _, repo := range *repos {
+		if getString(repo.Name) == repoName {
+			repoID = repo.Id.String()
+			break
+		}
+	}
+
+	if repoID == "" {
+		return "", "", fmt.Errorf("repository not found: %s", repoName)
+	}
+
+	return projectID, repoID, nil
+}
+
+func convertReviewActionToVote(action domain.ReviewAction) int {
+	switch action {
+	case domain.ReviewActionApprove:
+		return 10
+	case domain.ReviewActionRequestChanges:
+		return -10
+	default:
+		return 0
+	}
 }
