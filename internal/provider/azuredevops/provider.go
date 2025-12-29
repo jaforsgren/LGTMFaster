@@ -14,8 +14,6 @@ import (
 )
 
 var (
-	ErrDiffNotImplemented         = errors.New("GetDiff not yet implemented for Azure DevOps")
-	ErrCommentsNotImplemented     = errors.New("GetComments not yet implemented for Azure DevOps")
 	ErrAddCommentNotImplemented   = errors.New("AddComment not yet implemented for Azure DevOps")
 	ErrSubmitReviewNotImplemented = errors.New("SubmitReview not yet implemented for Azure DevOps")
 )
@@ -154,11 +152,144 @@ func (p *Provider) GetPullRequest(ctx context.Context, identifier domain.PRIdent
 }
 
 func (p *Provider) GetDiff(ctx context.Context, identifier domain.PRIdentifier) (*domain.Diff, error) {
-	return nil, ErrDiffNotImplemented
+	projectName, repoName, err := parseRepositoryIdentifier(identifier.Repository)
+	if err != nil {
+		return nil, err
+	}
+
+	projects, err := p.client.ListProjects(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	var projectID string
+	for _, project := range *projects {
+		if getString(project.Name) == projectName {
+			projectID = getUUIDString(project.Id)
+			break
+		}
+	}
+
+	if projectID == "" {
+		return nil, fmt.Errorf("project not found: %s", projectName)
+	}
+
+	repos, err := p.client.ListRepositories(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+
+	var repoID string
+	for _, repo := range *repos {
+		if getString(repo.Name) == repoName {
+			repoID = repo.Id.String()
+			break
+		}
+	}
+
+	if repoID == "" {
+		return nil, fmt.Errorf("repository not found: %s", repoName)
+	}
+
+	pr, err := p.client.GetPullRequest(ctx, projectID, repoID, identifier.Number)
+	if err != nil {
+		return nil, err
+	}
+
+	if pr.LastMergeSourceCommit == nil || pr.LastMergeTargetCommit == nil {
+		return &domain.Diff{Files: []domain.FileDiff{}}, nil
+	}
+
+	baseCommit := getString(pr.LastMergeTargetCommit.CommitId)
+	targetCommit := getString(pr.LastMergeSourceCommit.CommitId)
+
+	diffText, err := p.client.GetCommitDiffs(ctx, projectID, repoID, baseCommit, targetCommit)
+	if err != nil {
+		return nil, err
+	}
+
+	return parseDiff(diffText), nil
 }
 
 func (p *Provider) GetComments(ctx context.Context, identifier domain.PRIdentifier) ([]domain.Comment, error) {
-	return nil, ErrCommentsNotImplemented
+	projectName, repoName, err := parseRepositoryIdentifier(identifier.Repository)
+	if err != nil {
+		return nil, err
+	}
+
+	projects, err := p.client.ListProjects(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	var projectID string
+	for _, project := range *projects {
+		if getString(project.Name) == projectName {
+			projectID = getUUIDString(project.Id)
+			break
+		}
+	}
+
+	if projectID == "" {
+		return nil, fmt.Errorf("project not found: %s", projectName)
+	}
+
+	repos, err := p.client.ListRepositories(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+
+	var repoID string
+	for _, repo := range *repos {
+		if getString(repo.Name) == repoName {
+			repoID = repo.Id.String()
+			break
+		}
+	}
+
+	if repoID == "" {
+		return nil, fmt.Errorf("repository not found: %s", repoName)
+	}
+
+	threads, err := p.client.GetPullRequestThreads(ctx, projectID, repoID, identifier.Number)
+	if err != nil {
+		return nil, err
+	}
+
+	if threads == nil {
+		return []domain.Comment{}, nil
+	}
+
+	var comments []domain.Comment
+	for _, thread := range *threads {
+		if thread.Comments == nil {
+			continue
+		}
+
+		for _, comment := range *thread.Comments {
+			domainComment := domain.Comment{
+				ID:        fmt.Sprintf("%d", *comment.Id),
+				Body:      getString(comment.Content),
+				CreatedAt: comment.PublishedDate.Time,
+				UpdatedAt: comment.LastUpdatedDate.Time,
+			}
+
+			if comment.Author != nil {
+				domainComment.Author = convertIdentity(comment.Author)
+			}
+
+			if thread.ThreadContext != nil && thread.ThreadContext.FilePath != nil {
+				domainComment.FilePath = getString(thread.ThreadContext.FilePath)
+				if thread.ThreadContext.RightFileStart != nil && thread.ThreadContext.RightFileStart.Line != nil {
+					domainComment.Line = *thread.ThreadContext.RightFileStart.Line
+				}
+			}
+
+			comments = append(comments, domainComment)
+		}
+	}
+
+	return comments, nil
 }
 
 func (p *Provider) AddComment(ctx context.Context, identifier domain.PRIdentifier, body string, filePath string, line int) error {
@@ -290,4 +421,78 @@ func getUpdateTime(pr *git.GitPullRequest) time.Time {
 		return pr.CreationDate.Time
 	}
 	return time.Now()
+}
+
+func parseDiff(diffText string) *domain.Diff {
+	lines := strings.Split(diffText, "\n")
+	files := []domain.FileDiff{}
+	var currentFile *domain.FileDiff
+	var currentHunk *domain.DiffHunk
+	oldLine, newLine := 0, 0
+
+	for _, line := range lines {
+		if strings.HasPrefix(line, "diff --git") {
+			if currentFile != nil {
+				files = append(files, *currentFile)
+			}
+			currentFile = &domain.FileDiff{
+				Hunks: []domain.DiffHunk{},
+			}
+		} else if strings.HasPrefix(line, "---") {
+			if currentFile != nil {
+				path := strings.TrimPrefix(line, "--- ")
+				if path != "/dev/null" {
+					currentFile.OldPath = strings.TrimPrefix(path, "a/")
+				} else {
+					currentFile.IsNew = true
+				}
+			}
+		} else if strings.HasPrefix(line, "+++") {
+			if currentFile != nil {
+				path := strings.TrimPrefix(line, "+++ ")
+				if path != "/dev/null" {
+					currentFile.NewPath = strings.TrimPrefix(path, "b/")
+				} else {
+					currentFile.IsDeleted = true
+				}
+			}
+		} else if strings.HasPrefix(line, "@@") {
+			if currentFile != nil && currentHunk != nil {
+				currentFile.Hunks = append(currentFile.Hunks, *currentHunk)
+			}
+			currentHunk = &domain.DiffHunk{
+				Header: line,
+				Lines:  []domain.DiffLine{},
+			}
+			fmt.Sscanf(line, "@@ -%d", &oldLine)
+			fmt.Sscanf(line, "@@ -%*d,%*d +%d", &newLine)
+		} else if currentHunk != nil {
+			diffLine := domain.DiffLine{Content: line}
+			if strings.HasPrefix(line, "+") {
+				diffLine.Type = "add"
+				diffLine.NewLine = newLine
+				newLine++
+			} else if strings.HasPrefix(line, "-") {
+				diffLine.Type = "delete"
+				diffLine.OldLine = oldLine
+				oldLine++
+			} else {
+				diffLine.Type = "context"
+				diffLine.OldLine = oldLine
+				diffLine.NewLine = newLine
+				oldLine++
+				newLine++
+			}
+			currentHunk.Lines = append(currentHunk.Lines, diffLine)
+		}
+	}
+
+	if currentFile != nil && currentHunk != nil {
+		currentFile.Hunks = append(currentFile.Hunks, *currentHunk)
+	}
+	if currentFile != nil {
+		files = append(files, *currentFile)
+	}
+
+	return &domain.Diff{Files: files}
 }

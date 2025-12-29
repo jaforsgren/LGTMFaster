@@ -102,6 +102,90 @@ func (c *Client) GetPullRequest(ctx context.Context, projectID string, repoID st
 	return pr, nil
 }
 
+func (c *Client) GetPullRequestCommits(ctx context.Context, projectID string, repoID string, pullRequestID int) (*[]git.GitCommitRef, error) {
+	response, err := c.gitClient.GetPullRequestCommits(ctx, git.GetPullRequestCommitsArgs{
+		RepositoryId:  &repoID,
+		PullRequestId: &pullRequestID,
+		Project:       &projectID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get commits for PR %d: %w", pullRequestID, err)
+	}
+	if response == nil {
+		return &[]git.GitCommitRef{}, nil
+	}
+	return &response.Value, nil
+}
+
+func (c *Client) GetCommitDiffs(ctx context.Context, projectID string, repoID string, baseCommit string, targetCommit string) (string, error) {
+	baseVersion := git.GitBaseVersionDescriptor{
+		BaseVersion:     &baseCommit,
+		BaseVersionType: &git.GitVersionTypeValues.Commit,
+	}
+	targetVersion := git.GitTargetVersionDescriptor{
+		TargetVersion:     &targetCommit,
+		TargetVersionType: &git.GitVersionTypeValues.Commit,
+	}
+
+	diffs, err := c.gitClient.GetCommitDiffs(ctx, git.GetCommitDiffsArgs{
+		RepositoryId:            &repoID,
+		Project:                 &projectID,
+		BaseVersionDescriptor:   &baseVersion,
+		TargetVersionDescriptor: &targetVersion,
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to get commit diffs: %w", err)
+	}
+
+	if diffs == nil || diffs.Changes == nil {
+		return "", nil
+	}
+
+	diffText := ""
+	for _, change := range *diffs.Changes {
+		changeMap, ok := change.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		item, hasItem := changeMap["item"].(map[string]interface{})
+		if !hasItem {
+			continue
+		}
+
+		path, hasPath := item["path"].(string)
+		if !hasPath {
+			continue
+		}
+
+		diffText += fmt.Sprintf("diff --git a%s b%s\n", path, path)
+
+		if changeTypeStr, hasChangeType := changeMap["changeType"].(string); hasChangeType {
+			if changeTypeStr == "add" {
+				diffText += fmt.Sprintf("--- /dev/null\n+++ b%s\n", path)
+			} else if changeTypeStr == "delete" {
+				diffText += fmt.Sprintf("--- a%s\n+++ /dev/null\n", path)
+			} else {
+				diffText += fmt.Sprintf("--- a%s\n+++ b%s\n", path, path)
+			}
+		}
+	}
+
+	return diffText, nil
+}
+
+func (c *Client) GetPullRequestThreads(ctx context.Context, projectID string, repoID string, pullRequestID int) (*[]git.GitPullRequestCommentThread, error) {
+	threads, err := c.gitClient.GetThreads(ctx, git.GetThreadsArgs{
+		RepositoryId:  &repoID,
+		PullRequestId: &pullRequestID,
+		Project:       &projectID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get threads for PR %d: %w", pullRequestID, err)
+	}
+	return threads, nil
+}
+
 func intPtr(i int) *int {
 	return &i
 }
