@@ -38,6 +38,8 @@ go build -o lgtmfaster ./cmd/lgtmfaster
 6. Press `Enter` to save
 7. Select the PAT and press `Enter` to activate it
 
+**Note**: You can edit existing PATs by selecting them and pressing `e`
+
 ## Commands
 
 **Vim-style Commands** (press `:` to activate):
@@ -53,6 +55,7 @@ go build -o lgtmfaster ./cmd/lgtmfaster
 
 **PAT Management View**:
 - `a` - Add new PAT
+- `e` - Edit selected PAT
 - `d` - Delete selected PAT
 - `Enter` - Activate selected PAT
 

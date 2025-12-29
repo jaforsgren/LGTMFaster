@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/google/uuid"
 	"github.com/johanforsgren/lgtmfaster/internal/domain"
+	"github.com/johanforsgren/lgtmfaster/internal/provider/azuredevops"
 	"github.com/johanforsgren/lgtmfaster/internal/provider/github"
 	"github.com/johanforsgren/lgtmfaster/internal/ui/components"
 	"github.com/johanforsgren/lgtmfaster/internal/ui/views"
@@ -138,9 +139,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m.handleDeletePAT()
 			}
 
+		case "e":
+			if m.state == ViewPATs {
+				pat := m.patsView.GetSelectedPAT()
+				if pat != nil {
+					m.patsView.EnterEditMode(*pat)
+					return m, nil
+				}
+				m.statusBar.SetMessage("No PAT selected to edit", true)
+				return m, nil
+			}
+
 		case "esc":
-			if m.state == ViewPATs && m.patsView.Mode == views.PATModeAdd {
-				m.patsView.ExitAddMode()
+			if m.state == ViewPATs && (m.patsView.Mode == views.PATModeAdd || m.patsView.Mode == views.PATModeEdit) {
+				m.patsView.ExitEditMode()
 				return m, nil
 			}
 		}
@@ -151,7 +163,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			for _, pat := range msg.pats {
 				if pat.IsActive {
 					m.topBar.SetActivePAT(pat.Name, string(pat.Provider))
-					m.provider = m.createProvider(pat)
+					provider, err := m.createProvider(pat)
+					if err != nil {
+						m.statusBar.SetMessage(fmt.Sprintf("Failed to create provider: %v", err), true)
+					} else {
+						m.provider = provider
+					}
 					break
 				}
 			}
@@ -288,7 +305,7 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 
 func (m Model) handlePATEnter() (tea.Model, tea.Cmd) {
 	if m.patsView.Mode == views.PATModeAdd {
-		newPAT := m.patsView.GetNewPAT()
+		newPAT := m.patsView.GetPATData()
 		newPAT.ID = uuid.New().String()
 
 		if err := m.repository.SavePAT(newPAT); err != nil {
@@ -297,8 +314,23 @@ func (m Model) handlePATEnter() (tea.Model, tea.Cmd) {
 			}
 		}
 
-		m.patsView.ExitAddMode()
+		m.patsView.ExitEditMode()
 		m.statusBar.SetMessage("PAT added successfully", false)
+		return m, m.loadPATs()
+	}
+
+	if m.patsView.Mode == views.PATModeEdit {
+		updatedPAT := m.patsView.GetPATData()
+
+		if err := m.repository.SavePAT(updatedPAT); err != nil {
+			return m, func() tea.Msg {
+				return ErrorMsg{err: err}
+			}
+		}
+
+		m.patsView.ExitEditMode()
+		m.topBar.SetActivePAT(updatedPAT.Name, string(updatedPAT.Provider))
+		m.statusBar.SetMessage("PAT updated successfully", false)
 		return m, m.loadPATs()
 	}
 
@@ -309,7 +341,13 @@ func (m Model) handlePATEnter() (tea.Model, tea.Cmd) {
 				return ErrorMsg{err: err}
 			}
 		}
-		m.provider = m.createProvider(*pat)
+		provider, err := m.createProvider(*pat)
+		if err != nil {
+			return m, func() tea.Msg {
+				return ErrorMsg{err: err}
+			}
+		}
+		m.provider = provider
 		m.topBar.SetActivePAT(pat.Name, string(pat.Provider))
 		m.statusBar.SetMessage(fmt.Sprintf("Activated PAT: %s", pat.Name), false)
 		return m, m.loadPATs()
@@ -374,12 +412,18 @@ func (m Model) submitReview() tea.Cmd {
 	}
 }
 
-func (m Model) createProvider(pat domain.PAT) domain.Provider {
+func (m Model) createProvider(pat domain.PAT) (domain.Provider, error) {
 	switch pat.Provider {
 	case domain.ProviderGitHub:
-		return github.NewProvider(pat.Token, pat.Username)
+		return github.NewProvider(pat.Token, pat.Username), nil
+	case domain.ProviderAzureDevOps:
+		provider, err := azuredevops.NewProvider(pat.Token, pat.Organization, pat.Username)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create Azure DevOps provider: %w", err)
+		}
+		return provider, nil
 	default:
-		return nil
+		return nil, fmt.Errorf("unsupported provider type: %s", pat.Provider)
 	}
 }
 

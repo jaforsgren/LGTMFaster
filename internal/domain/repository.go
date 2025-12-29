@@ -1,12 +1,13 @@
 package domain
 
 type PAT struct {
-	ID       string
-	Name     string
-	Token    string
-	Provider ProviderType
-	Username string
-	IsActive bool
+	ID           string
+	Name         string
+	Token        string
+	Provider     ProviderType
+	Username     string
+	Organization string
+	IsActive     bool
 }
 
 type Repository interface {

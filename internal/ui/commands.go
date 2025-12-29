@@ -140,6 +140,13 @@ func (cr *CommandRegistry) registerKeyBindings() {
 			AvailableIn: []ViewState{ViewPATs},
 		},
 		{
+			Keys:        []string{"e"},
+			Description: "Edit PAT",
+			ShortHelp:   "e",
+			Handler:     handleEditKey,
+			AvailableIn: []ViewState{ViewPATs},
+		},
+		{
 			Keys:        []string{"r"},
 			Description: "Refresh",
 			ShortHelp:   "r",
@@ -370,8 +377,8 @@ func handleEnterKey(m Model) (Model, tea.Cmd) {
 }
 
 func handleBackKey(m Model) (Model, tea.Cmd) {
-	if m.patsView.Mode == views.PATModeAdd {
-		m.patsView.ExitAddMode()
+	if m.patsView.Mode == views.PATModeAdd || m.patsView.Mode == views.PATModeEdit {
+		m.patsView.ExitEditMode()
 		return m, nil
 	}
 	newModel, cmd := m.navigateBack()
@@ -407,6 +414,19 @@ func handleDownKey(m Model) (Model, tea.Cmd) {
 func handleAddKey(m Model) (Model, tea.Cmd) {
 	if m.state == ViewPATs {
 		m.patsView.EnterAddMode()
+		return m, nil
+	}
+	return m, nil
+}
+
+func handleEditKey(m Model) (Model, tea.Cmd) {
+	if m.state == ViewPATs {
+		pat := m.patsView.GetSelectedPAT()
+		if pat != nil {
+			m.patsView.EnterEditMode(*pat)
+			return m, nil
+		}
+		m.statusBar.SetMessage("No PAT selected to edit", true)
 		return m, nil
 	}
 	return m, nil

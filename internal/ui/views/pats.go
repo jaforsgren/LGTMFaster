@@ -30,18 +30,21 @@ type PATMode int
 const (
 	PATModeList PATMode = iota
 	PATModeAdd
+	PATModeEdit
 )
 
 type PATsViewModel struct {
-	list          list.Model
-	Mode          PATMode
-	nameInput     textinput.Model
-	tokenInput    textinput.Model
-	providerInput textinput.Model
-	usernameInput textinput.Model
-	inputFocus    int
-	width         int
-	height        int
+	list              list.Model
+	Mode              PATMode
+	nameInput         textinput.Model
+	tokenInput        textinput.Model
+	providerInput     textinput.Model
+	usernameInput     textinput.Model
+	organizationInput textinput.Model
+	inputFocus        int
+	width             int
+	height            int
+	editingPAT        *domain.PAT
 }
 
 func NewPATsView() *PATsViewModel {
@@ -68,14 +71,19 @@ func NewPATsView() *PATsViewModel {
 	usernameInput.Placeholder = "Username"
 	usernameInput.CharLimit = 50
 
+	organizationInput := textinput.New()
+	organizationInput.Placeholder = "Organization (for Azure DevOps)"
+	organizationInput.CharLimit = 100
+
 	return &PATsViewModel{
-		list:          l,
-		Mode:          PATModeList,
-		nameInput:     nameInput,
-		tokenInput:    tokenInput,
-		providerInput: providerInput,
-		usernameInput: usernameInput,
-		inputFocus:    0,
+		list:              l,
+		Mode:              PATModeList,
+		nameInput:         nameInput,
+		tokenInput:        tokenInput,
+		providerInput:     providerInput,
+		usernameInput:     usernameInput,
+		organizationInput: organizationInput,
+		inputFocus:        0,
 	}
 }
 
@@ -95,34 +103,50 @@ func (m *PATsViewModel) SetPATs(pats []domain.PAT) {
 
 func (m *PATsViewModel) EnterAddMode() {
 	m.Mode = PATModeAdd
+	m.editingPAT = nil
 	m.inputFocus = 0
 	m.nameInput.Focus()
 	m.nameInput.SetValue("")
 	m.tokenInput.SetValue("")
 	m.providerInput.SetValue("")
 	m.usernameInput.SetValue("")
+	m.organizationInput.SetValue("")
 }
 
-func (m *PATsViewModel) ExitAddMode() {
+func (m *PATsViewModel) EnterEditMode(pat domain.PAT) {
+	m.Mode = PATModeEdit
+	m.editingPAT = &pat
+	m.inputFocus = 0
+	m.nameInput.Focus()
+	m.nameInput.SetValue(pat.Name)
+	m.tokenInput.SetValue(pat.Token)
+	m.providerInput.SetValue(string(pat.Provider))
+	m.usernameInput.SetValue(pat.Username)
+	m.organizationInput.SetValue(pat.Organization)
+}
+
+func (m *PATsViewModel) ExitEditMode() {
 	m.Mode = PATModeList
+	m.editingPAT = nil
 	m.nameInput.Blur()
 	m.tokenInput.Blur()
 	m.providerInput.Blur()
 	m.usernameInput.Blur()
+	m.organizationInput.Blur()
 }
 
 func (m *PATsViewModel) Update(msg tea.Msg) tea.Cmd {
 	var cmd tea.Cmd
 
-	if m.Mode == PATModeAdd {
-		return m.updateAddMode(msg)
+	if m.Mode == PATModeAdd || m.Mode == PATModeEdit {
+		return m.updateFormMode(msg)
 	}
 
 	m.list, cmd = m.list.Update(msg)
 	return cmd
 }
 
-func (m *PATsViewModel) updateAddMode(msg tea.Msg) tea.Cmd {
+func (m *PATsViewModel) updateFormMode(msg tea.Msg) tea.Cmd {
 	var cmd tea.Cmd
 
 	switch msg := msg.(type) {
@@ -146,6 +170,8 @@ func (m *PATsViewModel) updateAddMode(msg tea.Msg) tea.Cmd {
 		m.providerInput, cmd = m.providerInput.Update(msg)
 	case 3:
 		m.usernameInput, cmd = m.usernameInput.Update(msg)
+	case 4:
+		m.organizationInput, cmd = m.organizationInput.Update(msg)
 	}
 
 	return cmd
@@ -153,13 +179,13 @@ func (m *PATsViewModel) updateAddMode(msg tea.Msg) tea.Cmd {
 
 func (m *PATsViewModel) nextInput() {
 	m.blurAll()
-	m.inputFocus = (m.inputFocus + 1) % 4
+	m.inputFocus = (m.inputFocus + 1) % 5
 	m.focusCurrent()
 }
 
 func (m *PATsViewModel) prevInput() {
 	m.blurAll()
-	m.inputFocus = (m.inputFocus - 1 + 4) % 4
+	m.inputFocus = (m.inputFocus - 1 + 5) % 5
 	m.focusCurrent()
 }
 
@@ -168,6 +194,7 @@ func (m *PATsViewModel) blurAll() {
 	m.tokenInput.Blur()
 	m.providerInput.Blur()
 	m.usernameInput.Blur()
+	m.organizationInput.Blur()
 }
 
 func (m *PATsViewModel) focusCurrent() {
@@ -180,16 +207,26 @@ func (m *PATsViewModel) focusCurrent() {
 		m.providerInput.Focus()
 	case 3:
 		m.usernameInput.Focus()
+	case 4:
+		m.organizationInput.Focus()
 	}
 }
 
-func (m *PATsViewModel) GetNewPAT() domain.PAT {
-	return domain.PAT{
-		Name:     m.nameInput.Value(),
-		Token:    m.tokenInput.Value(),
-		Provider: domain.ProviderType(m.providerInput.Value()),
-		Username: m.usernameInput.Value(),
+func (m *PATsViewModel) GetPATData() domain.PAT {
+	pat := domain.PAT{
+		Name:         m.nameInput.Value(),
+		Token:        m.tokenInput.Value(),
+		Provider:     domain.ProviderType(m.providerInput.Value()),
+		Username:     m.usernameInput.Value(),
+		Organization: m.organizationInput.Value(),
 	}
+
+	if m.Mode == PATModeEdit && m.editingPAT != nil {
+		pat.ID = m.editingPAT.ID
+		pat.IsActive = m.editingPAT.IsActive
+	}
+
+	return pat
 }
 
 func (m *PATsViewModel) GetSelectedPAT() *domain.PAT {
@@ -207,8 +244,8 @@ func (m *PATsViewModel) GetSelectedPAT() *domain.PAT {
 }
 
 func (m *PATsViewModel) View() string {
-	if m.Mode == PATModeAdd {
-		return m.viewAddMode()
+	if m.Mode == PATModeAdd || m.Mode == PATModeEdit {
+		return m.viewFormMode()
 	}
 	return m.viewListMode()
 }
@@ -217,18 +254,23 @@ func (m *PATsViewModel) viewListMode() string {
 	help := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#6B7280")).
 		Italic(true).
-		Render("\nEnter: Select | a: Add | d: Delete | q: Back")
+		Render("\nEnter: Select | a: Add | e: Edit | d: Delete | q: Back")
 
 	return m.list.View() + help
 }
 
-func (m *PATsViewModel) viewAddMode() string {
+func (m *PATsViewModel) viewFormMode() string {
 	var b strings.Builder
+
+	titleText := "Add New PAT\n\n"
+	if m.Mode == PATModeEdit {
+		titleText = "Edit PAT\n\n"
+	}
 
 	title := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#7C3AED")).
 		Bold(true).
-		Render("Add New PAT\n\n")
+		Render(titleText)
 
 	b.WriteString(title)
 	b.WriteString("Name:\n")
@@ -239,6 +281,8 @@ func (m *PATsViewModel) viewAddMode() string {
 	b.WriteString(m.providerInput.View() + "\n\n")
 	b.WriteString("Username:\n")
 	b.WriteString(m.usernameInput.View() + "\n\n")
+	b.WriteString("Organization:\n")
+	b.WriteString(m.organizationInput.View() + "\n\n")
 
 	help := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#6B7280")).
