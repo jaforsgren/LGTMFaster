@@ -155,6 +155,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.patsView.ExitEditMode()
 				return m, nil
 			}
+			if m.state == ViewPRInspect && m.reviewView.IsActive() {
+				m.reviewView.Deactivate()
+				return m, nil
+			}
+			return m.navigateBack()
 		}
 
 	case PATsLoadedMsg:

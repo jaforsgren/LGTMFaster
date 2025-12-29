@@ -123,55 +123,84 @@ func (c *Client) GetPullRequestCommits(ctx context.Context, projectID string, re
 }
 
 func (c *Client) GetCommitDiffs(ctx context.Context, projectID string, repoID string, baseCommit string, targetCommit string) (string, error) {
-	baseVersion := git.GitBaseVersionDescriptor{
-		BaseVersion:     &baseCommit,
-		BaseVersionType: &git.GitVersionTypeValues.Commit,
-	}
-	targetVersion := git.GitTargetVersionDescriptor{
-		TargetVersion:     &targetCommit,
-		TargetVersionType: &git.GitVersionTypeValues.Commit,
-	}
-
-	diffs, err := c.gitClient.GetCommitDiffs(ctx, git.GetCommitDiffsArgs{
-		RepositoryId:            &repoID,
-		Project:                 &projectID,
-		BaseVersionDescriptor:   &baseVersion,
-		TargetVersionDescriptor: &targetVersion,
+	commits, err := c.gitClient.GetCommits(ctx, git.GetCommitsArgs{
+		RepositoryId: &repoID,
+		Project:      &projectID,
+		SearchCriteria: &git.GitQueryCommitsCriteria{
+			ItemVersion: &git.GitVersionDescriptor{
+				Version:     &targetCommit,
+				VersionType: &git.GitVersionTypeValues.Commit,
+			},
+			CompareVersion: &git.GitVersionDescriptor{
+				Version:     &baseCommit,
+				VersionType: &git.GitVersionTypeValues.Commit,
+			},
+		},
 	})
 	if err != nil {
-		return "", fmt.Errorf("failed to get commit diffs: %w", err)
+		return "", fmt.Errorf("failed to get commits: %w", err)
 	}
 
-	if diffs == nil || diffs.Changes == nil {
+	if commits == nil || len(*commits) == 0 {
 		return "", nil
 	}
 
 	diffText := ""
-	for _, change := range *diffs.Changes {
-		changeMap, ok := change.(map[string]interface{})
-		if !ok {
+	for _, commit := range *commits {
+		if commit.CommitId == nil {
 			continue
 		}
 
-		item, hasItem := changeMap["item"].(map[string]interface{})
-		if !hasItem {
+		changes, err := c.gitClient.GetChanges(ctx, git.GetChangesArgs{
+			CommitId:     commit.CommitId,
+			RepositoryId: &repoID,
+			Project:      &projectID,
+		})
+		if err != nil {
 			continue
 		}
 
-		path, hasPath := item["path"].(string)
-		if !hasPath {
+		if changes == nil || changes.Changes == nil {
 			continue
 		}
 
-		diffText += fmt.Sprintf("diff --git a%s b%s\n", path, path)
+		for _, change := range *changes.Changes {
+			changeMap, ok := change.(map[string]interface{})
+			if !ok {
+				continue
+			}
 
-		if changeTypeStr, hasChangeType := changeMap["changeType"].(string); hasChangeType {
-			if changeTypeStr == "add" {
-				diffText += fmt.Sprintf("--- /dev/null\n+++ b%s\n", path)
-			} else if changeTypeStr == "delete" {
-				diffText += fmt.Sprintf("--- a%s\n+++ /dev/null\n", path)
-			} else {
-				diffText += fmt.Sprintf("--- a%s\n+++ b%s\n", path, path)
+			item, hasItem := changeMap["item"].(map[string]interface{})
+			if !hasItem {
+				continue
+			}
+
+			path, hasPath := item["path"].(string)
+			if !hasPath {
+				continue
+			}
+
+			diffText += fmt.Sprintf("diff --git a%s b%s\n", path, path)
+
+			if changeTypeStr, hasChangeType := changeMap["changeType"].(string); hasChangeType {
+				switch changeTypeStr {
+				case "add":
+					diffText += fmt.Sprintf("--- /dev/null\n+++ b%s\n", path)
+					diffText += "@@ -0,0 +1,1 @@\n"
+					diffText += "+ (file added)\n"
+				case "delete":
+					diffText += fmt.Sprintf("--- a%s\n+++ /dev/null\n", path)
+					diffText += "@@ -1,1 +0,0 @@\n"
+					diffText += "- (file deleted)\n"
+				case "edit":
+					diffText += fmt.Sprintf("--- a%s\n+++ b%s\n", path, path)
+					diffText += "@@ -1,1 +1,1 @@\n"
+					diffText += "  (file modified)\n"
+				default:
+					diffText += fmt.Sprintf("--- a%s\n+++ b%s\n", path, path)
+					diffText += "@@ -1,1 +1,1 @@\n"
+					diffText += "  (file changed)\n"
+				}
 			}
 		}
 	}
