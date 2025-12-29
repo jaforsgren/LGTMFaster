@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/google/uuid"
@@ -21,33 +22,35 @@ const (
 )
 
 type Model struct {
-	state      ViewState
-	width      int
-	height     int
-	topBar     *components.TopBarModel
-	statusBar  *components.StatusBarModel
-	commandBar *components.CommandBarModel
-	patsView   *views.PATsViewModel
-	prListView *views.PRListViewModel
-	prInspect  *views.PRInspectViewModel
-	reviewView *views.ReviewViewModel
-	repository domain.Repository
-	provider   domain.Provider
-	ctx        context.Context
+	state           ViewState
+	width           int
+	height          int
+	topBar          *components.TopBarModel
+	statusBar       *components.StatusBarModel
+	commandBar      *components.CommandBarModel
+	patsView        *views.PATsViewModel
+	prListView      *views.PRListViewModel
+	prInspect       *views.PRInspectViewModel
+	reviewView      *views.ReviewViewModel
+	repository      domain.Repository
+	provider        domain.Provider
+	ctx             context.Context
+	commandRegistry *CommandRegistry
 }
 
 func NewModel(repository domain.Repository) Model {
 	return Model{
-		state:      ViewPATs,
-		topBar:     components.NewTopBar(),
-		statusBar:  components.NewStatusBar(),
-		commandBar: components.NewCommandBar(),
-		patsView:   views.NewPATsView(),
-		prListView: views.NewPRListView(),
-		prInspect:  views.NewPRInspectView(),
-		reviewView: views.NewReviewView(),
-		repository: repository,
-		ctx:        context.Background(),
+		state:           ViewPATs,
+		topBar:          components.NewTopBar(),
+		statusBar:       components.NewStatusBar(),
+		commandBar:      components.NewCommandBar(),
+		patsView:        views.NewPATsView(),
+		prListView:      views.NewPRListView(),
+		prInspect:       views.NewPRInspectView(),
+		reviewView:      views.NewReviewView(),
+		repository:      repository,
+		ctx:             context.Background(),
+		commandRegistry: NewCommandRegistry(),
 	}
 }
 
@@ -247,25 +250,19 @@ func (m Model) View() string {
 }
 
 func (m Model) handleCommand() (tea.Model, tea.Cmd) {
-	command := ParseCommand(m.commandBar.Value())
+	input := m.commandBar.Value()
 	m.commandBar.Deactivate()
 
-	switch command.Type {
-	case CommandQuit:
-		return m, tea.Quit
-	case CommandPATs:
-		m.state = ViewPATs
-		return m, m.loadPATs()
-	case CommandPR:
-		if m.provider == nil {
-			m.statusBar.SetMessage("No active PAT. Please select a PAT first.", true)
-			return m, nil
-		}
-		return m, m.loadPRs()
-	default:
-		m.statusBar.SetMessage("Unknown command", true)
+	input = strings.TrimPrefix(input, ":")
+	parts := strings.Fields(input)
+	if len(parts) == 0 {
 		return m, nil
 	}
+
+	cmdName := parts[0]
+	args := parts[1:]
+
+	return m.commandRegistry.ExecuteCommand(m, cmdName, args)
 }
 
 func (m Model) handleEnter() (tea.Model, tea.Cmd) {
@@ -466,38 +463,7 @@ func (m Model) loadComments(pr domain.PullRequest) tea.Cmd {
 }
 
 func (m Model) updateShortcuts() {
-	var shortcuts []string
-
-	switch m.state {
-	case ViewPATs:
-		shortcuts = []string{
-			"<enter> Select PAT",
-			"<a> Add PAT",
-			"<d> Delete PAT",
-			"<:> Command",
-			"<q> Quit",
-		}
-	case ViewPRList:
-		shortcuts = []string{
-			"<enter> Inspect PR",
-			"<r> Refresh",
-			"</> Filter",
-			"<j/k> Navigate",
-			"<q> Back",
-			"<:> Command",
-		}
-	case ViewPRInspect:
-		shortcuts = []string{
-			"<n/p> Next/Prev File",
-			"<c> Toggle Comments",
-			"<a> Approve",
-			"<r> Request Changes",
-			"<enter> Add Comment",
-			"<j/k> Scroll",
-			"<q> Back",
-		}
-	}
-
+	shortcuts := m.commandRegistry.GetContextualShortcuts(m.state)
 	m.topBar.SetShortcuts(shortcuts)
 }
 
