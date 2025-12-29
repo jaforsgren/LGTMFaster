@@ -105,9 +105,9 @@ func (cr *CommandRegistry) registerKeyBindings() {
 			AvailableIn: []ViewState{ViewPATs, ViewPRList, ViewPRInspect},
 		},
 		{
-			Keys:        []string{"esc", "backspace", "h"},
+			Keys:        []string{"backspace", "h"},
 			Description: "Back",
-			ShortHelp:   "esc",
+			ShortHelp:   "h",
 			Handler:     handleBackKey,
 			AvailableIn: []ViewState{ViewPRList, ViewPRInspect},
 		},
@@ -194,6 +194,27 @@ func (cr *CommandRegistry) registerKeyBindings() {
 			ShortHelp:   "r",
 			Handler:     handleRequestChangesKey,
 			AvailableIn: []ViewState{ViewPRInspect},
+		},
+		{
+			Keys:        []string{":"},
+			Description: "Command mode",
+			ShortHelp:   ":",
+			Handler:     handleColonKey,
+			AvailableIn: []ViewState{ViewPATs, ViewPRList, ViewPRInspect},
+		},
+		{
+			Keys:        []string{"ctrl+s"},
+			Description: "Submit review",
+			ShortHelp:   "ctrl+s",
+			Handler:     handleReviewSubmitKey,
+			AvailableIn: []ViewState{ViewPRInspect},
+		},
+		{
+			Keys:        []string{"esc"},
+			Description: "Cancel/Back",
+			ShortHelp:   "esc",
+			Handler:     handleEscKey,
+			AvailableIn: []ViewState{ViewPATs, ViewPRList, ViewPRInspect},
 		},
 	}
 }
@@ -348,10 +369,6 @@ func handleQuitKey(m Model) (Model, tea.Cmd) {
 }
 
 func handleEnterKey(m Model) (Model, tea.Cmd) {
-	if m.reviewView.IsActive() {
-		return m, m.submitReview()
-	}
-
 	switch m.state {
 	case ViewPATs:
 		newModel, cmd := m.handlePATEnter()
@@ -493,4 +510,30 @@ func handleRequestChangesKey(m Model) (Model, tea.Cmd) {
 		return m, nil
 	}
 	return m, nil
+}
+
+func handleColonKey(m Model) (Model, tea.Cmd) {
+	m.commandBar.Activate()
+	cmd := m.commandBar.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{':'}})
+	return m, cmd
+}
+
+func handleReviewSubmitKey(m Model) (Model, tea.Cmd) {
+	if m.reviewView.IsActive() {
+		return m, m.submitReview()
+	}
+	return m, nil
+}
+
+func handleEscKey(m Model) (Model, tea.Cmd) {
+	if m.state == ViewPATs && (m.patsView.Mode == views.PATModeAdd || m.patsView.Mode == views.PATModeEdit) {
+		m.patsView.ExitEditMode()
+		return m, nil
+	}
+	if m.reviewView.IsActive() {
+		m.reviewView.Deactivate()
+		return m, nil
+	}
+	newModel, cmd := m.navigateBack()
+	return newModel.(Model), cmd
 }

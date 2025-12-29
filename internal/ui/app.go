@@ -76,21 +76,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.reviewView.SetSize(msg.Width, msg.Height)
 
 	case tea.KeyMsg:
-		if m.reviewView.IsActive() {
-			switch msg.String() {
-			case "esc":
-				m.reviewView.Deactivate()
-				return m, nil
-			case "ctrl+enter":
-				return m, m.submitReview()
-			default:
-				cmd = m.reviewView.Update(msg)
-				return m, cmd
-			}
-		}
+		key := msg.String()
 
 		if m.commandBar.IsActive() {
-			switch msg.String() {
+			switch key {
 			case "enter":
 				return m.handleCommand()
 			case "esc":
@@ -102,64 +91,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		switch msg.String() {
-		case "ctrl+c", "q":
-			if m.state == ViewPATs {
-				return m, tea.Quit
-			}
-			return m.navigateBack()
+		newModel, cmd, handled := m.commandRegistry.HandleKey(m, key)
+		if handled {
+			return newModel, cmd
+		}
 
-		case ":":
-			m.commandBar.Activate()
-			cmd = m.commandBar.Update(msg)
+		if m.reviewView.IsActive() {
+			cmd = m.reviewView.Update(msg)
 			return m, cmd
-
-		case "enter":
-			return m.handleEnter()
-
-		case "a":
-			if m.state == ViewPRInspect {
-				m.reviewView.Activate(views.ReviewModeApprove)
-				return m, nil
-			} else if m.state == ViewPATs {
-				m.patsView.EnterAddMode()
-				return m, nil
-			}
-
-		case "r":
-			if m.state == ViewPRInspect {
-				m.reviewView.Activate(views.ReviewModeRequestChanges)
-				return m, nil
-			} else if m.state == ViewPRList {
-				return m, m.loadPRs()
-			}
-
-		case "d":
-			if m.state == ViewPATs {
-				return m.handleDeletePAT()
-			}
-
-		case "e":
-			if m.state == ViewPATs {
-				pat := m.patsView.GetSelectedPAT()
-				if pat != nil {
-					m.patsView.EnterEditMode(*pat)
-					return m, nil
-				}
-				m.statusBar.SetMessage("No PAT selected to edit", true)
-				return m, nil
-			}
-
-		case "esc":
-			if m.state == ViewPATs && (m.patsView.Mode == views.PATModeAdd || m.patsView.Mode == views.PATModeEdit) {
-				m.patsView.ExitEditMode()
-				return m, nil
-			}
-			if m.state == ViewPRInspect && m.reviewView.IsActive() {
-				m.reviewView.Deactivate()
-				return m, nil
-			}
-			return m.navigateBack()
 		}
 
 	case PATsLoadedMsg:
