@@ -181,6 +181,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		m.state = ViewPRList
 		m.updateShortcuts()
+		m.statusBar.SetMessage(fmt.Sprintf("Loaded %d pull requests", len(msg.prs)), false)
 		return m, nil
 
 	case PRDetailLoadedMsg:
