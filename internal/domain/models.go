@@ -117,3 +117,12 @@ type PRIdentifier struct {
 	Repository string
 	Number     int
 }
+
+type PRGroup struct {
+	PATName   string
+	PATID     string
+	Provider  ProviderType
+	Username  string
+	IsPrimary bool
+	PRs       []PullRequest
+}

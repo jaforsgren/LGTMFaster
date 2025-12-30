@@ -8,6 +8,8 @@ type PAT struct {
 	Username     string
 	Organization string
 	IsActive     bool
+	IsSelected   bool
+	IsPrimary    bool
 }
 
 type Repository interface {
@@ -22,4 +24,14 @@ type Repository interface {
 	SetActivePAT(id string) error
 
 	GetActivePAT() (*PAT, error)
+
+	GetSelectedPATs() ([]PAT, error)
+
+	SetSelectedPATs(ids []string, primaryID string) error
+
+	GetPrimaryPAT() (*PAT, error)
+
+	TogglePATSelection(id string) error
+
+	SetPrimaryPAT(id string) error
 }
