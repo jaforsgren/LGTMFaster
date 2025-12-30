@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/google/uuid"
@@ -182,7 +183,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.state = ViewPRList
 		m.updateShortcuts()
 		m.statusBar.SetMessage(fmt.Sprintf("Loaded %d pull requests", len(msg.prs)), false)
-		return m, nil
+		return m, clearStatusAfterDelay(4 * time.Second)
 
 	case PRDetailLoadedMsg:
 		m.prInspect.SetPR(msg.pr)
@@ -202,6 +203,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case SuccessMsg:
 		m.statusBar.SetMessage(msg.message, false)
+		return m, nil
+
+	case ClearStatusMsg:
+		m.statusBar.ClearMessage()
 		return m, nil
 	}
 
@@ -501,6 +506,12 @@ func (m Model) updateShortcuts() {
 	m.topBar.SetShortcuts(shortcuts)
 }
 
+func clearStatusAfterDelay(delay time.Duration) tea.Cmd {
+	return tea.Tick(delay, func(time.Time) tea.Msg {
+		return ClearStatusMsg{}
+	})
+}
+
 type PATsLoadedMsg struct {
 	pats []domain.PAT
 }
@@ -528,3 +539,5 @@ type ErrorMsg struct {
 type SuccessMsg struct {
 	message string
 }
+
+type ClearStatusMsg struct{}
