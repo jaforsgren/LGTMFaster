@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/google/uuid"
 	"github.com/johanforsgren/lgtmfaster/internal/domain"
+	"github.com/johanforsgren/lgtmfaster/internal/logger"
 	"github.com/johanforsgren/lgtmfaster/internal/provider/azuredevops"
 	"github.com/johanforsgren/lgtmfaster/internal/provider/github"
 	"github.com/johanforsgren/lgtmfaster/internal/ui/components"
@@ -243,6 +244,7 @@ func (m Model) handleCommand() (tea.Model, tea.Cmd) {
 	cmdName := parts[0]
 	args := parts[1:]
 
+	logger.Log("UI: Executing command: %s %v", cmdName, args)
 	return m.commandRegistry.ExecuteCommand(m, cmdName, args)
 }
 
@@ -338,6 +340,7 @@ func (m Model) handleDeletePAT() (tea.Model, tea.Cmd) {
 func (m Model) navigateBack() (tea.Model, tea.Cmd) {
 	switch m.state {
 	case ViewPRList:
+		logger.Log("UI: Navigating back from PR List to PATs")
 		m.state = ViewPATs
 		m.topBar.SetContext("", "")
 		m.topBar.SetStats(0, 0)
@@ -346,6 +349,7 @@ func (m Model) navigateBack() (tea.Model, tea.Cmd) {
 		m.updateShortcuts()
 		return m, nil
 	case ViewPRInspect:
+		logger.Log("UI: Navigating back from PR Inspect to PR List")
 		m.state = ViewPRList
 		m.topBar.SetContext("", "")
 		m.topBar.SetView("PR List")
@@ -361,6 +365,7 @@ func (m Model) submitReview() tea.Cmd {
 
 	pr := m.prInspect.GetPR()
 	if pr == nil {
+		logger.LogError("SUBMIT_REVIEW", "UI", fmt.Errorf("no PR selected"))
 		return func() tea.Msg {
 			return ErrorMsg{err: fmt.Errorf("no PR selected")}
 		}
@@ -368,6 +373,7 @@ func (m Model) submitReview() tea.Cmd {
 
 	review.PRIdentifier = fmt.Sprintf("%s/%d", pr.Repository.FullName, pr.Number)
 
+	logger.Log("UI: Submitting review for %s (Action: %s)", review.PRIdentifier, review.Action)
 	return func() tea.Msg {
 		if err := m.provider.SubmitReview(m.ctx, review); err != nil {
 			return ErrorMsg{err: err}

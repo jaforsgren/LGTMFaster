@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/johanforsgren/lgtmfaster/internal/domain"
+	"github.com/johanforsgren/lgtmfaster/internal/logger"
 	"github.com/johanforsgren/lgtmfaster/internal/provider/common"
 	"github.com/microsoft/azure-devops-go-api/azuredevops/v7/git"
 	"github.com/microsoft/azure-devops-go-api/azuredevops/v7/webapi"
@@ -309,8 +310,10 @@ func (p *Provider) AddComment(ctx context.Context, identifier domain.PRIdentifie
 }
 
 func (p *Provider) SubmitReview(ctx context.Context, review domain.Review) error {
+	logger.Log("AzureDevOps: Submitting review for %s (Action: %s)", review.PRIdentifier, review.Action)
 	project, repo, prNumber, err := common.ParseAzureDevOpsIdentifier(review.PRIdentifier)
 	if err != nil {
+		logger.LogError("AZDO_SUBMIT_REVIEW", review.PRIdentifier, err)
 		return fmt.Errorf("failed to parse PR identifier: %w", err)
 	}
 
@@ -323,8 +326,13 @@ func (p *Provider) SubmitReview(ctx context.Context, review domain.Review) error
 
 	var createdComments int
 
+	if len(review.Comments) > 0 {
+		logger.Log("AzureDevOps: Creating %d inline comment threads", len(review.Comments))
+	}
 	for i, comment := range review.Comments {
+		logger.Log("AzureDevOps: Creating comment %d/%d on %s:%d", i+1, len(review.Comments), comment.FilePath, comment.Line)
 		if err := p.client.CreateCommentThread(ctx, projectID, repoID, prNumber, comment.Body, comment.FilePath, comment.Line); err != nil {
+			logger.LogError("AZDO_CREATE_COMMENT", fmt.Sprintf("%s#%d", repository, prNumber), err)
 			if createdComments > 0 {
 				return fmt.Errorf("%w: failed to create comment %d/%d (created %d comments before failure): %v",
 					common.ErrPartialReviewSubmission, i+1, len(review.Comments), createdComments, err)
@@ -336,8 +344,10 @@ func (p *Provider) SubmitReview(ctx context.Context, review domain.Review) error
 
 	if review.Action != domain.ReviewActionComment {
 		vote := convertReviewActionToVote(review.Action)
+		logger.Log("AzureDevOps: Submitting vote %d for PR #%d", vote, prNumber)
 		userID := p.client.username
 		if err := p.client.CreatePullRequestReview(ctx, projectID, repoID, prNumber, userID, vote); err != nil {
+			logger.LogError("AZDO_SUBMIT_VOTE", fmt.Sprintf("%s#%d", repository, prNumber), err)
 			if createdComments > 0 {
 				return fmt.Errorf("%w: failed to submit vote (created %d comments): %v",
 					common.ErrPartialReviewSubmission, createdComments, err)
@@ -347,7 +357,9 @@ func (p *Provider) SubmitReview(ctx context.Context, review domain.Review) error
 	}
 
 	if review.Body != "" && review.Action == domain.ReviewActionComment {
+		logger.Log("AzureDevOps: Creating review body comment")
 		if err := p.client.CreateCommentThread(ctx, projectID, repoID, prNumber, review.Body, "", 0); err != nil {
+			logger.LogError("AZDO_CREATE_REVIEW_BODY", fmt.Sprintf("%s#%d", repository, prNumber), err)
 			if createdComments > 0 || review.Action != domain.ReviewActionComment {
 				return fmt.Errorf("%w: failed to create review body comment (created %d inline comments): %v",
 					common.ErrPartialReviewSubmission, createdComments, err)
@@ -356,6 +368,7 @@ func (p *Provider) SubmitReview(ctx context.Context, review domain.Review) error
 		}
 	}
 
+	logger.Log("AzureDevOps: Review submitted successfully for %s#%d", repository, prNumber)
 	return nil
 }
 
@@ -487,13 +500,17 @@ func (p *Provider) resolveProjectAndRepoWithCache(ctx context.Context, repositor
 	if cached, ok := p.repoCache[repository]; ok {
 		if time.Since(cached.CachedAt) < p.cacheTTL {
 			p.cacheMutex.RUnlock()
+			logger.Log("AzureDevOps: Cache HIT for repository %s", repository)
 			return cached.ProjectID, cached.RepoID, nil
 		}
+		logger.Log("AzureDevOps: Cache EXPIRED for repository %s", repository)
 	}
 	p.cacheMutex.RUnlock()
 
+	logger.Log("AzureDevOps: Cache MISS for repository %s - resolving", repository)
 	projectID, repoID, err = p.resolveProjectAndRepo(ctx, repository)
 	if err != nil {
+		logger.LogError("AZDO_RESOLVE_REPO", repository, err)
 		p.cacheMutex.Lock()
 		delete(p.repoCache, repository)
 		p.cacheMutex.Unlock()
@@ -508,6 +525,7 @@ func (p *Provider) resolveProjectAndRepoWithCache(ctx context.Context, repositor
 	}
 	p.cacheMutex.Unlock()
 
+	logger.Log("AzureDevOps: Cached repository %s (Project: %s, Repo: %s)", repository, projectID, repoID)
 	return projectID, repoID, nil
 }
 
