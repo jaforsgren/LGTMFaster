@@ -514,8 +514,7 @@ func handleRequestChangesKey(m Model) (Model, tea.Cmd) {
 
 func handleColonKey(m Model) (Model, tea.Cmd) {
 	m.commandBar.Activate()
-	cmd := m.commandBar.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{':'}})
-	return m, cmd
+	return m, nil
 }
 
 func handleReviewSubmitKey(m Model) (Model, tea.Cmd) {
