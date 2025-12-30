@@ -11,6 +11,20 @@ import (
 	"github.com/johanforsgren/lgtmfaster/internal/domain"
 )
 
+type SectionHeaderItem struct {
+	text string
+}
+
+func (i SectionHeaderItem) FilterValue() string { return "" }
+func (i SectionHeaderItem) Title() string {
+	style := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#7C3AED")).
+		Bold(true).
+		Padding(0, 1)
+	return style.Render("── " + i.text + " ──")
+}
+func (i SectionHeaderItem) Description() string { return "" }
+
 type PRItem struct {
 	pr domain.PullRequest
 }
@@ -114,9 +128,73 @@ func (m *PRListViewModel) SetPRs(prs []domain.PullRequest) {
 	m.list.Title = fmt.Sprintf("Pull Requests (✎ %d | → %d | ○ %d)", authored, assigned, other)
 }
 
+func (m *PRListViewModel) SetPRGroups(groups []domain.PRGroup) {
+	var items []list.Item
+
+	sort.SliceStable(groups, func(i, j int) bool {
+		if groups[i].IsPrimary != groups[j].IsPrimary {
+			return groups[i].IsPrimary
+		}
+		if groups[i].Provider != groups[j].Provider {
+			return groups[i].Provider < groups[j].Provider
+		}
+		return groups[i].Username < groups[j].Username
+	})
+
+	var allPRs []domain.PullRequest
+	for _, group := range groups {
+		headerText := fmt.Sprintf("%s: %s", group.Provider, group.Username)
+		if group.IsPrimary {
+			headerText += " ●"
+		}
+		items = append(items, SectionHeaderItem{text: headerText})
+
+		prs := group.PRs
+		sort.SliceStable(prs, func(i, j int) bool {
+			if prs[i].Category != prs[j].Category {
+				categoryOrder := map[domain.PRCategory]int{
+					domain.PRCategoryAuthored: 0,
+					domain.PRCategoryAssigned: 1,
+					domain.PRCategoryOther:    2,
+				}
+				return categoryOrder[prs[i].Category] < categoryOrder[prs[j].Category]
+			}
+			return prs[i].UpdatedAt.After(prs[j].UpdatedAt)
+		})
+
+		for _, pr := range prs {
+			items = append(items, PRItem{pr: pr})
+			allPRs = append(allPRs, pr)
+		}
+	}
+
+	m.list.SetItems(items)
+	m.prs = allPRs
+
+	authored := 0
+	assigned := 0
+	other := 0
+	for _, pr := range allPRs {
+		switch pr.Category {
+		case domain.PRCategoryAuthored:
+			authored++
+		case domain.PRCategoryAssigned:
+			assigned++
+		default:
+			other++
+		}
+	}
+
+	m.list.Title = fmt.Sprintf("Pull Requests (✎ %d | → %d | ○ %d)", authored, assigned, other)
+}
+
 func (m *PRListViewModel) GetSelectedPR() *domain.PullRequest {
 	item := m.list.SelectedItem()
 	if item == nil {
+		return nil
+	}
+
+	if _, ok := item.(SectionHeaderItem); ok {
 		return nil
 	}
 

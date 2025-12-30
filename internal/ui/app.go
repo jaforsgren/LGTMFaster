@@ -189,7 +189,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case PRsLoadedMsg:
-		m.prListView.SetPRs(msg.prs)
+		if msg.groups != nil && len(msg.groups) > 0 {
+			m.prListView.SetPRGroups(msg.groups)
+		} else {
+			m.prListView.SetPRs(msg.prs)
+		}
 
 		repoMap := make(map[string]bool)
 		authored, assigned, other := 0, 0, 0
