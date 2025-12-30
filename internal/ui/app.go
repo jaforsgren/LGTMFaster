@@ -37,6 +37,9 @@ type Model struct {
 	logsView        *views.LogsViewModel
 	repository      domain.Repository
 	provider        domain.Provider
+	providers       map[string]domain.Provider
+	primaryProvider domain.Provider
+	primaryPATID    string
 	ctx             context.Context
 	commandRegistry *CommandRegistry
 }
@@ -53,6 +56,7 @@ func NewModel(repository domain.Repository) Model {
 		reviewView:      views.NewReviewView(),
 		logsView:        views.NewLogsView(),
 		repository:      repository,
+		providers:       make(map[string]domain.Provider),
 		ctx:             context.Background(),
 		commandRegistry: NewCommandRegistry(),
 	}
@@ -141,20 +145,45 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case PATsLoadedMsg:
 		m.patsView.SetPATs(msg.pats)
+		m.providers = make(map[string]domain.Provider)
+		m.primaryProvider = nil
+		m.primaryPATID = ""
+		m.provider = nil
+
+		selectedCount := 0
 		if len(msg.pats) > 0 {
 			for _, pat := range msg.pats {
-				if pat.IsActive {
-					m.topBar.SetActivePAT(pat.Name, string(pat.Provider))
+				if pat.IsActive && m.provider == nil {
 					provider, err := m.createProvider(pat)
 					if err != nil {
 						m.statusBar.SetMessage(fmt.Sprintf("Failed to create provider: %v", err), true)
 					} else {
 						m.provider = provider
 					}
-					break
+				}
+
+				if pat.IsSelected {
+					selectedCount++
+					provider, err := m.createProvider(pat)
+					if err != nil {
+						logger.LogError("CREATE_PROVIDER", pat.Name, err)
+						continue
+					}
+					m.providers[pat.ID] = provider
+
+					if pat.IsPrimary {
+						m.primaryProvider = provider
+						m.primaryPATID = pat.ID
+						m.topBar.SetActivePAT(pat.Name, string(pat.Provider))
+					}
 				}
 			}
 		}
+
+		if selectedCount > 1 {
+			m.topBar.SetSelectedPATCount(selectedCount)
+		}
+
 		m.topBar.SetView("PATs")
 		m.updateShortcuts()
 		return m, nil
@@ -288,6 +317,25 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m Model) handlePATSpaceToggle() (tea.Model, tea.Cmd) {
+	if m.patsView.Mode != views.PATModeList {
+		return m, nil
+	}
+
+	pat := m.patsView.GetSelectedPAT()
+	if pat == nil {
+		return m, nil
+	}
+
+	if err := m.repository.TogglePATSelection(pat.ID); err != nil {
+		return m, func() tea.Msg {
+			return ErrorMsg{err: err}
+		}
+	}
+
+	return m, m.loadPATs()
+}
+
 func (m Model) handlePATEnter() (tea.Model, tea.Cmd) {
 	if m.patsView.Mode == views.PATModeAdd {
 		newPAT := m.patsView.GetPATData()
@@ -319,23 +367,30 @@ func (m Model) handlePATEnter() (tea.Model, tea.Cmd) {
 		return m, m.loadPATs()
 	}
 
-	if m.patsView.GetSelectedPAT() != nil {
+	if m.patsView.Mode == views.PATModeList {
+		if len(m.providers) > 0 {
+			m.statusBar.SetMessage("Loading pull requests...", false)
+			return m, m.loadPRs()
+		}
+
 		pat := m.patsView.GetSelectedPAT()
-		if err := m.repository.SetActivePAT(pat.ID); err != nil {
-			return m, func() tea.Msg {
-				return ErrorMsg{err: err}
+		if pat != nil {
+			if err := m.repository.SetActivePAT(pat.ID); err != nil {
+				return m, func() tea.Msg {
+					return ErrorMsg{err: err}
+				}
 			}
-		}
-		provider, err := m.createProvider(*pat)
-		if err != nil {
-			return m, func() tea.Msg {
-				return ErrorMsg{err: err}
+			provider, err := m.createProvider(*pat)
+			if err != nil {
+				return m, func() tea.Msg {
+					return ErrorMsg{err: err}
+				}
 			}
+			m.provider = provider
+			m.topBar.SetActivePAT(pat.Name, string(pat.Provider))
+			m.statusBar.SetMessage(fmt.Sprintf("Activated PAT: %s", pat.Name), false)
+			return m, m.loadPATs()
 		}
-		m.provider = provider
-		m.topBar.SetActivePAT(pat.Name, string(pat.Provider))
-		m.statusBar.SetMessage(fmt.Sprintf("Activated PAT: %s", pat.Name), false)
-		return m, m.loadPATs()
 	}
 
 	return m, nil
@@ -427,23 +482,73 @@ func (m Model) loadPATs() tea.Cmd {
 }
 
 func (m Model) loadPRs() tea.Cmd {
-	if m.provider == nil {
+	if len(m.providers) == 0 && m.provider == nil {
 		return func() tea.Msg {
-			return ErrorMsg{err: fmt.Errorf("no provider configured")}
+			return ErrorMsg{err: fmt.Errorf("no PATs selected")}
 		}
 	}
 
 	return func() tea.Msg {
-		pat, err := m.repository.GetActivePAT()
+		if len(m.providers) == 0 && m.provider != nil {
+			pat, err := m.repository.GetActivePAT()
+			if err != nil {
+				return ErrorMsg{err: err}
+			}
+
+			prs, err := m.provider.ListPullRequests(m.ctx, pat.Username)
+			if err != nil {
+				return ErrorMsg{err: err}
+			}
+			return PRsLoadedMsg{prs: prs, groups: nil}
+		}
+
+		selectedPATs, err := m.repository.GetSelectedPATs()
 		if err != nil {
 			return ErrorMsg{err: err}
 		}
 
-		prs, err := m.provider.ListPullRequests(m.ctx, pat.Username)
-		if err != nil {
-			return ErrorMsg{err: err}
+		type prResult struct {
+			prs []domain.PullRequest
+			pat domain.PAT
+			err error
 		}
-		return PRsLoadedMsg{prs: prs}
+
+		results := make(chan prResult, len(selectedPATs))
+
+		for _, pat := range selectedPATs {
+			go func(p domain.PAT) {
+				provider := m.providers[p.ID]
+				if provider == nil {
+					results <- prResult{prs: nil, pat: p, err: fmt.Errorf("provider not found for PAT %s", p.Name)}
+					return
+				}
+				prs, err := provider.ListPullRequests(m.ctx, p.Username)
+				results <- prResult{prs: prs, pat: p, err: err}
+			}(pat)
+		}
+
+		var allGroups []domain.PRGroup
+		var allPRs []domain.PullRequest
+
+		for i := 0; i < len(selectedPATs); i++ {
+			result := <-results
+			if result.err != nil {
+				logger.LogError("LOAD_PRS", result.pat.Name, result.err)
+				continue
+			}
+
+			allGroups = append(allGroups, domain.PRGroup{
+				PATName:   result.pat.Name,
+				PATID:     result.pat.ID,
+				Provider:  result.pat.Provider,
+				Username:  result.pat.Username,
+				IsPrimary: result.pat.IsPrimary,
+				PRs:       result.prs,
+			})
+			allPRs = append(allPRs, result.prs...)
+		}
+
+		return PRsLoadedMsg{prs: allPRs, groups: allGroups}
 	}
 }
 
@@ -505,7 +610,8 @@ type PATsLoadedMsg struct {
 }
 
 type PRsLoadedMsg struct {
-	prs []domain.PullRequest
+	prs    []domain.PullRequest
+	groups []domain.PRGroup
 }
 
 type PRDetailLoadedMsg struct {
