@@ -18,8 +18,10 @@ type PATItem struct {
 func (i PATItem) FilterValue() string { return i.pat.Name }
 func (i PATItem) Title() string {
 	indicator := " "
-	if i.pat.IsActive {
+	if i.pat.IsPrimary {
 		indicator = "●"
+	} else if i.pat.IsSelected {
+		indicator = "✓"
 	}
 	return fmt.Sprintf("%s %s (%s)", indicator, i.pat.Name, i.pat.Provider)
 }
@@ -254,7 +256,7 @@ func (m *PATsViewModel) viewListMode() string {
 	help := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#6B7280")).
 		Italic(true).
-		Render("\nEnter: Select | a: Add | e: Edit | d: Delete | q: Back")
+		Render("\nSpace: Toggle | Enter: Load PRs | a: Add | e: Edit | d: Delete | q: Back")
 
 	return m.list.View() + help
 }
