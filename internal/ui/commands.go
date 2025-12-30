@@ -113,6 +113,13 @@ func (cr *CommandRegistry) registerKeyBindings() {
 			AvailableIn: []ViewState{ViewPATs, ViewPRList, ViewPRInspect},
 		},
 		{
+			Keys:        []string{" "},
+			Description: "Toggle PAT selection",
+			ShortHelp:   "space",
+			Handler:     handleSpaceKey,
+			AvailableIn: []ViewState{ViewPATs},
+		},
+		{
 			Keys:        []string{"backspace", "h"},
 			Description: "Back",
 			ShortHelp:   "h",
@@ -379,6 +386,14 @@ func handleQuitKey(m Model) (Model, tea.Cmd) {
 	}
 	newModel, cmd := m.navigateBack()
 	return newModel.(Model), cmd
+}
+
+func handleSpaceKey(m Model) (Model, tea.Cmd) {
+	if m.state == ViewPATs {
+		newModel, cmd := m.handlePATSpaceToggle()
+		return newModel.(Model), cmd
+	}
+	return m, nil
 }
 
 func handleEnterKey(m Model) (Model, tea.Cmd) {
