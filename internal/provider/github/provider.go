@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/go-github/v57/github"
 	"github.com/johanforsgren/lgtmfaster/internal/domain"
+	"github.com/johanforsgren/lgtmfaster/internal/logger"
 	"github.com/johanforsgren/lgtmfaster/internal/provider/common"
 )
 
@@ -27,8 +28,10 @@ func (p *Provider) GetType() domain.ProviderType {
 }
 
 func (p *Provider) ListPullRequests(ctx context.Context, username string) ([]domain.PullRequest, error) {
+	logger.Log("GitHub: Listing pull requests for user %s", username)
 	ghPRs, err := p.client.ListPullRequests(ctx)
 	if err != nil {
+		logger.LogError("GITHUB_LIST_PRS", username, err)
 		return nil, err
 	}
 
@@ -38,38 +41,48 @@ func (p *Provider) ListPullRequests(ctx context.Context, username string) ([]dom
 		prs = append(prs, pr)
 	}
 
+	logger.Log("GitHub: Found %d pull requests", len(prs))
 	return prs, nil
 }
 
 func (p *Provider) GetPullRequest(ctx context.Context, identifier domain.PRIdentifier) (*domain.PullRequest, error) {
+	logger.Log("GitHub: Getting PR #%d from %s", identifier.Number, identifier.Repository)
 	parts := strings.Split(identifier.Repository, "/")
 	if len(parts) != 2 {
+		logger.LogError("GITHUB_GET_PR", identifier.Repository, fmt.Errorf("invalid repository format"))
 		return nil, fmt.Errorf("invalid repository format: %s", identifier.Repository)
 	}
 
 	owner, repo := parts[0], parts[1]
 	ghPR, err := p.client.GetPullRequest(ctx, owner, repo, identifier.Number)
 	if err != nil {
+		logger.LogError("GITHUB_GET_PR", fmt.Sprintf("%s/%s#%d", owner, repo, identifier.Number), err)
 		return nil, err
 	}
 
 	pr := p.convertPullRequest(ghPR, p.username)
+	logger.Log("GitHub: Retrieved PR #%d: %s", identifier.Number, *ghPR.Title)
 	return &pr, nil
 }
 
 func (p *Provider) GetDiff(ctx context.Context, identifier domain.PRIdentifier) (*domain.Diff, error) {
+	logger.Log("GitHub: Getting diff for PR #%d from %s", identifier.Number, identifier.Repository)
 	parts := strings.Split(identifier.Repository, "/")
 	if len(parts) != 2 {
+		logger.LogError("GITHUB_GET_DIFF", identifier.Repository, fmt.Errorf("invalid repository format"))
 		return nil, fmt.Errorf("invalid repository format: %s", identifier.Repository)
 	}
 
 	owner, repo := parts[0], parts[1]
 	diffText, err := p.client.GetDiff(ctx, owner, repo, identifier.Number)
 	if err != nil {
+		logger.LogError("GITHUB_GET_DIFF", fmt.Sprintf("%s/%s#%d", owner, repo, identifier.Number), err)
 		return nil, err
 	}
 
-	return common.ParseUnifiedDiff(diffText), nil
+	diff := common.ParseUnifiedDiff(diffText)
+	logger.Log("GitHub: Parsed diff with %d files", len(diff.Files))
+	return diff, nil
 }
 
 func (p *Provider) GetComments(ctx context.Context, identifier domain.PRIdentifier) ([]domain.Comment, error) {
@@ -114,8 +127,10 @@ func (p *Provider) AddComment(ctx context.Context, identifier domain.PRIdentifie
 }
 
 func (p *Provider) SubmitReview(ctx context.Context, review domain.Review) error {
+	logger.Log("GitHub: Submitting review for %s (Action: %s)", review.PRIdentifier, review.Action)
 	owner, repo, prNumber, err := common.ParseGitHubIdentifier(review.PRIdentifier)
 	if err != nil {
+		logger.LogError("GITHUB_SUBMIT_REVIEW", review.PRIdentifier, err)
 		return fmt.Errorf("failed to parse PR identifier: %w", err)
 	}
 
@@ -126,6 +141,7 @@ func (p *Provider) SubmitReview(ctx context.Context, review domain.Review) error
 	}
 
 	if len(review.Comments) > 0 {
+		logger.Log("GitHub: Review includes %d inline comments", len(review.Comments))
 		comments := make([]*github.DraftReviewComment, 0, len(review.Comments))
 		for _, c := range review.Comments {
 			comments = append(comments, &github.DraftReviewComment{
@@ -137,7 +153,13 @@ func (p *Provider) SubmitReview(ctx context.Context, review domain.Review) error
 		ghReview.Comments = comments
 	}
 
-	return p.client.CreateReview(ctx, owner, repo, prNumber, ghReview)
+	if err := p.client.CreateReview(ctx, owner, repo, prNumber, ghReview); err != nil {
+		logger.LogError("GITHUB_SUBMIT_REVIEW", fmt.Sprintf("%s/%s#%d", owner, repo, prNumber), err)
+		return err
+	}
+
+	logger.Log("GitHub: Review submitted successfully for %s/%s#%d", owner, repo, prNumber)
+	return nil
 }
 
 func (p *Provider) ValidateCredentials(ctx context.Context) error {

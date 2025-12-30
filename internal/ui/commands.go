@@ -63,6 +63,14 @@ func (cr *CommandRegistry) registerCommands() {
 			AvailableIn: []ViewState{ViewPATs, ViewPRList, ViewPRInspect},
 		},
 		{
+			Name:        "logs",
+			Aliases:     []string{"log"},
+			Description: "View session logs",
+			ShortHelp:   ":logs",
+			Handler:     handleLogsCommand,
+			AvailableIn: []ViewState{ViewPATs, ViewPRList, ViewPRInspect},
+		},
+		{
 			Name:        "quit",
 			Aliases:     []string{"q", "exit"},
 			Description: "Quit application",
@@ -354,6 +362,11 @@ func handlePRCommand(m Model, args []string) (Model, tea.Cmd) {
 	}
 	m.statusBar.SetMessage("Loading pull requests...", false)
 	return m, m.loadPRs()
+}
+
+func handleLogsCommand(m Model, args []string) (Model, tea.Cmd) {
+	m.logsView.Activate()
+	return m, nil
 }
 
 func handleQuitCommand(m Model, args []string) (Model, tea.Cmd) {

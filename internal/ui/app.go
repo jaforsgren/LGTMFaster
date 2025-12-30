@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/google/uuid"
 	"github.com/johanforsgren/lgtmfaster/internal/domain"
+	"github.com/johanforsgren/lgtmfaster/internal/logger"
 	"github.com/johanforsgren/lgtmfaster/internal/provider/azuredevops"
 	"github.com/johanforsgren/lgtmfaster/internal/provider/github"
 	"github.com/johanforsgren/lgtmfaster/internal/ui/components"
@@ -33,6 +34,7 @@ type Model struct {
 	prListView      *views.PRListViewModel
 	prInspect       *views.PRInspectViewModel
 	reviewView      *views.ReviewViewModel
+	logsView        *views.LogsViewModel
 	repository      domain.Repository
 	provider        domain.Provider
 	ctx             context.Context
@@ -49,6 +51,7 @@ func NewModel(repository domain.Repository) Model {
 		prListView:      views.NewPRListView(),
 		prInspect:       views.NewPRInspectView(),
 		reviewView:      views.NewReviewView(),
+		logsView:        views.NewLogsView(),
 		repository:      repository,
 		ctx:             context.Background(),
 		commandRegistry: NewCommandRegistry(),
@@ -64,6 +67,9 @@ func (m Model) isInInputMode() bool {
 		return true
 	}
 	if m.reviewView.IsActive() {
+		return true
+	}
+	if m.logsView.IsActive() {
 		return true
 	}
 	if m.state == ViewPATs && (m.patsView.Mode == views.PATModeAdd || m.patsView.Mode == views.PATModeEdit) {
@@ -87,6 +93,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.prListView.SetSize(msg.Width, msg.Height)
 		m.prInspect.SetSize(msg.Width, msg.Height)
 		m.reviewView.SetSize(msg.Width, msg.Height)
+		m.logsView.SetSize(msg.Width, msg.Height)
 
 	case tea.KeyMsg:
 		key := msg.String()
@@ -108,6 +115,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.reviewView.IsActive() {
 				cmd = m.reviewView.Update(msg)
 				return m, cmd
+			}
+
+			if m.logsView.IsActive() {
+				switch key {
+				case "esc", "q":
+					m.logsView.Deactivate()
+					return m, nil
+				default:
+					cmd = m.logsView.Update(msg)
+					return m, cmd
+				}
 			}
 
 			if m.state == ViewPATs && (m.patsView.Mode == views.PATModeAdd || m.patsView.Mode == views.PATModeEdit) {
@@ -206,7 +224,9 @@ func (m Model) View() string {
 
 	var content string
 
-	if m.reviewView.IsActive() {
+	if m.logsView.IsActive() {
+		content = m.logsView.View()
+	} else if m.reviewView.IsActive() {
 		content = m.reviewView.View()
 	} else {
 		switch m.state {
@@ -243,6 +263,7 @@ func (m Model) handleCommand() (tea.Model, tea.Cmd) {
 	cmdName := parts[0]
 	args := parts[1:]
 
+	logger.Log("UI: Executing command: %s %v", cmdName, args)
 	return m.commandRegistry.ExecuteCommand(m, cmdName, args)
 }
 
@@ -338,6 +359,7 @@ func (m Model) handleDeletePAT() (tea.Model, tea.Cmd) {
 func (m Model) navigateBack() (tea.Model, tea.Cmd) {
 	switch m.state {
 	case ViewPRList:
+		logger.Log("UI: Navigating back from PR List to PATs")
 		m.state = ViewPATs
 		m.topBar.SetContext("", "")
 		m.topBar.SetStats(0, 0)
@@ -346,6 +368,7 @@ func (m Model) navigateBack() (tea.Model, tea.Cmd) {
 		m.updateShortcuts()
 		return m, nil
 	case ViewPRInspect:
+		logger.Log("UI: Navigating back from PR Inspect to PR List")
 		m.state = ViewPRList
 		m.topBar.SetContext("", "")
 		m.topBar.SetView("PR List")
@@ -361,6 +384,7 @@ func (m Model) submitReview() tea.Cmd {
 
 	pr := m.prInspect.GetPR()
 	if pr == nil {
+		logger.LogError("SUBMIT_REVIEW", "UI", fmt.Errorf("no PR selected"))
 		return func() tea.Msg {
 			return ErrorMsg{err: fmt.Errorf("no PR selected")}
 		}
@@ -368,6 +392,7 @@ func (m Model) submitReview() tea.Cmd {
 
 	review.PRIdentifier = fmt.Sprintf("%s/%d", pr.Repository.FullName, pr.Number)
 
+	logger.Log("UI: Submitting review for %s (Action: %s)", review.PRIdentifier, review.Action)
 	return func() tea.Msg {
 		if err := m.provider.SubmitReview(m.ctx, review); err != nil {
 			return ErrorMsg{err: err}
