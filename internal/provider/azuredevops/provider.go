@@ -8,13 +8,23 @@ import (
 	"time"
 
 	"github.com/johanforsgren/lgtmfaster/internal/domain"
+	"github.com/johanforsgren/lgtmfaster/internal/provider/common"
 	"github.com/microsoft/azure-devops-go-api/azuredevops/v7/git"
 	"github.com/microsoft/azure-devops-go-api/azuredevops/v7/webapi"
 )
 
 
+type ResolvedRepository struct {
+	ProjectID string
+	RepoID    string
+	CachedAt  time.Time
+}
+
 type Provider struct {
-	client *Client
+	client     *Client
+	repoCache  map[string]*ResolvedRepository
+	cacheMutex sync.RWMutex
+	cacheTTL   time.Duration
 }
 
 func NewProvider(token string, organization string, username string) (*Provider, error) {
@@ -23,7 +33,9 @@ func NewProvider(token string, organization string, username string) (*Provider,
 		return nil, err
 	}
 	return &Provider{
-		client: client,
+		client:    client,
+		repoCache: make(map[string]*ResolvedRepository),
+		cacheTTL:  5 * time.Minute,
 	}, nil
 }
 
@@ -203,7 +215,7 @@ func (p *Provider) GetDiff(ctx context.Context, identifier domain.PRIdentifier) 
 		return nil, err
 	}
 
-	return parseDiff(diffText), nil
+	return common.ParseUnifiedDiff(diffText), nil
 }
 
 func (p *Provider) GetComments(ctx context.Context, identifier domain.PRIdentifier) ([]domain.Comment, error) {
@@ -288,7 +300,7 @@ func (p *Provider) GetComments(ctx context.Context, identifier domain.PRIdentifi
 }
 
 func (p *Provider) AddComment(ctx context.Context, identifier domain.PRIdentifier, body string, filePath string, line int) error {
-	projectID, repoID, err := p.resolveProjectAndRepo(ctx, identifier.Repository)
+	projectID, repoID, err := p.resolveProjectAndRepoWithCache(ctx, identifier.Repository)
 	if err != nil {
 		return err
 	}
@@ -297,37 +309,50 @@ func (p *Provider) AddComment(ctx context.Context, identifier domain.PRIdentifie
 }
 
 func (p *Provider) SubmitReview(ctx context.Context, review domain.Review) error {
-	parts := strings.Split(review.PRIdentifier, "/")
-	if len(parts) != 3 {
-		return fmt.Errorf("invalid PR identifier format: %s", review.PRIdentifier)
+	project, repo, prNumber, err := common.ParseAzureDevOpsIdentifier(review.PRIdentifier)
+	if err != nil {
+		return fmt.Errorf("failed to parse PR identifier: %w", err)
 	}
 
-	repository := fmt.Sprintf("%s/%s", parts[0], parts[1])
-	prNumber := 0
-	fmt.Sscanf(parts[2], "%d", &prNumber)
+	repository := fmt.Sprintf("%s/%s", project, repo)
 
-	projectID, repoID, err := p.resolveProjectAndRepo(ctx, repository)
+	projectID, repoID, err := p.resolveProjectAndRepoWithCache(ctx, repository)
 	if err != nil {
 		return err
 	}
 
-	for _, comment := range review.Comments {
+	var createdComments int
+
+	for i, comment := range review.Comments {
 		if err := p.client.CreateCommentThread(ctx, projectID, repoID, prNumber, comment.Body, comment.FilePath, comment.Line); err != nil {
-			return err
+			if createdComments > 0 {
+				return fmt.Errorf("%w: failed to create comment %d/%d (created %d comments before failure): %v",
+					common.ErrPartialReviewSubmission, i+1, len(review.Comments), createdComments, err)
+			}
+			return fmt.Errorf("failed to create comment %d/%d: %w", i+1, len(review.Comments), err)
 		}
+		createdComments++
 	}
 
 	if review.Action != domain.ReviewActionComment {
 		vote := convertReviewActionToVote(review.Action)
 		userID := p.client.username
 		if err := p.client.CreatePullRequestReview(ctx, projectID, repoID, prNumber, userID, vote); err != nil {
-			return err
+			if createdComments > 0 {
+				return fmt.Errorf("%w: failed to submit vote (created %d comments): %v",
+					common.ErrPartialReviewSubmission, createdComments, err)
+			}
+			return fmt.Errorf("failed to submit vote: %w", err)
 		}
 	}
 
 	if review.Body != "" && review.Action == domain.ReviewActionComment {
 		if err := p.client.CreateCommentThread(ctx, projectID, repoID, prNumber, review.Body, "", 0); err != nil {
-			return err
+			if createdComments > 0 || review.Action != domain.ReviewActionComment {
+				return fmt.Errorf("%w: failed to create review body comment (created %d inline comments): %v",
+					common.ErrPartialReviewSubmission, createdComments, err)
+			}
+			return fmt.Errorf("failed to create review comment: %w", err)
 		}
 	}
 
@@ -457,78 +482,33 @@ func getUpdateTime(pr *git.GitPullRequest) time.Time {
 	return time.Now()
 }
 
-func parseDiff(diffText string) *domain.Diff {
-	lines := strings.Split(diffText, "\n")
-	files := []domain.FileDiff{}
-	var currentFile *domain.FileDiff
-	var currentHunk *domain.DiffHunk
-	oldLine, newLine := 0, 0
-
-	for _, line := range lines {
-		if strings.HasPrefix(line, "diff --git") {
-			if currentFile != nil {
-				files = append(files, *currentFile)
-			}
-			currentFile = &domain.FileDiff{
-				Hunks: []domain.DiffHunk{},
-			}
-		} else if strings.HasPrefix(line, "---") {
-			if currentFile != nil {
-				path := strings.TrimPrefix(line, "--- ")
-				if path != "/dev/null" {
-					currentFile.OldPath = strings.TrimPrefix(path, "a/")
-				} else {
-					currentFile.IsNew = true
-				}
-			}
-		} else if strings.HasPrefix(line, "+++") {
-			if currentFile != nil {
-				path := strings.TrimPrefix(line, "+++ ")
-				if path != "/dev/null" {
-					currentFile.NewPath = strings.TrimPrefix(path, "b/")
-				} else {
-					currentFile.IsDeleted = true
-				}
-			}
-		} else if strings.HasPrefix(line, "@@") {
-			if currentFile != nil && currentHunk != nil {
-				currentFile.Hunks = append(currentFile.Hunks, *currentHunk)
-			}
-			currentHunk = &domain.DiffHunk{
-				Header: line,
-				Lines:  []domain.DiffLine{},
-			}
-			fmt.Sscanf(line, "@@ -%d", &oldLine)
-			fmt.Sscanf(line, "@@ -%*d,%*d +%d", &newLine)
-		} else if currentHunk != nil {
-			diffLine := domain.DiffLine{Content: line}
-			if strings.HasPrefix(line, "+") {
-				diffLine.Type = "add"
-				diffLine.NewLine = newLine
-				newLine++
-			} else if strings.HasPrefix(line, "-") {
-				diffLine.Type = "delete"
-				diffLine.OldLine = oldLine
-				oldLine++
-			} else {
-				diffLine.Type = "context"
-				diffLine.OldLine = oldLine
-				diffLine.NewLine = newLine
-				oldLine++
-				newLine++
-			}
-			currentHunk.Lines = append(currentHunk.Lines, diffLine)
+func (p *Provider) resolveProjectAndRepoWithCache(ctx context.Context, repository string) (projectID, repoID string, err error) {
+	p.cacheMutex.RLock()
+	if cached, ok := p.repoCache[repository]; ok {
+		if time.Since(cached.CachedAt) < p.cacheTTL {
+			p.cacheMutex.RUnlock()
+			return cached.ProjectID, cached.RepoID, nil
 		}
 	}
+	p.cacheMutex.RUnlock()
 
-	if currentFile != nil && currentHunk != nil {
-		currentFile.Hunks = append(currentFile.Hunks, *currentHunk)
-	}
-	if currentFile != nil {
-		files = append(files, *currentFile)
+	projectID, repoID, err = p.resolveProjectAndRepo(ctx, repository)
+	if err != nil {
+		p.cacheMutex.Lock()
+		delete(p.repoCache, repository)
+		p.cacheMutex.Unlock()
+		return "", "", err
 	}
 
-	return &domain.Diff{Files: files}
+	p.cacheMutex.Lock()
+	p.repoCache[repository] = &ResolvedRepository{
+		ProjectID: projectID,
+		RepoID:    repoID,
+		CachedAt:  time.Now(),
+	}
+	p.cacheMutex.Unlock()
+
+	return projectID, repoID, nil
 }
 
 func (p *Provider) resolveProjectAndRepo(ctx context.Context, repository string) (projectID, repoID string, err error) {

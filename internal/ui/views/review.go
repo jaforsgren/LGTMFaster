@@ -115,7 +115,7 @@ func (m *ReviewViewModel) View() string {
 		Foreground(lipgloss.Color("#6B7280")).
 		Italic(true)
 
-	help := "Ctrl+Enter: Submit | Esc: Cancel"
+	help := "Ctrl+S: Submit | Esc: Cancel"
 	b.WriteString(helpStyle.Render(help))
 
 	boxStyle := lipgloss.NewStyle().
