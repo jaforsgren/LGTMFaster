@@ -59,6 +59,19 @@ func (m Model) Init() tea.Cmd {
 	return m.loadPATs()
 }
 
+func (m Model) isInInputMode() bool {
+	if m.commandBar.IsActive() {
+		return true
+	}
+	if m.reviewView.IsActive() {
+		return true
+	}
+	if m.state == ViewPATs && (m.patsView.Mode == views.PATModeAdd || m.patsView.Mode == views.PATModeEdit) {
+		return true
+	}
+	return false
+}
+
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	var cmds []tea.Cmd
@@ -78,15 +91,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		key := msg.String()
 
-		if m.commandBar.IsActive() {
-			switch key {
-			case "enter":
-				return m.handleCommand()
-			case "esc":
-				m.commandBar.Deactivate()
-				return m, nil
-			default:
-				cmd = m.commandBar.Update(msg)
+		if m.isInInputMode() {
+			if m.commandBar.IsActive() {
+				switch key {
+				case "enter":
+					return m.handleCommand()
+				case "esc":
+					m.commandBar.Deactivate()
+					return m, nil
+				default:
+					cmd = m.commandBar.Update(msg)
+					return m, cmd
+				}
+			}
+
+			if m.reviewView.IsActive() {
+				cmd = m.reviewView.Update(msg)
+				return m, cmd
+			}
+
+			if m.state == ViewPATs && (m.patsView.Mode == views.PATModeAdd || m.patsView.Mode == views.PATModeEdit) {
+				cmd = m.patsView.Update(msg)
 				return m, cmd
 			}
 		}
@@ -94,11 +119,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		newModel, cmd, handled := m.commandRegistry.HandleKey(m, key)
 		if handled {
 			return newModel, cmd
-		}
-
-		if m.reviewView.IsActive() {
-			cmd = m.reviewView.Update(msg)
-			return m, cmd
 		}
 
 	case PATsLoadedMsg:
