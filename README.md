@@ -45,6 +45,7 @@ go build -o lgtmfaster ./cmd/lgtmfaster
 **Vim-style Commands** (press `:` to activate):
 - `:pats` or `:p` - Manage Personal Access Tokens
 - `:pr` - List pull requests
+- `:logs` - View session logs (scrollable, color-coded)
 - `:q` - Quit
 
 **Navigation**:

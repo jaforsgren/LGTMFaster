@@ -34,6 +34,7 @@ type Model struct {
 	prListView      *views.PRListViewModel
 	prInspect       *views.PRInspectViewModel
 	reviewView      *views.ReviewViewModel
+	logsView        *views.LogsViewModel
 	repository      domain.Repository
 	provider        domain.Provider
 	ctx             context.Context
@@ -50,6 +51,7 @@ func NewModel(repository domain.Repository) Model {
 		prListView:      views.NewPRListView(),
 		prInspect:       views.NewPRInspectView(),
 		reviewView:      views.NewReviewView(),
+		logsView:        views.NewLogsView(),
 		repository:      repository,
 		ctx:             context.Background(),
 		commandRegistry: NewCommandRegistry(),
@@ -65,6 +67,9 @@ func (m Model) isInInputMode() bool {
 		return true
 	}
 	if m.reviewView.IsActive() {
+		return true
+	}
+	if m.logsView.IsActive() {
 		return true
 	}
 	if m.state == ViewPATs && (m.patsView.Mode == views.PATModeAdd || m.patsView.Mode == views.PATModeEdit) {
@@ -88,6 +93,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.prListView.SetSize(msg.Width, msg.Height)
 		m.prInspect.SetSize(msg.Width, msg.Height)
 		m.reviewView.SetSize(msg.Width, msg.Height)
+		m.logsView.SetSize(msg.Width, msg.Height)
 
 	case tea.KeyMsg:
 		key := msg.String()
@@ -109,6 +115,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.reviewView.IsActive() {
 				cmd = m.reviewView.Update(msg)
 				return m, cmd
+			}
+
+			if m.logsView.IsActive() {
+				switch key {
+				case "esc", "q":
+					m.logsView.Deactivate()
+					return m, nil
+				default:
+					cmd = m.logsView.Update(msg)
+					return m, cmd
+				}
 			}
 
 			if m.state == ViewPATs && (m.patsView.Mode == views.PATModeAdd || m.patsView.Mode == views.PATModeEdit) {
@@ -207,7 +224,9 @@ func (m Model) View() string {
 
 	var content string
 
-	if m.reviewView.IsActive() {
+	if m.logsView.IsActive() {
+		content = m.logsView.View()
+	} else if m.reviewView.IsActive() {
 		content = m.reviewView.View()
 	} else {
 		switch m.state {

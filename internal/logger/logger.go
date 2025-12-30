@@ -5,17 +5,27 @@ import (
 	"log"
 	"os"
 	"sync"
+	"time"
 )
+
+const maxBufferSize = 1000
 
 var (
 	instance *Logger
 	once     sync.Once
 )
 
+type LogEntry struct {
+	Timestamp time.Time
+	Message   string
+}
+
 type Logger struct {
-	file   *os.File
-	logger *log.Logger
-	mu     sync.Mutex
+	file    *os.File
+	logger  *log.Logger
+	mu      sync.Mutex
+	buffer  []LogEntry
+	enabled bool
 }
 
 func Init(logPath string) error {
@@ -28,11 +38,30 @@ func Init(logPath string) error {
 		}
 
 		instance = &Logger{
-			file:   file,
-			logger: log.New(file, "", log.LstdFlags),
+			file:    file,
+			logger:  log.New(file, "", log.LstdFlags),
+			buffer:  make([]LogEntry, 0, maxBufferSize),
+			enabled: true,
 		}
 	})
+
+	if instance == nil && initErr == nil {
+		instance = &Logger{
+			buffer:  make([]LogEntry, 0, maxBufferSize),
+			enabled: false,
+		}
+	}
+
 	return initErr
+}
+
+func EnsureInit() {
+	if instance == nil {
+		instance = &Logger{
+			buffer:  make([]LogEntry, 0, maxBufferSize),
+			enabled: false,
+		}
+	}
 }
 
 func Close() error {
@@ -42,38 +71,72 @@ func Close() error {
 	return nil
 }
 
-func LogFileOpen(path string) {
-	if instance == nil {
-		return
-	}
+func addToBuffer(message string) {
+	EnsureInit()
 	instance.mu.Lock()
 	defer instance.mu.Unlock()
-	instance.logger.Printf("[FILE_OPEN] %s\n", path)
+
+	entry := LogEntry{
+		Timestamp: time.Now(),
+		Message:   message,
+	}
+
+	if len(instance.buffer) >= maxBufferSize {
+		instance.buffer = instance.buffer[1:]
+	}
+	instance.buffer = append(instance.buffer, entry)
+}
+
+func GetLogs() []LogEntry {
+	EnsureInit()
+	instance.mu.Lock()
+	defer instance.mu.Unlock()
+
+	logs := make([]LogEntry, len(instance.buffer))
+	copy(logs, instance.buffer)
+	return logs
+}
+
+func LogFileOpen(path string) {
+	message := fmt.Sprintf("[FILE_OPEN] %s", path)
+	addToBuffer(message)
+
+	if instance != nil && instance.enabled && instance.logger != nil {
+		instance.mu.Lock()
+		defer instance.mu.Unlock()
+		instance.logger.Println(message)
+	}
 }
 
 func LogFileWrite(path string) {
-	if instance == nil {
-		return
+	message := fmt.Sprintf("[FILE_WRITE] %s", path)
+	addToBuffer(message)
+
+	if instance != nil && instance.enabled && instance.logger != nil {
+		instance.mu.Lock()
+		defer instance.mu.Unlock()
+		instance.logger.Println(message)
 	}
-	instance.mu.Lock()
-	defer instance.mu.Unlock()
-	instance.logger.Printf("[FILE_WRITE] %s\n", path)
 }
 
 func LogError(operation, path string, err error) {
-	if instance == nil {
-		return
+	message := fmt.Sprintf("[ERROR] %s: %s - %v", operation, path, err)
+	addToBuffer(message)
+
+	if instance != nil && instance.enabled && instance.logger != nil {
+		instance.mu.Lock()
+		defer instance.mu.Unlock()
+		instance.logger.Println(message)
 	}
-	instance.mu.Lock()
-	defer instance.mu.Unlock()
-	instance.logger.Printf("[ERROR] %s: %s - %v\n", operation, path, err)
 }
 
 func Log(message string, args ...interface{}) {
-	if instance == nil {
-		return
+	formatted := fmt.Sprintf("[INFO] "+message, args...)
+	addToBuffer(formatted)
+
+	if instance != nil && instance.enabled && instance.logger != nil {
+		instance.mu.Lock()
+		defer instance.mu.Unlock()
+		instance.logger.Println(formatted)
 	}
-	instance.mu.Lock()
-	defer instance.mu.Unlock()
-	instance.logger.Printf("[INFO] "+message+"\n", args...)
 }
