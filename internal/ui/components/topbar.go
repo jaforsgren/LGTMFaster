@@ -18,6 +18,7 @@ type TopBarModel struct {
 	currentPR      string
 	activePAT      string
 	patProvider    string
+	selectedCount  int
 	currentView    string
 	shortcuts      []string
 }
@@ -57,6 +58,10 @@ func (m *TopBarModel) SetContext(repo, pr string) {
 func (m *TopBarModel) SetActivePAT(pat, provider string) {
 	m.activePAT = pat
 	m.patProvider = provider
+}
+
+func (m *TopBarModel) SetSelectedPATCount(count int) {
+	m.selectedCount = count
 }
 
 func (m *TopBarModel) SetView(view string) {
@@ -133,6 +138,9 @@ func (m *TopBarModel) buildContextInfo() []string {
 		patName = m.activePAT
 		if m.patProvider != "" {
 			patName = fmt.Sprintf("%s (%s)", patName, m.patProvider)
+		}
+		if m.selectedCount > 1 {
+			patName = fmt.Sprintf("%s + %d more", patName, m.selectedCount-1)
 		}
 		if len(patName) > 25 {
 			patName = patName[:22] + "..."
