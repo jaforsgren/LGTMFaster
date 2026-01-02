@@ -2,6 +2,8 @@ package ui
 
 import (
 	"fmt"
+	"os/exec"
+	"runtime"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -223,6 +225,13 @@ func (cr *CommandRegistry) registerKeyBindings() {
 			ShortHelp:   "esc",
 			Handler:     handleEscKey,
 			AvailableIn: []ViewState{ViewPATs, ViewPRList, ViewPRInspect},
+		},
+		{
+			Keys:        []string{"ctrl+o"},
+			Description: "Open PR in browser",
+			ShortHelp:   "ctrl+o",
+			Handler:     handleOpenBrowserKey,
+			AvailableIn: []ViewState{ViewPRList, ViewPRInspect},
 		},
 	}
 }
@@ -548,4 +557,51 @@ func handleEscKey(m Model) (Model, tea.Cmd) {
 	}
 	newModel, cmd := m.navigateBack()
 	return newModel.(Model), cmd
+}
+
+func handleOpenBrowserKey(m Model) (Model, tea.Cmd) {
+	var url string
+
+	switch m.state {
+	case ViewPRList:
+		pr := m.prListView.GetSelectedPR()
+		if pr != nil {
+			url = pr.URL
+		}
+	case ViewPRInspect:
+		pr := m.prInspect.GetPR()
+		if pr != nil {
+			url = pr.URL
+		}
+	}
+
+	if url == "" {
+		m.statusBar.SetMessage("No PR URL available", true)
+		return m, nil
+	}
+
+	if err := openBrowser(url); err != nil {
+		m.statusBar.SetMessage(fmt.Sprintf("Failed to open browser: %v", err), true)
+		return m, nil
+	}
+
+	m.statusBar.SetMessage("Opening PR in browser...", false)
+	return m, nil
+}
+
+func openBrowser(url string) error {
+	var cmd *exec.Cmd
+
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", url)
+	case "linux":
+		cmd = exec.Command("xdg-open", url)
+	case "windows":
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+	default:
+		return fmt.Errorf("unsupported platform: %s", runtime.GOOS)
+	}
+
+	return cmd.Start()
 }
