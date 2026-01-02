@@ -114,8 +114,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 			if m.reviewView.IsActive() {
-				cmd = m.reviewView.Update(msg)
-				return m, cmd
+				switch key {
+				case "ctrl+s":
+					return m, m.submitReview()
+				case "esc":
+					m.reviewView.Deactivate()
+					return m, nil
+				default:
+					cmd = m.reviewView.Update(msg)
+					return m, cmd
+				}
 			}
 
 			if m.logsView.IsActive() {

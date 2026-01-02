@@ -155,7 +155,7 @@ func (p *Provider) SubmitReview(ctx context.Context, review domain.Review) error
 
 	if err := p.client.CreateReview(ctx, owner, repo, prNumber, ghReview); err != nil {
 		logger.LogError("GITHUB_SUBMIT_REVIEW", fmt.Sprintf("%s/%s#%d", owner, repo, prNumber), err)
-		return err
+		return fmt.Errorf("%s", common.ExtractErrorMessage(err))
 	}
 
 	logger.Log("GitHub: Review submitted successfully for %s/%s#%d", owner, repo, prNumber)
