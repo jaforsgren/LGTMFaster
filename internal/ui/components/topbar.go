@@ -8,26 +8,27 @@ import (
 )
 
 type TopBarModel struct {
-	width          int
-	totalPRs       int
-	authoredPRs    int
-	assignedPRs    int
-	otherPRs       int
-	repoCount      int
-	currentRepo    string
-	currentPR      string
-	activePAT      string
-	patProvider    string
-	currentView    string
-	shortcuts      []string
+	width       int
+	totalPRs    int
+	authoredPRs int
+	assignedPRs int
+	otherPRs    int
+	repoCount   int
+	currentRepo string
+	currentPR   string
+	activePAT   string
+	patProvider string
+	currentView string
+	shortcuts   []string
+	test        bool
 }
 
 var (
-	titleStyle       = lipgloss.NewStyle().Padding(1, 2)
-	titleOrangeStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true)
-	valueWhiteStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("15"))
+	titleStyle        = lipgloss.NewStyle().Padding(1, 2)
+	titleOrangeStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true)
+	valueWhiteStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("15"))
 	shortcutBlueStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("33")).Bold(true)
-	descGrayStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("246"))
+	descGrayStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("246"))
 )
 
 func NewTopBar() *TopBarModel {
