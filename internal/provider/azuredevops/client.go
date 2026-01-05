@@ -3,7 +3,11 @@ package azuredevops
 import (
 	"context"
 	"fmt"
+	"io"
+	"strings"
 
+	"github.com/aymanbagabas/go-udiff"
+	"github.com/johanforsgren/lgtmfaster/internal/logger"
 	"github.com/microsoft/azure-devops-go-api/azuredevops/v7"
 	"github.com/microsoft/azure-devops-go-api/azuredevops/v7/core"
 	"github.com/microsoft/azure-devops-go-api/azuredevops/v7/git"
@@ -123,89 +127,181 @@ func (c *Client) GetPullRequestCommits(ctx context.Context, projectID string, re
 }
 
 func (c *Client) GetCommitDiffs(ctx context.Context, projectID string, repoID string, baseCommit string, targetCommit string) (string, error) {
-	commits, err := c.gitClient.GetCommits(ctx, git.GetCommitsArgs{
+	logger.Log("AzureDevOps: GetCommitDiffs called with project=%s, repo=%s, base=%s, target=%s", projectID, repoID, baseCommit, targetCommit)
+
+	baseVersionType := git.GitVersionTypeValues.Commit
+	targetVersionType := git.GitVersionTypeValues.Commit
+
+	diffs, err := c.gitClient.GetCommitDiffs(ctx, git.GetCommitDiffsArgs{
 		RepositoryId: &repoID,
 		Project:      &projectID,
-		SearchCriteria: &git.GitQueryCommitsCriteria{
-			ItemVersion: &git.GitVersionDescriptor{
-				Version:     &targetCommit,
-				VersionType: &git.GitVersionTypeValues.Commit,
-			},
-			CompareVersion: &git.GitVersionDescriptor{
-				Version:     &baseCommit,
-				VersionType: &git.GitVersionTypeValues.Commit,
-			},
+		BaseVersionDescriptor: &git.GitBaseVersionDescriptor{
+			BaseVersion:     &baseCommit,
+			BaseVersionType: &baseVersionType,
+		},
+		TargetVersionDescriptor: &git.GitTargetVersionDescriptor{
+			TargetVersion:     &targetCommit,
+			TargetVersionType: &targetVersionType,
 		},
 	})
 	if err != nil {
-		return "", fmt.Errorf("failed to get commits: %w", err)
+		logger.LogError("AZDO_GET_COMMIT_DIFFS", "API_CALL", err)
+		return "", fmt.Errorf("failed to get commit diffs: %w", err)
 	}
 
-	if commits == nil || len(*commits) == 0 {
+	logger.Log("AzureDevOps: GetCommitDiffs response - diffs=%v, changes=%v", diffs != nil, diffs != nil && diffs.Changes != nil)
+
+	if diffs == nil {
+		logger.Log("AzureDevOps: diffs is nil, returning empty")
 		return "", nil
 	}
 
-	diffText := ""
-	for _, commit := range *commits {
-		if commit.CommitId == nil {
-			continue
-		}
-
-		changes, err := c.gitClient.GetChanges(ctx, git.GetChangesArgs{
-			CommitId:     commit.CommitId,
-			RepositoryId: &repoID,
-			Project:      &projectID,
-		})
-		if err != nil {
-			continue
-		}
-
-		if changes == nil || changes.Changes == nil {
-			continue
-		}
-
-		for _, change := range *changes.Changes {
-			changeMap, ok := change.(map[string]interface{})
-			if !ok {
-				continue
-			}
-
-			item, hasItem := changeMap["item"].(map[string]interface{})
-			if !hasItem {
-				continue
-			}
-
-			path, hasPath := item["path"].(string)
-			if !hasPath {
-				continue
-			}
-
-			diffText += fmt.Sprintf("diff --git a%s b%s\n", path, path)
-
-			if changeTypeStr, hasChangeType := changeMap["changeType"].(string); hasChangeType {
-				switch changeTypeStr {
-				case "add":
-					diffText += fmt.Sprintf("--- /dev/null\n+++ b%s\n", path)
-					diffText += "@@ -0,0 +1,1 @@\n"
-					diffText += "+ (file added)\n"
-				case "delete":
-					diffText += fmt.Sprintf("--- a%s\n+++ /dev/null\n", path)
-					diffText += "@@ -1,1 +0,0 @@\n"
-					diffText += "- (file deleted)\n"
-				case "edit":
-					diffText += fmt.Sprintf("--- a%s\n+++ b%s\n", path, path)
-					diffText += "@@ -1,1 +1,1 @@\n"
-					diffText += "  (file modified)\n"
-				default:
-					diffText += fmt.Sprintf("--- a%s\n+++ b%s\n", path, path)
-					diffText += "@@ -1,1 +1,1 @@\n"
-					diffText += "  (file changed)\n"
-				}
-			}
-		}
+	if diffs.Changes == nil {
+		logger.Log("AzureDevOps: diffs.Changes is nil, returning empty")
+		return "", nil
 	}
 
-	return diffText, nil
+	changeCount := len(*diffs.Changes)
+	logger.Log("AzureDevOps: Found %d changes in diff", changeCount)
+
+	if changeCount == 0 {
+		logger.Log("AzureDevOps: No changes found, returning empty")
+		return "", nil
+	}
+
+	var diffText strings.Builder
+	processedCount := 0
+
+	for i, change := range *diffs.Changes {
+		logger.Log("AzureDevOps: Processing change %d/%d: %+v", i+1, changeCount, change)
+
+		changeMap, ok := change.(map[string]interface{})
+		if !ok {
+			logger.Log("AzureDevOps: Change %d is not a map[string]interface{}, skipping", i+1)
+			continue
+		}
+
+		item, hasItem := changeMap["item"].(map[string]interface{})
+		if !hasItem {
+			logger.Log("AzureDevOps: Change %d has no item field, skipping", i+1)
+			continue
+		}
+
+		path, hasPath := item["path"].(string)
+		if !hasPath {
+			logger.Log("AzureDevOps: Change %d item has no path, skipping", i+1)
+			continue
+		}
+
+		gitObjectType, _ := item["gitObjectType"].(string)
+		if gitObjectType != "blob" {
+			logger.Log("AzureDevOps: Change %d - path=%s is not a blob (type=%s), skipping", i+1, path, gitObjectType)
+			continue
+		}
+
+		objectID, hasObjectID := item["objectId"].(string)
+		changeTypeStr, _ := changeMap["changeType"].(string)
+
+		logger.Log("AzureDevOps: Change %d - path=%s, changeType=%s, objectID=%s, hasObjectID=%v",
+			i+1, path, changeTypeStr, objectID, hasObjectID)
+
+		var oldContent, newContent string
+
+		switch changeTypeStr {
+		case "add":
+			logger.Log("AzureDevOps: Processing ADD for %s", path)
+			oldContent = ""
+			if hasObjectID && objectID != "" {
+				content, err := c.getFileContent(ctx, projectID, repoID, path, targetCommit)
+				if err == nil {
+					newContent = content
+					logger.Log("AzureDevOps: Fetched new content for %s (%d bytes)", path, len(newContent))
+				} else {
+					logger.LogError("AZDO_GET_FILE_CONTENT", path, err)
+				}
+			}
+		case "delete":
+			logger.Log("AzureDevOps: Processing DELETE for %s", path)
+			if hasObjectID && objectID != "" {
+				content, err := c.getFileContent(ctx, projectID, repoID, path, baseCommit)
+				if err == nil {
+					oldContent = content
+					logger.Log("AzureDevOps: Fetched old content for %s (%d bytes)", path, len(oldContent))
+				} else {
+					logger.LogError("AZDO_GET_FILE_CONTENT", path, err)
+				}
+			}
+			newContent = ""
+		case "edit":
+			logger.Log("AzureDevOps: Processing EDIT for %s", path)
+			oldC, err1 := c.getFileContent(ctx, projectID, repoID, path, baseCommit)
+			newC, err2 := c.getFileContent(ctx, projectID, repoID, path, targetCommit)
+			if err1 == nil && err2 == nil {
+				oldContent = oldC
+				newContent = newC
+				logger.Log("AzureDevOps: Fetched old (%d bytes) and new (%d bytes) content for %s",
+					len(oldContent), len(newContent), path)
+			} else {
+				if err1 != nil {
+					logger.LogError("AZDO_GET_FILE_CONTENT_OLD", path, err1)
+				}
+				if err2 != nil {
+					logger.LogError("AZDO_GET_FILE_CONTENT_NEW", path, err2)
+				}
+			}
+		default:
+			logger.Log("AzureDevOps: Unknown changeType '%s' for %s, skipping", changeTypeStr, path)
+			continue
+		}
+
+		diff := udiff.Unified(
+			fmt.Sprintf("a%s", path),
+			fmt.Sprintf("b%s", path),
+			oldContent,
+			newContent,
+		)
+
+		logger.Log("AzureDevOps: Generated diff for %s (%d bytes)", path, len(diff))
+
+		diffText.WriteString(fmt.Sprintf("diff --git a%s b%s\n", path, path))
+		diffText.WriteString(diff)
+		processedCount++
+	}
+
+	result := diffText.String()
+	logger.Log("AzureDevOps: GetCommitDiffs complete - processed %d/%d changes, total diff size: %d bytes",
+		processedCount, changeCount, len(result))
+
+	return result, nil
+}
+
+func (c *Client) getFileContent(ctx context.Context, projectID string, repoID string, path string, commitID string) (string, error) {
+	logger.Log("AzureDevOps: getFileContent called for path=%s, commit=%s", path, commitID)
+
+	versionType := git.GitVersionTypeValues.Commit
+	reader, err := c.gitClient.GetItemText(ctx, git.GetItemTextArgs{
+		RepositoryId: &repoID,
+		Project:      &projectID,
+		Path:         &path,
+		VersionDescriptor: &git.GitVersionDescriptor{
+			Version:     &commitID,
+			VersionType: &versionType,
+		},
+	})
+	if err != nil {
+		logger.LogError("AZDO_GET_ITEM_TEXT", fmt.Sprintf("%s@%s", path, commitID), err)
+		return "", fmt.Errorf("failed to get file content for %s at %s: %w", path, commitID, err)
+	}
+	defer reader.Close()
+
+	content, err := io.ReadAll(reader)
+	if err != nil {
+		logger.LogError("AZDO_READ_CONTENT", path, err)
+		return "", fmt.Errorf("failed to read file content: %w", err)
+	}
+
+	logger.Log("AzureDevOps: getFileContent success for %s (%d bytes)", path, len(content))
+	return string(content), nil
 }
 
 func (c *Client) GetPullRequestThreads(ctx context.Context, projectID string, repoID string, pullRequestID int) (*[]git.GitPullRequestCommentThread, error) {

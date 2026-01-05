@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/johanforsgren/lgtmfaster/internal/domain"
+	"github.com/johanforsgren/lgtmfaster/internal/logger"
 )
 
 type PRInspectViewModel struct {
@@ -44,8 +45,10 @@ func (m *PRInspectViewModel) SetPR(pr *domain.PullRequest) {
 }
 
 func (m *PRInspectViewModel) SetDiff(diff *domain.Diff) {
+	logger.Log("PRInspectView: SetDiff called with %d files", len(diff.Files))
 	m.diff = diff
 	m.currentFile = 0
+	logger.Log("PRInspectView: currentFile reset to 0, calling updateViewport")
 	m.updateViewport()
 }
 
@@ -111,18 +114,41 @@ func (m *PRInspectViewModel) View() string {
 }
 
 func (m *PRInspectViewModel) updateViewport() {
+	logger.Log("PRInspectView: updateViewport called - pr=%v, diff=%v, diffFiles=%d",
+		m.pr != nil, m.diff != nil, func() int {
+			if m.diff != nil {
+				return len(m.diff.Files)
+			}
+			return 0
+		}())
+
 	var b strings.Builder
 
 	if m.pr != nil {
-		b.WriteString(m.renderPRHeader())
+		prHeader := m.renderPRHeader()
+		logger.Log("PRInspectView: Rendered PR header (%d bytes)", len(prHeader))
+		b.WriteString(prHeader)
 		b.WriteString("\n\n")
 	}
 
 	if m.diff != nil && len(m.diff.Files) > 0 {
-		b.WriteString(m.renderDiff())
+		logger.Log("PRInspectView: Rendering diff with %d files, currentFile=%d", len(m.diff.Files), m.currentFile)
+		diffContent := m.renderDiff()
+		logger.Log("PRInspectView: Rendered diff content (%d bytes)", len(diffContent))
+		b.WriteString(diffContent)
+	} else {
+		logger.Log("PRInspectView: NOT rendering diff - diff=%v, files=%d",
+			m.diff != nil, func() int {
+				if m.diff != nil {
+					return len(m.diff.Files)
+				}
+				return 0
+			}())
 	}
 
-	m.viewport.SetContent(b.String())
+	content := b.String()
+	logger.Log("PRInspectView: Setting viewport content (%d bytes total)", len(content))
+	m.viewport.SetContent(content)
 }
 
 func (m *PRInspectViewModel) renderPRHeader() string {
@@ -181,9 +207,20 @@ func (m *PRInspectViewModel) renderPRHeader() string {
 }
 
 func (m *PRInspectViewModel) renderDiff() string {
+	logger.Log("PRInspectView: renderDiff called - diff=%v, files=%d",
+		m.diff != nil, func() int {
+			if m.diff != nil {
+				return len(m.diff.Files)
+			}
+			return 0
+		}())
+
 	if m.diff == nil || len(m.diff.Files) == 0 {
+		logger.Log("PRInspectView: renderDiff returning 'No diff available'")
 		return "No diff available"
 	}
+
+	logger.Log("PRInspectView: renderDiff processing file %d/%d", m.currentFile+1, len(m.diff.Files))
 
 	var b strings.Builder
 
@@ -195,16 +232,20 @@ func (m *PRInspectViewModel) renderDiff() string {
 
 	file := m.diff.Files[m.currentFile]
 
+	filePath := getFilePath(file)
+	logger.Log("PRInspectView: Current file: %s (hunks: %d)", filePath, len(file.Hunks))
+
 	header := fmt.Sprintf("File %d/%d: %s",
 		m.currentFile+1,
 		len(m.diff.Files),
-		getFilePath(file),
+		filePath,
 	)
 
 	b.WriteString(fileHeaderStyle.Render(header))
 	b.WriteString("\n\n")
 
-	for _, hunk := range file.Hunks {
+	for hunkIdx, hunk := range file.Hunks {
+		logger.Log("PRInspectView: Rendering hunk %d/%d (lines: %d)", hunkIdx+1, len(file.Hunks), len(hunk.Lines))
 		hunkHeaderStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#3B82F6"))
 		b.WriteString(hunkHeaderStyle.Render(hunk.Header))
@@ -219,10 +260,14 @@ func (m *PRInspectViewModel) renderDiff() string {
 	}
 
 	if m.showComments {
-		b.WriteString(m.renderComments(getFilePath(file)))
+		commentsContent := m.renderComments(filePath)
+		logger.Log("PRInspectView: Rendered comments (%d bytes)", len(commentsContent))
+		b.WriteString(commentsContent)
 	}
 
-	return b.String()
+	result := b.String()
+	logger.Log("PRInspectView: renderDiff returning %d bytes", len(result))
+	return result
 }
 
 func (m *PRInspectViewModel) renderDiffLine(line domain.DiffLine) string {

@@ -14,7 +14,6 @@ import (
 	"github.com/microsoft/azure-devops-go-api/azuredevops/v7/webapi"
 )
 
-
 type ResolvedRepository struct {
 	ProjectID string
 	RepoID    string
@@ -160,13 +159,17 @@ func (p *Provider) GetPullRequest(ctx context.Context, identifier domain.PRIdent
 }
 
 func (p *Provider) GetDiff(ctx context.Context, identifier domain.PRIdentifier) (*domain.Diff, error) {
+	logger.Log("AzureDevOps Provider: GetDiff called for %s PR#%d", identifier.Repository, identifier.Number)
+
 	projectName, repoName, err := parseRepositoryIdentifier(identifier.Repository)
 	if err != nil {
+		logger.LogError("AZDO_PARSE_REPO", identifier.Repository, err)
 		return nil, err
 	}
 
 	projects, err := p.client.ListProjects(ctx)
 	if err != nil {
+		logger.LogError("AZDO_LIST_PROJECTS", "GetDiff", err)
 		return nil, err
 	}
 
@@ -179,11 +182,14 @@ func (p *Provider) GetDiff(ctx context.Context, identifier domain.PRIdentifier) 
 	}
 
 	if projectID == "" {
-		return nil, fmt.Errorf("project not found: %s", projectName)
+		err := fmt.Errorf("project not found: %s", projectName)
+		logger.LogError("AZDO_FIND_PROJECT", projectName, err)
+		return nil, err
 	}
 
 	repos, err := p.client.ListRepositories(ctx, projectID)
 	if err != nil {
+		logger.LogError("AZDO_LIST_REPOS", projectID, err)
 		return nil, err
 	}
 
@@ -196,27 +202,59 @@ func (p *Provider) GetDiff(ctx context.Context, identifier domain.PRIdentifier) 
 	}
 
 	if repoID == "" {
-		return nil, fmt.Errorf("repository not found: %s", repoName)
+		err := fmt.Errorf("repository not found: %s", repoName)
+		logger.LogError("AZDO_FIND_REPO", repoName, err)
+		return nil, err
 	}
+
+	logger.Log("AzureDevOps Provider: Resolved project=%s, repo=%s", projectID, repoID)
 
 	pr, err := p.client.GetPullRequest(ctx, projectID, repoID, identifier.Number)
 	if err != nil {
+		logger.LogError("AZDO_GET_PR", fmt.Sprintf("PR#%d", identifier.Number), err)
 		return nil, err
 	}
 
 	if pr.LastMergeSourceCommit == nil || pr.LastMergeTargetCommit == nil {
+		logger.Log("AzureDevOps Provider: PR has no merge commits, returning empty diff")
 		return &domain.Diff{Files: []domain.FileDiff{}}, nil
 	}
 
 	baseCommit := getString(pr.LastMergeTargetCommit.CommitId)
 	targetCommit := getString(pr.LastMergeSourceCommit.CommitId)
 
+	logger.Log("AzureDevOps Provider: Fetching diff between %s...%s", baseCommit[:8], targetCommit[:8])
+
 	diffText, err := p.client.GetCommitDiffs(ctx, projectID, repoID, baseCommit, targetCommit)
 	if err != nil {
+		logger.LogError("AZDO_GET_COMMIT_DIFFS", fmt.Sprintf("%s...%s", baseCommit[:8], targetCommit[:8]), err)
 		return nil, err
 	}
 
-	return common.ParseUnifiedDiff(diffText), nil
+	logger.Log("AzureDevOps Provider: Raw diff text length: %d bytes", len(diffText))
+
+	parsedDiff := common.ParseUnifiedDiff(diffText)
+
+	logger.Log("AzureDevOps Provider: Parsed diff has %d files", len(parsedDiff.Files))
+	for i, file := range parsedDiff.Files {
+		logger.Log("AzureDevOps Provider: File %d: %s (hunks: %d)", i+1, getFilePath(file), len(file.Hunks))
+	}
+
+	return parsedDiff, nil
+}
+
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
+}
+
+func getFilePath(file domain.FileDiff) string {
+	if file.NewPath != "" {
+		return file.NewPath
+	}
+	return file.OldPath
 }
 
 func (p *Provider) GetComments(ctx context.Context, identifier domain.PRIdentifier) ([]domain.Comment, error) {

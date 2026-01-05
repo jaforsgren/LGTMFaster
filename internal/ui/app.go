@@ -231,7 +231,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case DiffLoadedMsg:
+		logger.Log("UI: DiffLoadedMsg received - diff has %d files", len(msg.diff.Files))
+		for i, file := range msg.diff.Files {
+			filePath := file.NewPath
+			if filePath == "" {
+				filePath = file.OldPath
+			}
+			logger.Log("UI: DiffLoadedMsg - File %d: %s (%d hunks)", i+1, filePath, len(file.Hunks))
+		}
 		m.prInspect.SetDiff(msg.diff)
+		logger.Log("UI: SetDiff called on prInspect view")
 		return m, nil
 
 	case CommentsLoadedMsg:
