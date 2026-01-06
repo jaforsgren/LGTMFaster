@@ -110,7 +110,20 @@ func (r *LocalRepository) ListPATs() ([]domain.PAT, error) {
 
 	logger.Log("Listing PATs: found %d", len(r.config.PATs))
 	pats := make([]domain.PAT, len(r.config.PATs))
-	copy(pats, r.config.PATs)
+	for i, pat := range r.config.PATs {
+		pats[i] = pat
+		pats[i].IsSelected = false
+		pats[i].IsPrimary = false
+		for _, selectedID := range r.config.SelectedPATs {
+			if pat.ID == selectedID {
+				pats[i].IsSelected = true
+				if selectedID == r.config.PrimaryPAT {
+					pats[i].IsPrimary = true
+				}
+				break
+			}
+		}
+	}
 	return pats, nil
 }
 

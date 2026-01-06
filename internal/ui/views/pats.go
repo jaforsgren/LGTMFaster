@@ -256,7 +256,7 @@ func (m *PATsViewModel) viewListMode() string {
 	help := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#6B7280")).
 		Italic(true).
-		Render("\nSpace: Toggle | Enter: Load PRs | a: Add | e: Edit | d: Delete | q: Back")
+		Render("\nSpace: Toggle selection (✓=selected, ●=primary) | Enter: Load PRs | a: Add | e: Edit | d: Delete | q: Back")
 
 	return m.list.View() + help
 }

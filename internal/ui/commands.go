@@ -116,7 +116,7 @@ func (cr *CommandRegistry) registerKeyBindings() {
 		},
 		{
 			Keys:        []string{" "},
-			Description: "Toggle PAT selection",
+			Description: "Toggle selection (multi-select)",
 			ShortHelp:   "space",
 			Handler:     handleSpaceKey,
 			AvailableIn: []ViewState{ViewPATs},
