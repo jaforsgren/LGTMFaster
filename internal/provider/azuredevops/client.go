@@ -44,9 +44,12 @@ func NewClient(token string, organization string, username string) (*Client, err
 
 	userID, err := client.getAuthenticatedUserID(context.Background())
 	if err != nil {
-		return nil, fmt.Errorf("failed to get authenticated user ID: %w", err)
+		logger.Log("AzureDevOps: Warning - Could not determine user ID during initialization: %v", err)
+		logger.Log("AzureDevOps: User ID will be resolved when needed for review submission")
+	} else {
+		client.userID = userID
+		logger.Log("AzureDevOps: Authenticated user ID: %s (username: %s)", userID, username)
 	}
-	client.userID = userID
 
 	return client, nil
 }
