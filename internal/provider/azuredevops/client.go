@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/johanforsgren/lgtmfaster/internal/logger"
 	"github.com/microsoft/azure-devops-go-api/azuredevops/v7"
 	"github.com/microsoft/azure-devops-go-api/azuredevops/v7/core"
 	"github.com/microsoft/azure-devops-go-api/azuredevops/v7/git"
@@ -43,9 +44,12 @@ func NewClient(token string, organization string, username string) (*Client, err
 
 	userID, err := client.getAuthenticatedUserID(context.Background())
 	if err != nil {
-		return nil, fmt.Errorf("failed to get authenticated user ID: %w", err)
+		logger.Log("AzureDevOps: Warning - Could not determine user ID during initialization: %v", err)
+		logger.Log("AzureDevOps: User ID will be resolved when needed for review submission")
+	} else {
+		client.userID = userID
+		logger.Log("AzureDevOps: Authenticated user ID: %s (username: %s)", userID, username)
 	}
-	client.userID = userID
 
 	return client, nil
 }
@@ -64,11 +68,89 @@ func (c *Client) ValidateCredentials(ctx context.Context) error {
 }
 
 func (c *Client) GetAuthenticatedUserID(ctx context.Context) (string, error) {
+	if c.userID != "" {
+		return c.userID, nil
+	}
+
+	logger.Log("AzureDevOps: User ID not cached, attempting lazy resolution...")
+	userID, err := c.getAuthenticatedUserID(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	c.userID = userID
+	logger.Log("AzureDevOps: Successfully resolved user ID: %s", userID)
 	return c.userID, nil
 }
 
 func (c *Client) getAuthenticatedUserID(ctx context.Context) (string, error) {
-	return c.username, nil
+	projects, err := c.coreClient.GetProjects(ctx, core.GetProjectsArgs{
+		Top: intPtr(10),
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to get projects: %w", err)
+	}
+
+	if projects == nil || len(projects.Value) == 0 {
+		return "", fmt.Errorf("no projects found to determine user identity")
+	}
+
+	statuses := []git.PullRequestStatus{
+		git.PullRequestStatusValues.Active,
+		git.PullRequestStatusValues.Completed,
+		git.PullRequestStatusValues.Abandoned,
+	}
+
+	for _, project := range projects.Value {
+		projectIDStr := project.Id.String()
+
+		repos, err := c.gitClient.GetRepositories(ctx, git.GetRepositoriesArgs{
+			Project: &projectIDStr,
+		})
+		if err != nil || repos == nil || len(*repos) == 0 {
+			continue
+		}
+
+		for _, repo := range *repos {
+			repoIDStr := repo.Id.String()
+
+			for _, status := range statuses {
+				prs, err := c.gitClient.GetPullRequests(ctx, git.GetPullRequestsArgs{
+					RepositoryId: &repoIDStr,
+					Project:      &projectIDStr,
+					SearchCriteria: &git.GitPullRequestSearchCriteria{
+						Status: &status,
+					},
+					Top: intPtr(100),
+				})
+				if err != nil || prs == nil {
+					continue
+				}
+
+				for _, pr := range *prs {
+					if pr.CreatedBy != nil && pr.CreatedBy.Id != nil && pr.CreatedBy.UniqueName != nil {
+						if *pr.CreatedBy.UniqueName == c.username {
+							logger.Log("AzureDevOps: Found user ID %s from PR creator in %s/%s", *pr.CreatedBy.Id, *project.Name, *repo.Name)
+							return *pr.CreatedBy.Id, nil
+						}
+					}
+
+					if pr.Reviewers != nil {
+						for _, reviewer := range *pr.Reviewers {
+							if reviewer.UniqueName != nil && reviewer.Id != nil {
+								if *reviewer.UniqueName == c.username {
+									logger.Log("AzureDevOps: Found user ID %s from PR reviewer in %s/%s", *reviewer.Id, *project.Name, *repo.Name)
+									return *reviewer.Id, nil
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return "", fmt.Errorf("unable to determine user ID from Azure DevOps - searched all projects/repos but found no PRs created by or reviewed by user %s", c.username)
 }
 
 func (c *Client) ListProjects(ctx context.Context) (*[]core.TeamProjectReference, error) {
