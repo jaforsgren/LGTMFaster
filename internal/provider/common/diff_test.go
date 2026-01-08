@@ -100,6 +100,41 @@ func TestParseUnifiedDiff(t *testing.T) {
 			},
 		},
 		{
+			name: "github format with index line",
+			diffText: "diff --git a/README.md b/README.md\n" +
+				"index 1234567..89abcdef 100644\n" +
+				"--- a/README.md\n" +
+				"+++ b/README.md\n" +
+				"@@ -1,5 +1,6 @@\n" +
+				" # LGTMFaster\n" +
+				" \n" +
+				" A tool for reviewing PRs\n" +
+				"+Now with multiple PAT support!\n" +
+				" \n" +
+				" ## Installation",
+			want: &domain.Diff{
+				Files: []domain.FileDiff{
+					{
+						OldPath: "README.md",
+						NewPath: "README.md",
+						Hunks: []domain.DiffHunk{
+							{
+								Header: "@@ -1,5 +1,6 @@",
+								Lines: []domain.DiffLine{
+									{Content: " # LGTMFaster", Type: "context", OldLine: 1, NewLine: 1},
+									{Content: " ", Type: "context", OldLine: 2, NewLine: 2},
+									{Content: " A tool for reviewing PRs", Type: "context", OldLine: 3, NewLine: 3},
+									{Content: "+Now with multiple PAT support!", Type: "add", NewLine: 4},
+									{Content: " ", Type: "context", OldLine: 4, NewLine: 5},
+									{Content: " ## Installation", Type: "context", OldLine: 5, NewLine: 6},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
 			name: "multiple files",
 			diffText: `diff --git a/file1.txt b/file1.txt
 --- a/file1.txt

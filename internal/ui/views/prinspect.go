@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/johanforsgren/lgtmfaster/internal/domain"
+	"github.com/johanforsgren/lgtmfaster/internal/logger"
 )
 
 type PRInspectViewModel struct {
@@ -46,6 +47,15 @@ func (m *PRInspectViewModel) SetPR(pr *domain.PullRequest) {
 func (m *PRInspectViewModel) SetDiff(diff *domain.Diff) {
 	m.diff = diff
 	m.currentFile = 0
+	logger.Log("PRInspectView: SetDiff called with %d files", len(diff.Files))
+	if len(diff.Files) > 0 {
+		for i, file := range diff.Files {
+			logger.Log("PRInspectView: File %d: %s -> %s (%d hunks)", i+1, file.OldPath, file.NewPath, len(file.Hunks))
+			if len(file.Hunks) > 0 {
+				logger.Log("PRInspectView: File %d has %d lines in first hunk", i+1, len(file.Hunks[0].Lines))
+			}
+		}
+	}
 	m.updateViewport()
 }
 
@@ -182,8 +192,11 @@ func (m *PRInspectViewModel) renderPRHeader() string {
 
 func (m *PRInspectViewModel) renderDiff() string {
 	if m.diff == nil || len(m.diff.Files) == 0 {
+		logger.Log("PRInspectView: renderDiff - No diff available (diff nil: %v, files: %d)", m.diff == nil, 0)
 		return "No diff available"
 	}
+
+	logger.Log("PRInspectView: renderDiff - Rendering file %d of %d", m.currentFile+1, len(m.diff.Files))
 
 	var b strings.Builder
 
@@ -204,11 +217,15 @@ func (m *PRInspectViewModel) renderDiff() string {
 	b.WriteString(fileHeaderStyle.Render(header))
 	b.WriteString("\n\n")
 
-	for _, hunk := range file.Hunks {
+	logger.Log("PRInspectView: renderDiff - File has %d hunks", len(file.Hunks))
+
+	for hunkIdx, hunk := range file.Hunks {
 		hunkHeaderStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#3B82F6"))
 		b.WriteString(hunkHeaderStyle.Render(hunk.Header))
 		b.WriteString("\n")
+
+		logger.Log("PRInspectView: renderDiff - Hunk %d has %d lines", hunkIdx+1, len(hunk.Lines))
 
 		for _, line := range hunk.Lines {
 			b.WriteString(m.renderDiffLine(line))
@@ -222,7 +239,9 @@ func (m *PRInspectViewModel) renderDiff() string {
 		b.WriteString(m.renderComments(getFilePath(file)))
 	}
 
-	return b.String()
+	result := b.String()
+	logger.Log("PRInspectView: renderDiff - Generated %d bytes of content", len(result))
+	return result
 }
 
 func (m *PRInspectViewModel) renderDiffLine(line domain.DiffLine) string {

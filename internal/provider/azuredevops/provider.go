@@ -208,15 +208,31 @@ func (p *Provider) GetDiff(ctx context.Context, identifier domain.PRIdentifier) 
 		return &domain.Diff{Files: []domain.FileDiff{}}, nil
 	}
 
-	baseCommit := getString(pr.LastMergeTargetCommit.CommitId)
-	targetCommit := getString(pr.LastMergeSourceCommit.CommitId)
-
-	diffText, err := p.client.GetCommitDiffs(ctx, projectID, repoID, baseCommit, targetCommit)
+	logger.Log("AzureDevOps: Requesting PR iteration changes for PR #%d", identifier.Number)
+	diffText, err := p.client.GetPullRequestIterationChanges(ctx, projectID, repoID, identifier.Number)
 	if err != nil {
+		logger.LogError("AZURE_GET_DIFF", fmt.Sprintf("project=%s repo=%s PR=%d", projectID, repoID, identifier.Number), err)
 		return nil, err
 	}
 
-	return common.ParseUnifiedDiff(diffText), nil
+	logger.Log("AzureDevOps: Received diff text length: %d bytes", len(diffText))
+	if len(diffText) > 0 {
+		logger.Log("AzureDevOps: First 200 chars of diff: %s", diffText[:min(200, len(diffText))])
+	}
+
+	diff := common.ParseUnifiedDiff(diffText)
+	logger.Log("AzureDevOps: Parsed diff with %d files", len(diff.Files))
+	for i, file := range diff.Files {
+		logger.Log("AzureDevOps: File %d: %s -> %s (%d hunks)", i+1, file.OldPath, file.NewPath, len(file.Hunks))
+	}
+	return diff, nil
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func (p *Provider) GetComments(ctx context.Context, identifier domain.PRIdentifier) ([]domain.Comment, error) {

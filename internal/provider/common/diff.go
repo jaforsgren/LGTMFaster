@@ -17,6 +17,10 @@ func ParseUnifiedDiff(diffText string) *domain.Diff {
 	var currentHunk *domain.DiffHunk
 	oldLine, newLine := 0, 0
 
+	if diffText == "" {
+		return &domain.Diff{Files: files}
+	}
+
 	for _, line := range lines {
 		if strings.HasPrefix(line, "diff --git") {
 			if currentFile != nil && currentHunk != nil {
@@ -70,16 +74,14 @@ func ParseUnifiedDiff(diffText string) *domain.Diff {
 				diffLine.Type = "delete"
 				diffLine.OldLine = oldLine
 				oldLine++
-			} else if line != "" {
+			} else {
 				diffLine.Type = "context"
 				diffLine.OldLine = oldLine
 				diffLine.NewLine = newLine
 				oldLine++
 				newLine++
 			}
-			if line != "" || diffLine.Type != "" {
-				currentHunk.Lines = append(currentHunk.Lines, diffLine)
-			}
+			currentHunk.Lines = append(currentHunk.Lines, diffLine)
 		}
 	}
 

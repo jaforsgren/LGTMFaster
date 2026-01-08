@@ -80,9 +80,24 @@ func (p *Provider) GetDiff(ctx context.Context, identifier domain.PRIdentifier) 
 		return nil, err
 	}
 
+	logger.Log("GitHub: Received diff text length: %d bytes", len(diffText))
+	if len(diffText) > 0 {
+		logger.Log("GitHub: First 200 chars of diff: %s", diffText[:min(200, len(diffText))])
+	}
+
 	diff := common.ParseUnifiedDiff(diffText)
 	logger.Log("GitHub: Parsed diff with %d files", len(diff.Files))
+	for i, file := range diff.Files {
+		logger.Log("GitHub: File %d: %s -> %s (%d hunks)", i+1, file.OldPath, file.NewPath, len(file.Hunks))
+	}
 	return diff, nil
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func (p *Provider) GetComments(ctx context.Context, identifier domain.PRIdentifier) ([]domain.Comment, error) {

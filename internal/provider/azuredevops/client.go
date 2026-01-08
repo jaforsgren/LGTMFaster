@@ -3,6 +3,7 @@ package azuredevops
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/microsoft/azure-devops-go-api/azuredevops/v7"
 	"github.com/microsoft/azure-devops-go-api/azuredevops/v7/core"
@@ -12,7 +13,7 @@ import (
 type Client struct {
 	connection   *azuredevops.Connection
 	coreClient   core.Client
-	gitClient    git.Client
+	gitClient    GitClientInterface
 	organization string
 	username     string
 }
@@ -122,90 +123,204 @@ func (c *Client) GetPullRequestCommits(ctx context.Context, projectID string, re
 	return &response.Value, nil
 }
 
-func (c *Client) GetCommitDiffs(ctx context.Context, projectID string, repoID string, baseCommit string, targetCommit string) (string, error) {
-	commits, err := c.gitClient.GetCommits(ctx, git.GetCommitsArgs{
-		RepositoryId: &repoID,
-		Project:      &projectID,
-		SearchCriteria: &git.GitQueryCommitsCriteria{
-			ItemVersion: &git.GitVersionDescriptor{
-				Version:     &targetCommit,
-				VersionType: &git.GitVersionTypeValues.Commit,
-			},
-			CompareVersion: &git.GitVersionDescriptor{
-				Version:     &baseCommit,
-				VersionType: &git.GitVersionTypeValues.Commit,
-			},
-		},
+func (c *Client) GetPullRequestIterationChanges(ctx context.Context, projectID string, repoID string, pullRequestID int) (string, error) {
+	iterations, err := c.gitClient.GetPullRequestIterations(ctx, git.GetPullRequestIterationsArgs{
+		RepositoryId:  &repoID,
+		PullRequestId: &pullRequestID,
+		Project:       &projectID,
 	})
 	if err != nil {
-		return "", fmt.Errorf("failed to get commits: %w", err)
+		return "", fmt.Errorf("failed to get PR iterations: %w", err)
 	}
 
-	if commits == nil || len(*commits) == 0 {
-		return "", nil
+	if iterations == nil || len(*iterations) == 0 {
+		return "", fmt.Errorf("no iterations found for PR")
+	}
+
+	latestIteration := (*iterations)[len(*iterations)-1]
+	if latestIteration.Id == nil {
+		return "", fmt.Errorf("latest iteration has no ID")
+	}
+
+	changes, err := c.gitClient.GetPullRequestIterationChanges(ctx, git.GetPullRequestIterationChangesArgs{
+		RepositoryId:  &repoID,
+		PullRequestId: &pullRequestID,
+		IterationId:   latestIteration.Id,
+		Project:       &projectID,
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to get PR iteration changes: %w", err)
+	}
+
+	if changes == nil || changes.ChangeEntries == nil || len(*changes.ChangeEntries) == 0 {
+		return "", fmt.Errorf("no changes found in latest iteration")
 	}
 
 	diffText := ""
-	for _, commit := range *commits {
-		if commit.CommitId == nil {
+	for _, change := range *changes.ChangeEntries {
+		itemMap, ok := change.Item.(map[string]interface{})
+		if !ok || itemMap == nil {
 			continue
 		}
 
-		changes, err := c.gitClient.GetChanges(ctx, git.GetChangesArgs{
-			CommitId:     commit.CommitId,
-			RepositoryId: &repoID,
-			Project:      &projectID,
-		})
-		if err != nil {
+		path, _ := itemMap["path"].(string)
+		if path == "" {
 			continue
 		}
 
-		if changes == nil || changes.Changes == nil {
+		isFolder, _ := itemMap["isFolder"].(bool)
+		if isFolder {
 			continue
 		}
 
-		for _, change := range *changes.Changes {
-			changeMap, ok := change.(map[string]interface{})
-			if !ok {
+		objectId, _ := itemMap["objectId"].(string)
+
+		originalObjectId := ""
+		if originalPath, ok := itemMap["originalPath"]; ok && originalPath != nil {
+			originalObjectId, _ = itemMap["originalObjectId"].(string)
+		}
+
+		changeType := 0
+		if change.ChangeType != nil {
+			changeTypeStr := string(*change.ChangeType)
+			switch changeTypeStr {
+			case "add", "1":
+				changeType = 1
+			case "edit", "2":
+				changeType = 2
+			case "delete", "16":
+				changeType = 16
+			}
+		}
+
+		const (
+			changeTypeAdd    = 1
+			changeTypeEdit   = 2
+			changeTypeDelete = 16
+		)
+
+		switch changeType {
+		case changeTypeAdd:
+			if objectId == "" {
+				continue
+			}
+			content, err := c.getFileContent(ctx, projectID, repoID, objectId)
+			if err != nil {
+				continue
+			}
+			diffText += fmt.Sprintf("diff --git a%s b%s\n", path, path)
+			diffText += "--- /dev/null\n"
+			diffText += fmt.Sprintf("+++ b%s\n", path)
+			diffText += fmt.Sprintf("@@ -0,0 +1,%d @@\n", len(content))
+			for _, line := range content {
+				diffText += "+" + line + "\n"
+			}
+
+		case changeTypeDelete:
+			if originalObjectId == "" {
+				continue
+			}
+			content, err := c.getFileContent(ctx, projectID, repoID, originalObjectId)
+			if err != nil {
+				continue
+			}
+			diffText += fmt.Sprintf("diff --git a%s b%s\n", path, path)
+			diffText += fmt.Sprintf("--- a%s\n", path)
+			diffText += "+++ /dev/null\n"
+			diffText += fmt.Sprintf("@@ -1,%d +0,0 @@\n", len(content))
+			for _, line := range content {
+				diffText += "-" + line + "\n"
+			}
+
+		case changeTypeEdit:
+			if objectId == "" || originalObjectId == "" {
 				continue
 			}
 
-			item, hasItem := changeMap["item"].(map[string]interface{})
-			if !hasItem {
+			newContent, err := c.getFileContent(ctx, projectID, repoID, objectId)
+			if err != nil {
 				continue
 			}
-
-			path, hasPath := item["path"].(string)
-			if !hasPath {
+			oldContent, err := c.getFileContent(ctx, projectID, repoID, originalObjectId)
+			if err != nil {
 				continue
 			}
 
 			diffText += fmt.Sprintf("diff --git a%s b%s\n", path, path)
+			diffText += fmt.Sprintf("--- a%s\n", path)
+			diffText += fmt.Sprintf("+++ b%s\n", path)
 
-			if changeTypeStr, hasChangeType := changeMap["changeType"].(string); hasChangeType {
-				switch changeTypeStr {
-				case "add":
-					diffText += fmt.Sprintf("--- /dev/null\n+++ b%s\n", path)
-					diffText += "@@ -0,0 +1,1 @@\n"
-					diffText += "+ (file added)\n"
-				case "delete":
-					diffText += fmt.Sprintf("--- a%s\n+++ /dev/null\n", path)
-					diffText += "@@ -1,1 +0,0 @@\n"
-					diffText += "- (file deleted)\n"
-				case "edit":
-					diffText += fmt.Sprintf("--- a%s\n+++ b%s\n", path, path)
-					diffText += "@@ -1,1 +1,1 @@\n"
-					diffText += "  (file modified)\n"
-				default:
-					diffText += fmt.Sprintf("--- a%s\n+++ b%s\n", path, path)
-					diffText += "@@ -1,1 +1,1 @@\n"
-					diffText += "  (file changed)\n"
-				}
-			}
+			unifiedDiff := generateUnifiedDiff(oldContent, newContent)
+			diffText += unifiedDiff
 		}
 	}
 
 	return diffText, nil
+}
+
+func (c *Client) getFileContent(ctx context.Context, projectID string, repoID string, objectId string) ([]string, error) {
+	stream, err := c.gitClient.GetBlobContent(ctx, git.GetBlobContentArgs{
+		RepositoryId: &repoID,
+		Sha1:         &objectId,
+		Project:      &projectID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	defer stream.Close()
+
+	content := make([]byte, 0, 4096)
+	buf := make([]byte, 1024)
+	for {
+		n, err := stream.Read(buf)
+		if n > 0 {
+			content = append(content, buf[:n]...)
+		}
+		if err != nil {
+			break
+		}
+	}
+
+	text := string(content)
+	lines := strings.Split(text, "\n")
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	return lines, nil
+}
+
+func generateUnifiedDiff(oldLines, newLines []string) string {
+	return generateSimpleDiff(oldLines, newLines)
+}
+
+func generateSimpleDiff(oldLines, newLines []string) string {
+	result := fmt.Sprintf("@@ -1,%d +1,%d @@\n", len(oldLines), len(newLines))
+
+	maxLen := len(oldLines)
+	if len(newLines) > maxLen {
+		maxLen = len(newLines)
+	}
+
+	for i := 0; i < maxLen; i++ {
+		if i < len(oldLines) && i < len(newLines) {
+			if oldLines[i] == newLines[i] {
+				result += " " + oldLines[i] + "\n"
+			} else {
+				result += "-" + oldLines[i] + "\n"
+				result += "+" + newLines[i] + "\n"
+			}
+		} else if i < len(oldLines) {
+			result += "-" + oldLines[i] + "\n"
+		} else {
+			result += "+" + newLines[i] + "\n"
+		}
+	}
+
+	return result
+}
+
+func boolPtr(b bool) *bool {
+	return &b
 }
 
 func (c *Client) GetPullRequestThreads(ctx context.Context, projectID string, repoID string, pullRequestID int) (*[]git.GitPullRequestCommentThread, error) {
