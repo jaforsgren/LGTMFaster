@@ -25,41 +25,43 @@ const (
 )
 
 type Model struct {
-	state           ViewState
-	width           int
-	height          int
-	topBar          *components.TopBarModel
-	statusBar       *components.StatusBarModel
-	commandBar      *components.CommandBarModel
-	patsView        *views.PATsViewModel
-	prListView      *views.PRListViewModel
-	prInspect       *views.PRInspectViewModel
-	reviewView      *views.ReviewViewModel
-	logsView        *views.LogsViewModel
-	repository      domain.Repository
-	provider        domain.Provider
-	providers       map[string]domain.Provider
-	primaryProvider domain.Provider
-	primaryPATID    string
-	ctx             context.Context
-	commandRegistry *CommandRegistry
+	state            ViewState
+	width            int
+	height           int
+	topBar           *components.TopBarModel
+	statusBar        *components.StatusBarModel
+	commandBar       *components.CommandBarModel
+	patsView         *views.PATsViewModel
+	prListView       *views.PRListViewModel
+	prInspect        *views.PRInspectViewModel
+	reviewView       *views.ReviewViewModel
+	logsView         *views.LogsViewModel
+	repository       domain.Repository
+	provider         domain.Provider
+	providers        map[string]domain.Provider
+	primaryProvider  domain.Provider
+	primaryPATID     string
+	ctx              context.Context
+	commandRegistry  *CommandRegistry
+	isInitialStartup bool
 }
 
 func NewModel(repository domain.Repository) Model {
 	return Model{
-		state:           ViewPATs,
-		topBar:          components.NewTopBar(),
-		statusBar:       components.NewStatusBar(),
-		commandBar:      components.NewCommandBar(),
-		patsView:        views.NewPATsView(),
-		prListView:      views.NewPRListView(),
-		prInspect:       views.NewPRInspectView(),
-		reviewView:      views.NewReviewView(),
-		logsView:        views.NewLogsView(),
-		repository:      repository,
-		providers:       make(map[string]domain.Provider),
-		ctx:             context.Background(),
-		commandRegistry: NewCommandRegistry(),
+		state:            ViewPATs,
+		topBar:           components.NewTopBar(),
+		statusBar:        components.NewStatusBar(),
+		commandBar:       components.NewCommandBar(),
+		patsView:         views.NewPATsView(),
+		prListView:       views.NewPRListView(),
+		prInspect:        views.NewPRInspectView(),
+		reviewView:       views.NewReviewView(),
+		logsView:         views.NewLogsView(),
+		repository:       repository,
+		providers:        make(map[string]domain.Provider),
+		ctx:              context.Background(),
+		commandRegistry:  NewCommandRegistry(),
+		isInitialStartup: true,
 	}
 }
 
@@ -142,8 +144,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 			if m.state == ViewPATs && (m.patsView.Mode == views.PATModeAdd || m.patsView.Mode == views.PATModeEdit) {
-				cmd = m.patsView.Update(msg)
-				return m, cmd
+				switch key {
+				case "enter":
+					return m.handlePATEnter()
+				case "esc":
+					m.patsView.ExitEditMode()
+					return m, nil
+				default:
+					cmd = m.patsView.Update(msg)
+					return m, cmd
+				}
 			}
 		}
 
@@ -193,7 +203,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.topBar.SetSelectedPATCount(selectedCount)
 		}
 
-		if selectedCount > 0 {
+		if selectedCount > 0 && m.isInitialStartup {
+			m.isInitialStartup = false
 			m.state = ViewPRList
 			m.topBar.SetView("PRs")
 			m.updateShortcuts()
@@ -201,6 +212,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.loadPRs()
 		}
 
+		m.isInitialStartup = false
 		m.topBar.SetView("PATs")
 		m.updateShortcuts()
 		return m, nil
