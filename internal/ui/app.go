@@ -193,6 +193,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.topBar.SetSelectedPATCount(selectedCount)
 		}
 
+		if selectedCount > 0 {
+			m.state = ViewPRList
+			m.topBar.SetView("PRs")
+			m.updateShortcuts()
+			logger.Log("UI: Starting in PR list view with %d selected PAT(s)", selectedCount)
+			return m, m.loadPRs()
+		}
+
 		m.topBar.SetView("PATs")
 		m.updateShortcuts()
 		return m, nil
@@ -256,6 +264,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case SuccessMsg:
 		m.statusBar.SetMessage(msg.message, false)
+		if msg.reloadComments && msg.reloadCommentsPR != nil {
+			return m, m.loadComments(*msg.reloadCommentsPR)
+		}
 		return m, nil
 
 	case ClearStatusMsg:
@@ -475,14 +486,41 @@ func (m Model) submitReview() tea.Cmd {
 		}
 	}
 
+	provider := m.getProviderForPR(*pr)
+	if provider == nil {
+		logger.LogError("SUBMIT_REVIEW", "UI", fmt.Errorf("no provider available for PR"))
+		return func() tea.Msg {
+			return ErrorMsg{err: fmt.Errorf("no provider available for PR")}
+		}
+	}
+
+	var authenticatedUser string
+	if pr.PATID != "" {
+		pat, err := m.repository.GetPAT(pr.PATID)
+		if err == nil && pat != nil {
+			authenticatedUser = pat.Username
+		}
+	}
+
+	isOwnPR := authenticatedUser != "" && pr.Author.Username == authenticatedUser
+	if isOwnPR && (review.Action == domain.ReviewActionApprove || review.Action == domain.ReviewActionRequestChanges) {
+		logger.Log("UI: Cannot %s your own PR, converting to comment", review.Action)
+		review.Action = domain.ReviewActionComment
+	}
+
 	review.PRIdentifier = fmt.Sprintf("%s/%d", pr.Repository.FullName, pr.Number)
 
-	logger.Log("UI: Submitting review for %s (Action: %s)", review.PRIdentifier, review.Action)
+	logger.Log("UI: Submitting review for %s using provider %s (PATID: %s, Action: %s)",
+		review.PRIdentifier, pr.ProviderType, pr.PATID, review.Action)
 	return func() tea.Msg {
-		if err := m.provider.SubmitReview(m.ctx, review); err != nil {
+		if err := provider.SubmitReview(m.ctx, review); err != nil {
 			return ErrorMsg{err: err}
 		}
-		return SuccessMsg{message: "Review submitted successfully"}
+		return SuccessMsg{
+			message:          "Review submitted successfully",
+			reloadComments:   true,
+			reloadCommentsPR: pr,
+		}
 	}
 }
 
@@ -607,6 +645,10 @@ func (m Model) loadPRDetail(pr domain.PullRequest) tea.Cmd {
 		if err != nil {
 			return ErrorMsg{err: err}
 		}
+
+		prDetail.ProviderType = pr.ProviderType
+		prDetail.PATID = pr.PATID
+
 		return PRDetailLoadedMsg{pr: prDetail}
 	}
 }
@@ -710,7 +752,9 @@ type ErrorMsg struct {
 }
 
 type SuccessMsg struct {
-	message string
+	message             string
+	reloadComments      bool
+	reloadCommentsPR    *domain.PullRequest
 }
 
 type ClearStatusMsg struct{}

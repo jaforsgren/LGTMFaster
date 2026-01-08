@@ -16,6 +16,7 @@ type Client struct {
 	gitClient    GitClientInterface
 	organization string
 	username     string
+	userID       string
 }
 
 func NewClient(token string, organization string, username string) (*Client, error) {
@@ -32,13 +33,21 @@ func NewClient(token string, organization string, username string) (*Client, err
 		return nil, fmt.Errorf("failed to create git client: %w", err)
 	}
 
-	return &Client{
+	client := &Client{
 		connection:   connection,
 		coreClient:   coreClient,
 		gitClient:    gitClient,
 		organization: organization,
 		username:     username,
-	}, nil
+	}
+
+	userID, err := client.getAuthenticatedUserID(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("failed to get authenticated user ID: %w", err)
+	}
+	client.userID = userID
+
+	return client, nil
 }
 
 func (c *Client) ValidateCredentials(ctx context.Context) error {
@@ -55,8 +64,11 @@ func (c *Client) ValidateCredentials(ctx context.Context) error {
 }
 
 func (c *Client) GetAuthenticatedUserID(ctx context.Context) (string, error) {
-	connectionData := c.connection.AuthorizationString
-	return connectionData, nil
+	return c.userID, nil
+}
+
+func (c *Client) getAuthenticatedUserID(ctx context.Context) (string, error) {
+	return c.username, nil
 }
 
 func (c *Client) ListProjects(ctx context.Context) (*[]core.TeamProjectReference, error) {

@@ -361,7 +361,14 @@ func (p *Provider) SubmitReview(ctx context.Context, review domain.Review) error
 	if review.Action != domain.ReviewActionComment {
 		vote := convertReviewActionToVote(review.Action)
 		logger.Log("AzureDevOps: Submitting vote %d for PR #%d", vote, prNumber)
-		userID := p.client.username
+
+		userID, err := p.client.GetAuthenticatedUserID(ctx)
+		if err != nil {
+			logger.LogError("AZDO_GET_USER_ID", fmt.Sprintf("%s#%d", repository, prNumber), err)
+			return fmt.Errorf("failed to get authenticated user ID: %w", err)
+		}
+
+		logger.Log("AzureDevOps: Using user ID %s for vote", userID)
 		if err := p.client.CreatePullRequestReview(ctx, projectID, repoID, prNumber, userID, vote); err != nil {
 			logger.LogError("AZDO_SUBMIT_VOTE", fmt.Sprintf("%s#%d", repository, prNumber), err)
 			if createdComments > 0 {
