@@ -567,15 +567,23 @@ func (m Model) loadPRs() tea.Cmd {
 				continue
 			}
 
+			// Tag each PR with its provider and PAT ID
+			taggedPRs := make([]domain.PullRequest, len(result.prs))
+			for j, pr := range result.prs {
+				pr.ProviderType = result.pat.Provider
+				pr.PATID = result.pat.ID
+				taggedPRs[j] = pr
+			}
+
 			allGroups = append(allGroups, domain.PRGroup{
 				PATName:   result.pat.Name,
 				PATID:     result.pat.ID,
 				Provider:  result.pat.Provider,
 				Username:  result.pat.Username,
 				IsPrimary: result.pat.IsPrimary,
-				PRs:       result.prs,
+				PRs:       taggedPRs,
 			})
-			allPRs = append(allPRs, result.prs...)
+			allPRs = append(allPRs, taggedPRs...)
 		}
 
 		return PRsLoadedMsg{prs: allPRs, groups: allGroups}
@@ -584,13 +592,18 @@ func (m Model) loadPRs() tea.Cmd {
 
 func (m Model) loadPRDetail(pr domain.PullRequest) tea.Cmd {
 	return func() tea.Msg {
+		provider := m.getProviderForPR(pr)
+		if provider == nil {
+			return ErrorMsg{err: fmt.Errorf("no provider available for PR")}
+		}
+
 		identifier := domain.PRIdentifier{
-			Provider:   m.provider.GetType(),
+			Provider:   provider.GetType(),
 			Repository: pr.Repository.FullName,
 			Number:     pr.Number,
 		}
 
-		prDetail, err := m.provider.GetPullRequest(m.ctx, identifier)
+		prDetail, err := provider.GetPullRequest(m.ctx, identifier)
 		if err != nil {
 			return ErrorMsg{err: err}
 		}
@@ -600,14 +613,22 @@ func (m Model) loadPRDetail(pr domain.PullRequest) tea.Cmd {
 
 func (m Model) loadDiff(pr domain.PullRequest) tea.Cmd {
 	return func() tea.Msg {
+		provider := m.getProviderForPR(pr)
+		if provider == nil {
+			return ErrorMsg{err: fmt.Errorf("no provider available for PR")}
+		}
+
+		logger.Log("Loading diff for PR #%d using provider %s (PATID: %s)", pr.Number, pr.ProviderType, pr.PATID)
+
 		identifier := domain.PRIdentifier{
-			Provider:   m.provider.GetType(),
+			Provider:   provider.GetType(),
 			Repository: pr.Repository.FullName,
 			Number:     pr.Number,
 		}
 
-		diff, err := m.provider.GetDiff(m.ctx, identifier)
+		diff, err := provider.GetDiff(m.ctx, identifier)
 		if err != nil {
+			logger.LogError("LOAD_DIFF", fmt.Sprintf("PR #%d provider %s", pr.Number, pr.ProviderType), err)
 			return ErrorMsg{err: err}
 		}
 		return DiffLoadedMsg{diff: diff}
@@ -616,18 +637,40 @@ func (m Model) loadDiff(pr domain.PullRequest) tea.Cmd {
 
 func (m Model) loadComments(pr domain.PullRequest) tea.Cmd {
 	return func() tea.Msg {
+		provider := m.getProviderForPR(pr)
+		if provider == nil {
+			return ErrorMsg{err: fmt.Errorf("no provider available for PR")}
+		}
+
 		identifier := domain.PRIdentifier{
-			Provider:   m.provider.GetType(),
+			Provider:   provider.GetType(),
 			Repository: pr.Repository.FullName,
 			Number:     pr.Number,
 		}
 
-		comments, err := m.provider.GetComments(m.ctx, identifier)
+		comments, err := provider.GetComments(m.ctx, identifier)
 		if err != nil {
 			return ErrorMsg{err: err}
 		}
 		return CommentsLoadedMsg{comments: comments}
 	}
+}
+
+func (m Model) getProviderForPR(pr domain.PullRequest) domain.Provider {
+	// If we have multiple providers, use the one that matches the PR's PATID
+	if len(m.providers) > 0 && pr.PATID != "" {
+		if provider, ok := m.providers[pr.PATID]; ok {
+			return provider
+		}
+	}
+
+	// Fallback to primary provider if available
+	if m.primaryProvider != nil {
+		return m.primaryProvider
+	}
+
+	// Fallback to single provider
+	return m.provider
 }
 
 func (m Model) updateShortcuts() {

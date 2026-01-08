@@ -64,6 +64,8 @@ type PullRequest struct {
 	URL          string
 	IsDraft      bool
 	Mergeable    bool
+	ProviderType ProviderType
+	PATID        string
 }
 
 type Comment struct {
