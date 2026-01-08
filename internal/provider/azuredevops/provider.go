@@ -368,7 +368,6 @@ func (p *Provider) SubmitReview(ctx context.Context, review domain.Review) error
 	if review.Action != domain.ReviewActionComment {
 		vote := convertReviewActionToVote(review.Action)
 		logger.Log("AzureDevOps: Submitting vote %d for PR #%d", vote, prNumber)
-
 		userID, err := p.client.GetAuthenticatedUserID(ctx)
 		if err != nil {
 			logger.LogError("AZDO_GET_USER_ID", fmt.Sprintf("%s#%d", repository, prNumber), err)
