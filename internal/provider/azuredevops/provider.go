@@ -115,43 +115,14 @@ func (p *Provider) ListPullRequests(ctx context.Context, username string) ([]dom
 }
 
 func (p *Provider) GetPullRequest(ctx context.Context, identifier domain.PRIdentifier) (*domain.PullRequest, error) {
+	projectID, repoID, err := p.resolveProjectAndRepoWithCache(ctx, identifier.Repository)
+	if err != nil {
+		return nil, err
+	}
+
 	projectName, repoName, err := parseRepositoryIdentifier(identifier.Repository)
 	if err != nil {
 		return nil, err
-	}
-
-	projects, err := p.client.ListProjects(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	var projectID string
-	for _, project := range *projects {
-		if getString(project.Name) == projectName {
-			projectID = getUUIDString(project.Id)
-			break
-		}
-	}
-
-	if projectID == "" {
-		return nil, fmt.Errorf("project not found: %s", projectName)
-	}
-
-	repos, err := p.client.ListRepositories(ctx, projectID)
-	if err != nil {
-		return nil, err
-	}
-
-	var repoID string
-	for _, repo := range *repos {
-		if getString(repo.Name) == repoName {
-			repoID = repo.Id.String()
-			break
-		}
-	}
-
-	if repoID == "" {
-		return nil, fmt.Errorf("repository not found: %s", repoName)
 	}
 
 	pr, err := p.client.GetPullRequest(ctx, projectID, repoID, identifier.Number)
@@ -167,43 +138,9 @@ func (p *Provider) GetPullRequest(ctx context.Context, identifier domain.PRIdent
 }
 
 func (p *Provider) GetDiff(ctx context.Context, identifier domain.PRIdentifier) (*domain.Diff, error) {
-	projectName, repoName, err := parseRepositoryIdentifier(identifier.Repository)
+	projectID, repoID, err := p.resolveProjectAndRepoWithCache(ctx, identifier.Repository)
 	if err != nil {
 		return nil, err
-	}
-
-	projects, err := p.client.ListProjects(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	var projectID string
-	for _, project := range *projects {
-		if getString(project.Name) == projectName {
-			projectID = getUUIDString(project.Id)
-			break
-		}
-	}
-
-	if projectID == "" {
-		return nil, fmt.Errorf("project not found: %s", projectName)
-	}
-
-	repos, err := p.client.ListRepositories(ctx, projectID)
-	if err != nil {
-		return nil, err
-	}
-
-	var repoID string
-	for _, repo := range *repos {
-		if getString(repo.Name) == repoName {
-			repoID = repo.Id.String()
-			break
-		}
-	}
-
-	if repoID == "" {
-		return nil, fmt.Errorf("repository not found: %s", repoName)
 	}
 
 	pr, err := p.client.GetPullRequest(ctx, projectID, repoID, identifier.Number)
@@ -243,43 +180,9 @@ func min(a, b int) int {
 }
 
 func (p *Provider) GetComments(ctx context.Context, identifier domain.PRIdentifier) ([]domain.Comment, error) {
-	projectName, repoName, err := parseRepositoryIdentifier(identifier.Repository)
+	projectID, repoID, err := p.resolveProjectAndRepoWithCache(ctx, identifier.Repository)
 	if err != nil {
 		return nil, err
-	}
-
-	projects, err := p.client.ListProjects(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	var projectID string
-	for _, project := range *projects {
-		if getString(project.Name) == projectName {
-			projectID = getUUIDString(project.Id)
-			break
-		}
-	}
-
-	if projectID == "" {
-		return nil, fmt.Errorf("project not found: %s", projectName)
-	}
-
-	repos, err := p.client.ListRepositories(ctx, projectID)
-	if err != nil {
-		return nil, err
-	}
-
-	var repoID string
-	for _, repo := range *repos {
-		if getString(repo.Name) == repoName {
-			repoID = repo.Id.String()
-			break
-		}
-	}
-
-	if repoID == "" {
-		return nil, fmt.Errorf("repository not found: %s", repoName)
 	}
 
 	threads, err := p.client.GetPullRequestThreads(ctx, projectID, repoID, identifier.Number)
