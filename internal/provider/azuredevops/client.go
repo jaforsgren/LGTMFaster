@@ -22,6 +22,9 @@ type Client struct {
 
 func NewClient(token string, organization string, username string) (*Client, error) {
 	organizationURL := fmt.Sprintf("https://dev.azure.com/%s", organization)
+
+	// Note: Azure DevOps SDK uses internal HTTP client that cannot be directly wrapped.
+	// HTTP logging is enabled globally via http.DefaultTransport in main.go
 	connection := azuredevops.NewPatConnection(organizationURL, token)
 
 	coreClient, err := core.NewClient(context.Background(), connection)

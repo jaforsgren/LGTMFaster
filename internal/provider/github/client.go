@@ -3,9 +3,11 @@ package github
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"github.com/google/go-github/v57/github"
+	"github.com/johanforsgren/lgtmfaster/internal/provider/common"
 	"golang.org/x/oauth2"
 )
 
@@ -19,7 +21,13 @@ func NewClient(token string, username string) *Client {
 		&oauth2.Token{AccessToken: token},
 	)
 	tc := oauth2.NewClient(context.Background(), ts)
-	client := github.NewClient(tc)
+
+	// Wrap the HTTP client with logging transport
+	loggingClient := &http.Client{
+		Transport: common.NewLoggingTransport(tc.Transport),
+	}
+
+	client := github.NewClient(loggingClient)
 
 	return &Client{
 		client:   client,
