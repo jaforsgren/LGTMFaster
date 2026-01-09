@@ -507,7 +507,10 @@ func (m Model) submitReview() tea.Cmd {
 	logger.Log("UI: Submitting review for %s using provider (PATID: %s, Action: %s)",
 		review.PRIdentifier, patID, review.Action)
 	return func() tea.Msg {
-		if err := provider.SubmitReview(m.ctx, review); err != nil {
+		ctx, cancel := context.WithTimeout(m.ctx, 30*time.Second)
+		defer cancel()
+
+		if err := provider.SubmitReview(ctx, review); err != nil {
 			return ErrorMsg{err: err}
 		}
 		return SuccessMsg{
@@ -543,7 +546,10 @@ func (m Model) loadPRs() tea.Cmd {
 				return ErrorMsg{err: err}
 			}
 
-			prs, err := m.providerManager.GetSingleProvider().ListPullRequests(m.ctx, pat.Username)
+			ctx, cancel := context.WithTimeout(m.ctx, 30*time.Second)
+			defer cancel()
+
+			prs, err := m.providerManager.GetSingleProvider().ListPullRequests(ctx, pat.Username)
 			if err != nil {
 				return ErrorMsg{err: err}
 			}
@@ -565,12 +571,15 @@ func (m Model) loadPRs() tea.Cmd {
 
 		for _, pat := range selectedPATs {
 			go func(p domain.PAT) {
+				ctx, cancel := context.WithTimeout(m.ctx, 30*time.Second)
+				defer cancel()
+
 				provider := m.providerManager.GetProviderByPATID(p.ID)
 				if provider == nil {
 					results <- prResult{prs: nil, pat: p, err: fmt.Errorf("provider not found for PAT %s", p.Name)}
 					return
 				}
-				prs, err := provider.ListPullRequests(m.ctx, p.Username)
+				prs, err := provider.ListPullRequests(ctx, p.Username)
 				results <- prResult{prs: prs, pat: p, err: err}
 			}(pat)
 		}
@@ -603,6 +612,9 @@ func (m Model) loadPRs() tea.Cmd {
 
 func (m Model) loadPRDetail(pr domain.PullRequest) tea.Cmd {
 	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(m.ctx, 30*time.Second)
+		defer cancel()
+
 		provider := m.getProviderForPR(pr)
 		if provider == nil {
 			return ErrorMsg{err: fmt.Errorf("no provider available for PR")}
@@ -614,7 +626,7 @@ func (m Model) loadPRDetail(pr domain.PullRequest) tea.Cmd {
 			Number:     pr.Number,
 		}
 
-		prDetail, err := provider.GetPullRequest(m.ctx, identifier)
+		prDetail, err := provider.GetPullRequest(ctx, identifier)
 		if err != nil {
 			return ErrorMsg{err: err}
 		}
@@ -627,6 +639,9 @@ func (m Model) loadPRDetail(pr domain.PullRequest) tea.Cmd {
 
 func (m Model) loadDiff(pr domain.PullRequest) tea.Cmd {
 	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(m.ctx, 30*time.Second)
+		defer cancel()
+
 		provider := m.getProviderForPR(pr)
 		if provider == nil {
 			return ErrorMsg{err: fmt.Errorf("no provider available for PR")}
@@ -641,7 +656,7 @@ func (m Model) loadDiff(pr domain.PullRequest) tea.Cmd {
 			Number:     pr.Number,
 		}
 
-		diff, err := provider.GetDiff(m.ctx, identifier)
+		diff, err := provider.GetDiff(ctx, identifier)
 		if err != nil {
 			logger.LogError("LOAD_DIFF", fmt.Sprintf("PR #%d provider %s", pr.Number, provider.GetType()), err)
 			return ErrorMsg{err: err}
@@ -652,6 +667,9 @@ func (m Model) loadDiff(pr domain.PullRequest) tea.Cmd {
 
 func (m Model) loadComments(pr domain.PullRequest) tea.Cmd {
 	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(m.ctx, 30*time.Second)
+		defer cancel()
+
 		provider := m.getProviderForPR(pr)
 		if provider == nil {
 			return ErrorMsg{err: fmt.Errorf("no provider available for PR")}
@@ -663,7 +681,7 @@ func (m Model) loadComments(pr domain.PullRequest) tea.Cmd {
 			Number:     pr.Number,
 		}
 
-		comments, err := provider.GetComments(m.ctx, identifier)
+		comments, err := provider.GetComments(ctx, identifier)
 		if err != nil {
 			return ErrorMsg{err: err}
 		}
