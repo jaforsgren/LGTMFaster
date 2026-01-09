@@ -10,8 +10,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/johanforsgren/lgtmfaster/internal/domain"
 	"github.com/johanforsgren/lgtmfaster/internal/logger"
-	"github.com/johanforsgren/lgtmfaster/internal/provider/azuredevops"
-	"github.com/johanforsgren/lgtmfaster/internal/provider/github"
 	"github.com/johanforsgren/lgtmfaster/internal/ui/components"
 	"github.com/johanforsgren/lgtmfaster/internal/ui/views"
 )
@@ -37,10 +35,7 @@ type Model struct {
 	reviewView       *views.ReviewViewModel
 	logsView         *views.LogsViewModel
 	repository       domain.Repository
-	provider         domain.Provider
-	providers        map[string]domain.Provider
-	primaryProvider  domain.Provider
-	primaryPATID     string
+	providerManager  *ProviderManager
 	ctx              context.Context
 	commandRegistry  *CommandRegistry
 	isInitialStartup bool
@@ -58,7 +53,7 @@ func NewModel(repository domain.Repository) Model {
 		reviewView:       views.NewReviewView(),
 		logsView:         views.NewLogsView(),
 		repository:       repository,
-		providers:        make(map[string]domain.Provider),
+		providerManager:  NewProviderManager(),
 		ctx:              context.Background(),
 		commandRegistry:  NewCommandRegistry(),
 		isInitialStartup: true,
@@ -164,37 +159,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case PATsLoadedMsg:
 		m.patsView.SetPATs(msg.pats)
-		m.providers = make(map[string]domain.Provider)
-		m.primaryProvider = nil
-		m.primaryPATID = ""
-		m.provider = nil
 
+		// Initialize providers using ProviderManager
+		if err := m.providerManager.InitializeProviders(msg.pats); err != nil {
+			m.statusBar.SetMessage(fmt.Sprintf("Failed to initialize providers: %v", err), true)
+		}
+
+		// Count selected PATs and set up top bar
 		selectedCount := 0
-		if len(msg.pats) > 0 {
-			for _, pat := range msg.pats {
-				if pat.IsActive && m.provider == nil {
-					provider, err := m.createProvider(pat)
-					if err != nil {
-						m.statusBar.SetMessage(fmt.Sprintf("Failed to create provider: %v", err), true)
-					} else {
-						m.provider = provider
-					}
-				}
-
-				if pat.IsSelected {
-					selectedCount++
-					provider, err := m.createProvider(pat)
-					if err != nil {
-						logger.LogError("CREATE_PROVIDER", pat.Name, err)
-						continue
-					}
-					m.providers[pat.ID] = provider
-
-					if pat.IsPrimary {
-						m.primaryProvider = provider
-						m.primaryPATID = pat.ID
-						m.topBar.SetActivePAT(pat.Name, string(pat.Provider))
-					}
+		for _, pat := range msg.pats {
+			if pat.IsSelected {
+				selectedCount++
+				if pat.IsPrimary {
+					m.topBar.SetActivePAT(pat.Name, string(pat.Provider))
 				}
 			}
 		}
@@ -421,7 +398,7 @@ func (m Model) handlePATEnter() (tea.Model, tea.Cmd) {
 	}
 
 	if m.patsView.Mode == views.PATModeList {
-		if len(m.providers) > 0 {
+		if m.providerManager.ProviderCount() > 0 {
 			m.statusBar.SetMessage("Loading pull requests...", false)
 			return m, m.loadPRs()
 		}
@@ -433,13 +410,6 @@ func (m Model) handlePATEnter() (tea.Model, tea.Cmd) {
 					return ErrorMsg{err: err}
 				}
 			}
-			provider, err := m.createProvider(*pat)
-			if err != nil {
-				return m, func() tea.Msg {
-					return ErrorMsg{err: err}
-				}
-			}
-			m.provider = provider
 			m.topBar.SetActivePAT(pat.Name, string(pat.Provider))
 			m.statusBar.SetMessage(fmt.Sprintf("Activated PAT: %s", pat.Name), false)
 			return m, m.loadPATs()
@@ -536,21 +506,6 @@ func (m Model) submitReview() tea.Cmd {
 	}
 }
 
-func (m Model) createProvider(pat domain.PAT) (domain.Provider, error) {
-	switch pat.Provider {
-	case domain.ProviderGitHub:
-		return github.NewProvider(pat.Token, pat.Username), nil
-	case domain.ProviderAzureDevOps:
-		provider, err := azuredevops.NewProvider(pat.Token, pat.Organization, pat.Username)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create Azure DevOps provider: %w", err)
-		}
-		return provider, nil
-	default:
-		return nil, fmt.Errorf("unsupported provider type: %s", pat.Provider)
-	}
-}
-
 func (m Model) loadPATs() tea.Cmd {
 	return func() tea.Msg {
 		pats, err := m.repository.ListPATs()
@@ -562,20 +517,21 @@ func (m Model) loadPATs() tea.Cmd {
 }
 
 func (m Model) loadPRs() tea.Cmd {
-	if len(m.providers) == 0 && m.provider == nil {
+	if !m.providerManager.HasProviders() {
 		return func() tea.Msg {
 			return ErrorMsg{err: fmt.Errorf("no PATs selected")}
 		}
 	}
 
 	return func() tea.Msg {
-		if len(m.providers) == 0 && m.provider != nil {
+		// Single provider mode (backwards compatibility)
+		if m.providerManager.ProviderCount() == 0 && m.providerManager.GetSingleProvider() != nil {
 			pat, err := m.repository.GetActivePAT()
 			if err != nil {
 				return ErrorMsg{err: err}
 			}
 
-			prs, err := m.provider.ListPullRequests(m.ctx, pat.Username)
+			prs, err := m.providerManager.GetSingleProvider().ListPullRequests(m.ctx, pat.Username)
 			if err != nil {
 				return ErrorMsg{err: err}
 			}
@@ -597,7 +553,7 @@ func (m Model) loadPRs() tea.Cmd {
 
 		for _, pat := range selectedPATs {
 			go func(p domain.PAT) {
-				provider := m.providers[p.ID]
+				provider := m.providerManager.GetProviderByPATID(p.ID)
 				if provider == nil {
 					results <- prResult{prs: nil, pat: p, err: fmt.Errorf("provider not found for PAT %s", p.Name)}
 					return
@@ -711,20 +667,7 @@ func (m Model) loadComments(pr domain.PullRequest) tea.Cmd {
 }
 
 func (m Model) getProviderForPR(pr domain.PullRequest) domain.Provider {
-	// If we have multiple providers, use the one that matches the PR's PATID
-	if len(m.providers) > 0 && pr.PATID != "" {
-		if provider, ok := m.providers[pr.PATID]; ok {
-			return provider
-		}
-	}
-
-	// Fallback to primary provider if available
-	if m.primaryProvider != nil {
-		return m.primaryProvider
-	}
-
-	// Fallback to single provider
-	return m.provider
+	return m.providerManager.GetProviderForPR(pr)
 }
 
 func (m Model) updateShortcuts() {

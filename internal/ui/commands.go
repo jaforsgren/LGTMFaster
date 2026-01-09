@@ -372,7 +372,7 @@ func handlePATsCommand(m Model, args []string) (Model, tea.Cmd) {
 }
 
 func handlePRCommand(m Model, args []string) (Model, tea.Cmd) {
-	if m.provider == nil {
+	if !m.providerManager.HasProviders() {
 		m.statusBar.SetMessage("No active PAT. Please select a PAT first.", true)
 		return m, nil
 	}

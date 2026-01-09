@@ -132,14 +132,17 @@ func TestOwnPRValidation_ApproveConvertsToComment(t *testing.T) {
 	prInspect := views.NewPRInspectView()
 	reviewView := views.NewReviewView()
 
+	providerManager := NewProviderManager()
+	providerManager.providers = map[string]domain.Provider{
+		"pat-1": provider,
+	}
+
 	m := Model{
-		ctx:        context.Background(),
-		repository: repo,
-		prInspect:  prInspect,
-		reviewView: reviewView,
-		providers: map[string]domain.Provider{
-			"pat-1": provider,
-		},
+		ctx:             context.Background(),
+		repository:      repo,
+		prInspect:       prInspect,
+		reviewView:      reviewView,
+		providerManager: providerManager,
 	}
 
 	pr := &domain.PullRequest{
@@ -198,14 +201,17 @@ func TestOwnPRValidation_RequestChangesConvertsToComment(t *testing.T) {
 	prInspect := views.NewPRInspectView()
 	reviewView := views.NewReviewView()
 
+	providerManager := NewProviderManager()
+	providerManager.providers = map[string]domain.Provider{
+		"pat-1": provider,
+	}
+
 	m := Model{
-		ctx:        context.Background(),
-		repository: repo,
-		prInspect:  prInspect,
-		reviewView: reviewView,
-		providers: map[string]domain.Provider{
-			"pat-1": provider,
-		},
+		ctx:             context.Background(),
+		repository:      repo,
+		prInspect:       prInspect,
+		reviewView:      reviewView,
+		providerManager: providerManager,
 	}
 
 	pr := &domain.PullRequest{
@@ -260,14 +266,17 @@ func TestOwnPRValidation_CommentRemainsComment(t *testing.T) {
 	prInspect := views.NewPRInspectView()
 	reviewView := views.NewReviewView()
 
+	providerManager := NewProviderManager()
+	providerManager.providers = map[string]domain.Provider{
+		"pat-1": provider,
+	}
+
 	m := Model{
-		ctx:        context.Background(),
-		repository: repo,
-		prInspect:  prInspect,
-		reviewView: reviewView,
-		providers: map[string]domain.Provider{
-			"pat-1": provider,
-		},
+		ctx:             context.Background(),
+		repository:      repo,
+		prInspect:       prInspect,
+		reviewView:      reviewView,
+		providerManager: providerManager,
 	}
 
 	pr := &domain.PullRequest{
@@ -322,14 +331,17 @@ func TestOwnPRValidation_OtherUserPRNotConverted(t *testing.T) {
 	prInspect := views.NewPRInspectView()
 	reviewView := views.NewReviewView()
 
+	providerManager := NewProviderManager()
+	providerManager.providers = map[string]domain.Provider{
+		"pat-1": provider,
+	}
+
 	m := Model{
-		ctx:        context.Background(),
-		repository: repo,
-		prInspect:  prInspect,
-		reviewView: reviewView,
-		providers: map[string]domain.Provider{
-			"pat-1": provider,
-		},
+		ctx:             context.Background(),
+		repository:      repo,
+		prInspect:       prInspect,
+		reviewView:      reviewView,
+		providerManager: providerManager,
 	}
 
 	pr := &domain.PullRequest{
@@ -378,15 +390,15 @@ func TestOwnPRValidation_NoPATIDNoConversion(t *testing.T) {
 	prInspect := views.NewPRInspectView()
 	reviewView := views.NewReviewView()
 
+	providerManager := NewProviderManager()
+	providerManager.singleProvider = provider
+
 	m := Model{
-		ctx:        context.Background(),
-		repository: repo,
-		prInspect:  prInspect,
-		reviewView: reviewView,
-		providers: map[string]domain.Provider{
-			"": provider,
-		},
-		provider: provider,
+		ctx:             context.Background(),
+		repository:      repo,
+		prInspect:       prInspect,
+		reviewView:      reviewView,
+		providerManager: providerManager,
 	}
 
 	pr := &domain.PullRequest{
