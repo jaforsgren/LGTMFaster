@@ -209,3 +209,79 @@ func TestFormatPRIdentifier(t *testing.T) {
 		})
 	}
 }
+
+func TestParseGitHubRepository(t *testing.T) {
+	tests := []struct {
+		name       string
+		repository string
+		wantOwner  string
+		wantRepo   string
+		wantErr    bool
+	}{
+		{
+			name:       "valid repository",
+			repository: "owner/repo",
+			wantOwner:  "owner",
+			wantRepo:   "repo",
+			wantErr:    false,
+		},
+		{
+			name:       "repository with dashes and underscores",
+			repository: "my-org/my_repo",
+			wantOwner:  "my-org",
+			wantRepo:   "my_repo",
+			wantErr:    false,
+		},
+		{
+			name:       "invalid format - too many parts",
+			repository: "owner/repo/extra",
+			wantErr:    true,
+		},
+		{
+			name:       "invalid format - too few parts",
+			repository: "owner",
+			wantErr:    true,
+		},
+		{
+			name:       "empty owner",
+			repository: "/repo",
+			wantErr:    true,
+		},
+		{
+			name:       "empty repo",
+			repository: "owner/",
+			wantErr:    true,
+		},
+		{
+			name:       "empty string",
+			repository: "",
+			wantErr:    true,
+		},
+		{
+			name:       "only separator",
+			repository: "/",
+			wantErr:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotOwner, gotRepo, err := ParseGitHubRepository(tt.repository)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ParseGitHubRepository() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if err != nil && !errors.Is(err, ErrInvalidIdentifierFormat) {
+				t.Errorf("ParseGitHubRepository() error should wrap ErrInvalidIdentifierFormat, got %v", err)
+			}
+			if !tt.wantErr {
+				if gotOwner != tt.wantOwner {
+					t.Errorf("ParseGitHubRepository() owner = %v, want %v", gotOwner, tt.wantOwner)
+				}
+				if gotRepo != tt.wantRepo {
+					t.Errorf("ParseGitHubRepository() repo = %v, want %v", gotRepo, tt.wantRepo)
+				}
+			}
+		})
+	}
+}

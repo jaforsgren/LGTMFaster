@@ -3,7 +3,6 @@ package github
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/google/go-github/v57/github"
 	"github.com/johanforsgren/lgtmfaster/internal/domain"
@@ -47,13 +46,12 @@ func (p *Provider) ListPullRequests(ctx context.Context, username string) ([]dom
 
 func (p *Provider) GetPullRequest(ctx context.Context, identifier domain.PRIdentifier) (*domain.PullRequest, error) {
 	logger.Log("GitHub: Getting PR #%d from %s", identifier.Number, identifier.Repository)
-	parts := strings.Split(identifier.Repository, "/")
-	if len(parts) != 2 {
-		logger.LogError("GITHUB_GET_PR", identifier.Repository, fmt.Errorf("invalid repository format"))
-		return nil, fmt.Errorf("invalid repository format: %s", identifier.Repository)
+	owner, repo, err := common.ParseGitHubRepository(identifier.Repository)
+	if err != nil {
+		logger.LogError("GITHUB_GET_PR", identifier.Repository, err)
+		return nil, err
 	}
 
-	owner, repo := parts[0], parts[1]
 	ghPR, err := p.client.GetPullRequest(ctx, owner, repo, identifier.Number)
 	if err != nil {
 		logger.LogError("GITHUB_GET_PR", fmt.Sprintf("%s/%s#%d", owner, repo, identifier.Number), err)
@@ -67,13 +65,12 @@ func (p *Provider) GetPullRequest(ctx context.Context, identifier domain.PRIdent
 
 func (p *Provider) GetDiff(ctx context.Context, identifier domain.PRIdentifier) (*domain.Diff, error) {
 	logger.Log("GitHub: Getting diff for PR #%d from %s", identifier.Number, identifier.Repository)
-	parts := strings.Split(identifier.Repository, "/")
-	if len(parts) != 2 {
-		logger.LogError("GITHUB_GET_DIFF", identifier.Repository, fmt.Errorf("invalid repository format"))
-		return nil, fmt.Errorf("invalid repository format: %s", identifier.Repository)
+	owner, repo, err := common.ParseGitHubRepository(identifier.Repository)
+	if err != nil {
+		logger.LogError("GITHUB_GET_DIFF", identifier.Repository, err)
+		return nil, err
 	}
 
-	owner, repo := parts[0], parts[1]
 	diffText, err := p.client.GetDiff(ctx, owner, repo, identifier.Number)
 	if err != nil {
 		logger.LogError("GITHUB_GET_DIFF", fmt.Sprintf("%s/%s#%d", owner, repo, identifier.Number), err)
@@ -93,20 +90,12 @@ func (p *Provider) GetDiff(ctx context.Context, identifier domain.PRIdentifier) 
 	return diff, nil
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
 func (p *Provider) GetComments(ctx context.Context, identifier domain.PRIdentifier) ([]domain.Comment, error) {
-	parts := strings.Split(identifier.Repository, "/")
-	if len(parts) != 2 {
-		return nil, fmt.Errorf("invalid repository format: %s", identifier.Repository)
+	owner, repo, err := common.ParseGitHubRepository(identifier.Repository)
+	if err != nil {
+		return nil, err
 	}
 
-	owner, repo := parts[0], parts[1]
 	ghComments, err := p.client.ListComments(ctx, owner, repo, identifier.Number)
 	if err != nil {
 		return nil, err
@@ -122,12 +111,10 @@ func (p *Provider) GetComments(ctx context.Context, identifier domain.PRIdentifi
 }
 
 func (p *Provider) AddComment(ctx context.Context, identifier domain.PRIdentifier, body string, filePath string, line int) error {
-	parts := strings.Split(identifier.Repository, "/")
-	if len(parts) != 2 {
-		return fmt.Errorf("invalid repository format: %s", identifier.Repository)
+	owner, repo, err := common.ParseGitHubRepository(identifier.Repository)
+	if err != nil {
+		return err
 	}
-
-	owner, repo := parts[0], parts[1]
 
 	comment := &github.PullRequestComment{
 		Body: github.String(body),
