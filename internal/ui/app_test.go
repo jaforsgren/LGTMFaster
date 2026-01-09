@@ -143,6 +143,7 @@ func TestOwnPRValidation_ApproveConvertsToComment(t *testing.T) {
 		prInspect:       prInspect,
 		reviewView:      reviewView,
 		providerManager: providerManager,
+		prMetadata:      make(map[string]string),
 	}
 
 	pr := &domain.PullRequest{
@@ -153,9 +154,10 @@ func TestOwnPRValidation_ApproveConvertsToComment(t *testing.T) {
 		Repository: domain.Repo{
 			FullName: "owner/repo",
 		},
-		PATID:        "pat-1",
-		ProviderType: domain.ProviderGitHub,
 	}
+
+	// Set up PR metadata in UI layer
+	m.setPATIDForPR(*pr, "pat-1")
 
 	m.prInspect.SetPR(pr)
 	m.reviewView.Activate(views.ReviewModeApprove)
@@ -212,6 +214,7 @@ func TestOwnPRValidation_RequestChangesConvertsToComment(t *testing.T) {
 		prInspect:       prInspect,
 		reviewView:      reviewView,
 		providerManager: providerManager,
+		prMetadata:      make(map[string]string),
 	}
 
 	pr := &domain.PullRequest{
@@ -222,9 +225,10 @@ func TestOwnPRValidation_RequestChangesConvertsToComment(t *testing.T) {
 		Repository: domain.Repo{
 			FullName: "owner/repo",
 		},
-		PATID:        "pat-1",
-		ProviderType: domain.ProviderGitHub,
 	}
+
+	// Set up PR metadata in UI layer
+	m.setPATIDForPR(*pr, "pat-1")
 
 	m.prInspect.SetPR(pr)
 	m.reviewView.Activate(views.ReviewModeRequestChanges)
@@ -277,6 +281,7 @@ func TestOwnPRValidation_CommentRemainsComment(t *testing.T) {
 		prInspect:       prInspect,
 		reviewView:      reviewView,
 		providerManager: providerManager,
+		prMetadata:      make(map[string]string),
 	}
 
 	pr := &domain.PullRequest{
@@ -287,9 +292,10 @@ func TestOwnPRValidation_CommentRemainsComment(t *testing.T) {
 		Repository: domain.Repo{
 			FullName: "owner/repo",
 		},
-		PATID:        "pat-1",
-		ProviderType: domain.ProviderGitHub,
 	}
+
+	// Set up PR metadata in UI layer
+	m.setPATIDForPR(*pr, "pat-1")
 
 	m.prInspect.SetPR(pr)
 	m.reviewView.Activate(views.ReviewModeComment)
@@ -342,6 +348,7 @@ func TestOwnPRValidation_OtherUserPRNotConverted(t *testing.T) {
 		prInspect:       prInspect,
 		reviewView:      reviewView,
 		providerManager: providerManager,
+		prMetadata:      make(map[string]string),
 	}
 
 	pr := &domain.PullRequest{
@@ -352,9 +359,10 @@ func TestOwnPRValidation_OtherUserPRNotConverted(t *testing.T) {
 		Repository: domain.Repo{
 			FullName: "owner/repo",
 		},
-		PATID:        "pat-1",
-		ProviderType: domain.ProviderGitHub,
 	}
+
+	// Set up PR metadata in UI layer
+	m.setPATIDForPR(*pr, "pat-1")
 
 	m.prInspect.SetPR(pr)
 	m.reviewView.Activate(views.ReviewModeApprove)
@@ -399,6 +407,7 @@ func TestOwnPRValidation_NoPATIDNoConversion(t *testing.T) {
 		prInspect:       prInspect,
 		reviewView:      reviewView,
 		providerManager: providerManager,
+		prMetadata:      make(map[string]string),
 	}
 
 	pr := &domain.PullRequest{
@@ -409,9 +418,9 @@ func TestOwnPRValidation_NoPATIDNoConversion(t *testing.T) {
 		Repository: domain.Repo{
 			FullName: "owner/repo",
 		},
-		PATID:        "",
-		ProviderType: domain.ProviderGitHub,
 	}
+
+	// No metadata set - tests fallback to single provider
 
 	m.prInspect.SetPR(pr)
 	m.reviewView.Activate(views.ReviewModeApprove)

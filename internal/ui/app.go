@@ -36,6 +36,7 @@ type Model struct {
 	logsView         *views.LogsViewModel
 	repository       domain.Repository
 	providerManager  *ProviderManager
+	prMetadata       map[string]string // Maps PR identifier (repo/number) to PATID
 	ctx              context.Context
 	commandRegistry  *CommandRegistry
 	isInitialStartup bool
@@ -54,6 +55,7 @@ func NewModel(repository domain.Repository) Model {
 		logsView:         views.NewLogsView(),
 		repository:       repository,
 		providerManager:  NewProviderManager(),
+		prMetadata:       make(map[string]string),
 		ctx:              context.Background(),
 		commandRegistry:  NewCommandRegistry(),
 		isInitialStartup: true,
@@ -195,6 +197,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case PRsLoadedMsg:
+		// Store PR metadata (PATID) in UI layer from groups
+		if msg.groups != nil {
+			for _, group := range msg.groups {
+				for _, pr := range group.PRs {
+					m.setPATIDForPR(pr, group.PATID)
+				}
+			}
+		}
+
 		if msg.groups != nil && len(msg.groups) > 0 {
 			m.prListView.SetPRGroups(msg.groups)
 		} else {
@@ -477,8 +488,9 @@ func (m Model) submitReview() tea.Cmd {
 	}
 
 	var authenticatedUser string
-	if pr.PATID != "" {
-		pat, err := m.repository.GetPAT(pr.PATID)
+	patID := m.getPATIDForPR(*pr)
+	if patID != "" {
+		pat, err := m.repository.GetPAT(patID)
 		if err == nil && pat != nil {
 			authenticatedUser = pat.Username
 		}
@@ -492,8 +504,8 @@ func (m Model) submitReview() tea.Cmd {
 
 	review.PRIdentifier = fmt.Sprintf("%s/%d", pr.Repository.FullName, pr.Number)
 
-	logger.Log("UI: Submitting review for %s using provider %s (PATID: %s, Action: %s)",
-		review.PRIdentifier, pr.ProviderType, pr.PATID, review.Action)
+	logger.Log("UI: Submitting review for %s using provider (PATID: %s, Action: %s)",
+		review.PRIdentifier, patID, review.Action)
 	return func() tea.Msg {
 		if err := provider.SubmitReview(m.ctx, review); err != nil {
 			return ErrorMsg{err: err}
@@ -573,23 +585,16 @@ func (m Model) loadPRs() tea.Cmd {
 				continue
 			}
 
-			// Tag each PR with its provider and PAT ID
-			taggedPRs := make([]domain.PullRequest, len(result.prs))
-			for j, pr := range result.prs {
-				pr.ProviderType = result.pat.Provider
-				pr.PATID = result.pat.ID
-				taggedPRs[j] = pr
-			}
-
+			// PR metadata (PATID) will be extracted from groups in the handler
 			allGroups = append(allGroups, domain.PRGroup{
 				PATName:   result.pat.Name,
 				PATID:     result.pat.ID,
 				Provider:  result.pat.Provider,
 				Username:  result.pat.Username,
 				IsPrimary: result.pat.IsPrimary,
-				PRs:       taggedPRs,
+				PRs:       result.prs,
 			})
-			allPRs = append(allPRs, taggedPRs...)
+			allPRs = append(allPRs, result.prs...)
 		}
 
 		return PRsLoadedMsg{prs: allPRs, groups: allGroups}
@@ -614,8 +619,7 @@ func (m Model) loadPRDetail(pr domain.PullRequest) tea.Cmd {
 			return ErrorMsg{err: err}
 		}
 
-		prDetail.ProviderType = pr.ProviderType
-		prDetail.PATID = pr.PATID
+		// No need to copy metadata - it's already stored in prMetadata map by identifier
 
 		return PRDetailLoadedMsg{pr: prDetail}
 	}
@@ -628,7 +632,8 @@ func (m Model) loadDiff(pr domain.PullRequest) tea.Cmd {
 			return ErrorMsg{err: fmt.Errorf("no provider available for PR")}
 		}
 
-		logger.Log("Loading diff for PR #%d using provider %s (PATID: %s)", pr.Number, pr.ProviderType, pr.PATID)
+		patID := m.getPATIDForPR(pr)
+		logger.Log("Loading diff for PR #%d using provider %s (PATID: %s)", pr.Number, provider.GetType(), patID)
 
 		identifier := domain.PRIdentifier{
 			Provider:   provider.GetType(),
@@ -638,7 +643,7 @@ func (m Model) loadDiff(pr domain.PullRequest) tea.Cmd {
 
 		diff, err := provider.GetDiff(m.ctx, identifier)
 		if err != nil {
-			logger.LogError("LOAD_DIFF", fmt.Sprintf("PR #%d provider %s", pr.Number, pr.ProviderType), err)
+			logger.LogError("LOAD_DIFF", fmt.Sprintf("PR #%d provider %s", pr.Number, provider.GetType()), err)
 			return ErrorMsg{err: err}
 		}
 		return DiffLoadedMsg{diff: diff}
@@ -666,8 +671,34 @@ func (m Model) loadComments(pr domain.PullRequest) tea.Cmd {
 	}
 }
 
+func (m Model) getPRIdentifier(pr domain.PullRequest) string {
+	return fmt.Sprintf("%s/%d", pr.Repository.FullName, pr.Number)
+}
+
+func (m Model) getPATIDForPR(pr domain.PullRequest) string {
+	return m.prMetadata[m.getPRIdentifier(pr)]
+}
+
+func (m Model) setPATIDForPR(pr domain.PullRequest, patID string) {
+	m.prMetadata[m.getPRIdentifier(pr)] = patID
+}
+
 func (m Model) getProviderForPR(pr domain.PullRequest) domain.Provider {
-	return m.providerManager.GetProviderForPR(pr)
+	patID := m.getPATIDForPR(pr)
+
+	// Try to get provider by PATID
+	if patID != "" {
+		if provider := m.providerManager.GetProviderByPATID(patID); provider != nil {
+			return provider
+		}
+	}
+
+	// Fallback to primary or single provider
+	if primary, _ := m.providerManager.GetPrimaryProvider(); primary != nil {
+		return primary
+	}
+
+	return m.providerManager.GetSingleProvider()
 }
 
 func (m Model) updateShortcuts() {

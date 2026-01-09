@@ -64,24 +64,6 @@ func (pm *ProviderManager) InitializeProviders(pats []domain.PAT) error {
 	return nil
 }
 
-// GetProviderForPR returns the appropriate provider for a given pull request
-func (pm *ProviderManager) GetProviderForPR(pr domain.PullRequest) domain.Provider {
-	// If we have multiple providers, use the one that matches the PR's PATID
-	if len(pm.providers) > 0 && pr.PATID != "" {
-		if provider, ok := pm.providers[pr.PATID]; ok {
-			return provider
-		}
-	}
-
-	// Fallback to primary provider if available
-	if pm.primaryProvider != nil {
-		return pm.primaryProvider
-	}
-
-	// Fallback to single provider
-	return pm.singleProvider
-}
-
 // GetProviderByPATID returns the provider for a specific PAT ID
 func (pm *ProviderManager) GetProviderByPATID(patID string) domain.Provider {
 	return pm.providers[patID]
