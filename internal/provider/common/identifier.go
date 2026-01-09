@@ -50,3 +50,20 @@ func ParseAzureDevOpsIdentifier(identifier string) (project, repo string, number
 func FormatPRIdentifier(id domain.PRIdentifier) string {
 	return fmt.Sprintf("%s/%d", id.Repository, id.Number)
 }
+
+// ParseGitHubRepository parses a GitHub repository identifier in "owner/repo" format
+func ParseGitHubRepository(repository string) (owner, repo string, err error) {
+	parts := strings.Split(repository, "/")
+	if len(parts) != 2 {
+		return "", "", fmt.Errorf("%w: expected 'owner/repo', got '%s'", ErrInvalidIdentifierFormat, repository)
+	}
+
+	owner = parts[0]
+	repo = parts[1]
+
+	if owner == "" || repo == "" {
+		return "", "", fmt.Errorf("%w: owner and repo must be non-empty", ErrInvalidIdentifierFormat)
+	}
+
+	return owner, repo, nil
+}

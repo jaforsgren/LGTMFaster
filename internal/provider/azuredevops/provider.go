@@ -80,7 +80,7 @@ func (p *Provider) ListPullRequests(ctx context.Context, username string) ([]dom
 				}
 
 				repoID := repo.Id.String()
-				repoName := getString(repo.Name)
+				repoName := common.GetString(repo.Name)
 				prs, err := p.client.ListPullRequests(ctx, projectID, repoID)
 				if err != nil {
 					errChan <- err
@@ -101,7 +101,7 @@ func (p *Provider) ListPullRequests(ctx context.Context, username string) ([]dom
 					mu.Unlock()
 				}
 			}
-		}(getUUIDString(project.Id), getString(project.Name))
+		}(common.GetUUIDString(project.Id), common.GetString(project.Name))
 	}
 
 	wg.Wait()
@@ -115,43 +115,14 @@ func (p *Provider) ListPullRequests(ctx context.Context, username string) ([]dom
 }
 
 func (p *Provider) GetPullRequest(ctx context.Context, identifier domain.PRIdentifier) (*domain.PullRequest, error) {
+	projectID, repoID, err := p.resolveProjectAndRepoWithCache(ctx, identifier.Repository)
+	if err != nil {
+		return nil, err
+	}
+
 	projectName, repoName, err := parseRepositoryIdentifier(identifier.Repository)
 	if err != nil {
 		return nil, err
-	}
-
-	projects, err := p.client.ListProjects(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	var projectID string
-	for _, project := range *projects {
-		if getString(project.Name) == projectName {
-			projectID = getUUIDString(project.Id)
-			break
-		}
-	}
-
-	if projectID == "" {
-		return nil, fmt.Errorf("project not found: %s", projectName)
-	}
-
-	repos, err := p.client.ListRepositories(ctx, projectID)
-	if err != nil {
-		return nil, err
-	}
-
-	var repoID string
-	for _, repo := range *repos {
-		if getString(repo.Name) == repoName {
-			repoID = repo.Id.String()
-			break
-		}
-	}
-
-	if repoID == "" {
-		return nil, fmt.Errorf("repository not found: %s", repoName)
 	}
 
 	pr, err := p.client.GetPullRequest(ctx, projectID, repoID, identifier.Number)
@@ -167,43 +138,9 @@ func (p *Provider) GetPullRequest(ctx context.Context, identifier domain.PRIdent
 }
 
 func (p *Provider) GetDiff(ctx context.Context, identifier domain.PRIdentifier) (*domain.Diff, error) {
-	projectName, repoName, err := parseRepositoryIdentifier(identifier.Repository)
+	projectID, repoID, err := p.resolveProjectAndRepoWithCache(ctx, identifier.Repository)
 	if err != nil {
 		return nil, err
-	}
-
-	projects, err := p.client.ListProjects(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	var projectID string
-	for _, project := range *projects {
-		if getString(project.Name) == projectName {
-			projectID = getUUIDString(project.Id)
-			break
-		}
-	}
-
-	if projectID == "" {
-		return nil, fmt.Errorf("project not found: %s", projectName)
-	}
-
-	repos, err := p.client.ListRepositories(ctx, projectID)
-	if err != nil {
-		return nil, err
-	}
-
-	var repoID string
-	for _, repo := range *repos {
-		if getString(repo.Name) == repoName {
-			repoID = repo.Id.String()
-			break
-		}
-	}
-
-	if repoID == "" {
-		return nil, fmt.Errorf("repository not found: %s", repoName)
 	}
 
 	pr, err := p.client.GetPullRequest(ctx, projectID, repoID, identifier.Number)
@@ -235,51 +172,10 @@ func (p *Provider) GetDiff(ctx context.Context, identifier domain.PRIdentifier) 
 	return diff, nil
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
 func (p *Provider) GetComments(ctx context.Context, identifier domain.PRIdentifier) ([]domain.Comment, error) {
-	projectName, repoName, err := parseRepositoryIdentifier(identifier.Repository)
+	projectID, repoID, err := p.resolveProjectAndRepoWithCache(ctx, identifier.Repository)
 	if err != nil {
 		return nil, err
-	}
-
-	projects, err := p.client.ListProjects(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	var projectID string
-	for _, project := range *projects {
-		if getString(project.Name) == projectName {
-			projectID = getUUIDString(project.Id)
-			break
-		}
-	}
-
-	if projectID == "" {
-		return nil, fmt.Errorf("project not found: %s", projectName)
-	}
-
-	repos, err := p.client.ListRepositories(ctx, projectID)
-	if err != nil {
-		return nil, err
-	}
-
-	var repoID string
-	for _, repo := range *repos {
-		if getString(repo.Name) == repoName {
-			repoID = repo.Id.String()
-			break
-		}
-	}
-
-	if repoID == "" {
-		return nil, fmt.Errorf("repository not found: %s", repoName)
 	}
 
 	threads, err := p.client.GetPullRequestThreads(ctx, projectID, repoID, identifier.Number)
@@ -300,7 +196,7 @@ func (p *Provider) GetComments(ctx context.Context, identifier domain.PRIdentifi
 		for _, comment := range *thread.Comments {
 			domainComment := domain.Comment{
 				ID:        fmt.Sprintf("%d", *comment.Id),
-				Body:      getString(comment.Content),
+				Body:      common.GetString(comment.Content),
 				CreatedAt: comment.PublishedDate.Time,
 				UpdatedAt: comment.LastUpdatedDate.Time,
 			}
@@ -310,7 +206,7 @@ func (p *Provider) GetComments(ctx context.Context, identifier domain.PRIdentifi
 			}
 
 			if thread.ThreadContext != nil && thread.ThreadContext.FilePath != nil {
-				domainComment.FilePath = getString(thread.ThreadContext.FilePath)
+				domainComment.FilePath = common.GetString(thread.ThreadContext.FilePath)
 				if thread.ThreadContext.RightFileStart != nil && thread.ThreadContext.RightFileStart.Line != nil {
 					domainComment.Line = *thread.ThreadContext.RightFileStart.Line
 				}
@@ -414,14 +310,14 @@ func convertPullRequest(adoPR *git.GitPullRequest, currentUser string) domain.Pu
 	pr := domain.PullRequest{
 		ID:           fmt.Sprintf("%d", *adoPR.PullRequestId),
 		Number:       *adoPR.PullRequestId,
-		Title:        getString(adoPR.Title),
-		Description:  getString(adoPR.Description),
+		Title:        common.GetString(adoPR.Title),
+		Description:  common.GetString(adoPR.Description),
 		Status:       mapPRStatus(adoPR.Status, adoPR.MergeStatus),
 		Category:     determinePRCategory(adoPR, currentUser),
 		CreatedAt:    adoPR.CreationDate.Time,
 		UpdatedAt:    getUpdateTime(adoPR),
 		URL:          buildPRWebURL(adoPR),
-		IsDraft:      getBool(adoPR.IsDraft),
+		IsDraft:      common.GetBool(adoPR.IsDraft),
 		Mergeable:    isMergeable(adoPR.MergeStatus),
 		SourceBranch: extractBranchName(adoPR.SourceRefName),
 		TargetBranch: extractBranchName(adoPR.TargetRefName),
@@ -440,27 +336,27 @@ func convertPullRequest(adoPR *git.GitPullRequest, currentUser string) domain.Pu
 
 func convertIdentity(identity *webapi.IdentityRef) domain.User {
 	return domain.User{
-		ID:       getString(identity.Id),
-		Username: getString(identity.DisplayName),
-		Email:    getString(identity.UniqueName),
-		Avatar:   getString(identity.ImageUrl),
+		ID:       common.GetString(identity.Id),
+		Username: common.GetString(identity.DisplayName),
+		Email:    common.GetString(identity.UniqueName),
+		Avatar:   common.GetString(identity.ImageUrl),
 	}
 }
 
 func convertRepository(repo *git.GitRepository) domain.Repo {
 	projectName := ""
 	if repo.Project != nil {
-		projectName = getString(repo.Project.Name)
+		projectName = common.GetString(repo.Project.Name)
 	}
 
-	repoName := getString(repo.Name)
+	repoName := common.GetString(repo.Name)
 
 	return domain.Repo{
 		ID:       repo.Id.String(),
 		Name:     repoName,
 		FullName: buildRepositoryIdentifier(projectName, repoName),
 		Owner:    projectName,
-		URL:      getString(repo.WebUrl),
+		URL:      common.GetString(repo.WebUrl),
 	}
 }
 
@@ -511,8 +407,8 @@ func matchesUser(identity *webapi.IdentityRef, username string) bool {
 		return false
 	}
 
-	displayName := getString(identity.DisplayName)
-	uniqueName := getString(identity.UniqueName)
+	displayName := common.GetString(identity.DisplayName)
+	uniqueName := common.GetString(identity.UniqueName)
 
 	return displayName == username ||
 		strings.EqualFold(displayName, username) ||
@@ -575,8 +471,8 @@ func (p *Provider) resolveProjectAndRepo(ctx context.Context, repository string)
 	}
 
 	for _, project := range *projects {
-		if getString(project.Name) == projectName {
-			projectID = getUUIDString(project.Id)
+		if common.GetString(project.Name) == projectName {
+			projectID = common.GetUUIDString(project.Id)
 			break
 		}
 	}
@@ -591,7 +487,7 @@ func (p *Provider) resolveProjectAndRepo(ctx context.Context, repository string)
 	}
 
 	for _, repo := range *repos {
-		if getString(repo.Name) == repoName {
+		if common.GetString(repo.Name) == repoName {
 			repoID = repo.Id.String()
 			break
 		}

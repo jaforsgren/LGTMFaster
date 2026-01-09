@@ -4,29 +4,12 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/google/uuid"
+	"github.com/johanforsgren/lgtmfaster/internal/provider/common"
 	"github.com/microsoft/azure-devops-go-api/azuredevops/v7/git"
 )
 
-func getString(ptr *string) string {
-	if ptr == nil {
-		return ""
-	}
-	return *ptr
-}
-
-func getBool(ptr *bool) bool {
-	if ptr == nil {
-		return false
-	}
-	return *ptr
-}
-
 func extractBranchName(refName *string) string {
-	if refName == nil {
-		return ""
-	}
-	return strings.TrimPrefix(*refName, "refs/heads/")
+	return strings.TrimPrefix(common.GetString(refName), "refs/heads/")
 }
 
 func parseRepositoryIdentifier(repository string) (project, repo string, err error) {
@@ -54,11 +37,4 @@ func isMergeable(mergeStatus *git.PullRequestAsyncStatus) bool {
 	}
 	return *mergeStatus == git.PullRequestAsyncStatusValues.Succeeded ||
 		*mergeStatus == git.PullRequestAsyncStatusValues.Queued
-}
-
-func getUUIDString(id *uuid.UUID) string {
-	if id == nil {
-		return ""
-	}
-	return id.String()
 }
