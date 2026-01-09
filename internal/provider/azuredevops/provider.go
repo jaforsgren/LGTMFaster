@@ -80,6 +80,7 @@ func (p *Provider) ListPullRequests(ctx context.Context, username string) ([]dom
 				}
 
 				repoID := repo.Id.String()
+				repoName := getString(repo.Name)
 				prs, err := p.client.ListPullRequests(ctx, projectID, repoID)
 				if err != nil {
 					errChan <- err
@@ -92,6 +93,9 @@ func (p *Provider) ListPullRequests(ctx context.Context, username string) ([]dom
 
 				for _, pr := range *prs {
 					domainPR := convertPullRequest(&pr, username)
+					if domainPR.URL == "" {
+						domainPR.URL = p.buildPRURL(projectName, repoName, domainPR.Number)
+					}
 					mu.Lock()
 					allPRs = append(allPRs, domainPR)
 					mu.Unlock()
@@ -156,6 +160,9 @@ func (p *Provider) GetPullRequest(ctx context.Context, identifier domain.PRIdent
 	}
 
 	domainPR := convertPullRequest(pr, p.client.username)
+	if domainPR.URL == "" {
+		domainPR.URL = p.buildPRURL(projectName, repoName, domainPR.Number)
+	}
 	return &domainPR, nil
 }
 
@@ -397,6 +404,11 @@ func (p *Provider) SubmitReview(ctx context.Context, review domain.Review) error
 
 func (p *Provider) ValidateCredentials(ctx context.Context) error {
 	return p.client.ValidateCredentials(ctx)
+}
+
+func (p *Provider) buildPRURL(projectName, repoName string, prNumber int) string {
+	return fmt.Sprintf("https://dev.azure.com/%s/%s/_git/%s/pullrequest/%d",
+		p.client.organization, projectName, repoName, prNumber)
 }
 
 func convertPullRequest(adoPR *git.GitPullRequest, currentUser string) domain.PullRequest {
