@@ -213,6 +213,27 @@ func (cr *CommandRegistry) registerKeyBindings() {
 			AvailableIn: []ViewState{ViewPRInspect},
 		},
 		{
+			Keys:        []string{"d"},
+			Description: "View diff",
+			ShortHelp:   "d",
+			Handler:     handleViewDiffKey,
+			AvailableIn: []ViewState{ViewPRInspect},
+		},
+		{
+			Keys:        []string{"left"},
+			Description: "Previous file",
+			ShortHelp:   "left",
+			Handler:     handlePrevFileKey,
+			AvailableIn: []ViewState{ViewPRInspect},
+		},
+		{
+			Keys:        []string{"right"},
+			Description: "Next file",
+			ShortHelp:   "right",
+			Handler:     handleNextFileKey,
+			AvailableIn: []ViewState{ViewPRInspect},
+		},
+		{
 			Keys:        []string{":"},
 			Description: "Command mode",
 			ShortHelp:   ":",
@@ -393,6 +414,14 @@ func handleQuitKey(m Model) (Model, tea.Cmd) {
 	if m.state == ViewPATs {
 		return m, tea.Quit
 	}
+
+	if m.state == ViewPRInspect && m.prInspect.GetMode() == views.PRInspectModeDiff {
+		m.prInspect.SwitchToDescription()
+		m.topBar.SetView("PR Description")
+		m.updateShortcuts()
+		return m, nil
+	}
+
 	newModel, cmd := m.navigateBack()
 	return newModel.(Model), cmd
 }
@@ -414,8 +443,9 @@ func handleEnterKey(m Model) (Model, tea.Cmd) {
 		pr := m.prListView.GetSelectedPR()
 		if pr != nil {
 			m.state = ViewPRInspect
+			m.prInspect.SwitchToDescription()
 			m.topBar.SetContext(pr.Repository.FullName, fmt.Sprintf("%d", pr.Number))
-			m.topBar.SetView("PR Inspect")
+			m.topBar.SetView("PR Description")
 			m.updateShortcuts()
 			return m, tea.Batch(
 				m.loadPRDetail(*pr),
@@ -424,7 +454,9 @@ func handleEnterKey(m Model) (Model, tea.Cmd) {
 			)
 		}
 	case ViewPRInspect:
-		m.reviewView.Activate(views.ReviewModeComment)
+		if m.prInspect.GetMode() == views.PRInspectModeDiff {
+			m.reviewView.Activate(views.ReviewModeComment)
+		}
 		return m, nil
 	}
 	return m, nil
@@ -509,8 +541,17 @@ func handleFilterKey(m Model) (Model, tea.Cmd) {
 	return m, nil
 }
 
-func handleNextFileKey(m Model) (Model, tea.Cmd) {
+func handleViewDiffKey(m Model) (Model, tea.Cmd) {
 	if m.state == ViewPRInspect {
+		m.prInspect.SwitchToDiff()
+		m.topBar.SetView("PR Diff")
+		m.updateShortcuts()
+	}
+	return m, nil
+}
+
+func handleNextFileKey(m Model) (Model, tea.Cmd) {
+	if m.state == ViewPRInspect && m.prInspect.GetMode() == views.PRInspectModeDiff {
 		m.prInspect.NextFile()
 		return m, nil
 	}
@@ -518,7 +559,7 @@ func handleNextFileKey(m Model) (Model, tea.Cmd) {
 }
 
 func handlePrevFileKey(m Model) (Model, tea.Cmd) {
-	if m.state == ViewPRInspect {
+	if m.state == ViewPRInspect && m.prInspect.GetMode() == views.PRInspectModeDiff {
 		m.prInspect.PrevFile()
 		return m, nil
 	}
@@ -526,7 +567,7 @@ func handlePrevFileKey(m Model) (Model, tea.Cmd) {
 }
 
 func handleToggleCommentsKey(m Model) (Model, tea.Cmd) {
-	if m.state == ViewPRInspect {
+	if m.state == ViewPRInspect && m.prInspect.GetMode() == views.PRInspectModeDiff {
 		m.prInspect.ToggleComments()
 		return m, nil
 	}
@@ -534,7 +575,7 @@ func handleToggleCommentsKey(m Model) (Model, tea.Cmd) {
 }
 
 func handleApproveKey(m Model) (Model, tea.Cmd) {
-	if m.state == ViewPRInspect {
+	if m.state == ViewPRInspect && m.prInspect.GetMode() == views.PRInspectModeDiff {
 		m.reviewView.Activate(views.ReviewModeApprove)
 		return m, nil
 	}
@@ -542,7 +583,7 @@ func handleApproveKey(m Model) (Model, tea.Cmd) {
 }
 
 func handleRequestChangesKey(m Model) (Model, tea.Cmd) {
-	if m.state == ViewPRInspect {
+	if m.state == ViewPRInspect && m.prInspect.GetMode() == views.PRInspectModeDiff {
 		m.reviewView.Activate(views.ReviewModeRequestChanges)
 		return m, nil
 	}

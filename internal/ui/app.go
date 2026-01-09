@@ -476,6 +476,13 @@ func (m Model) navigateBack() (tea.Model, tea.Cmd) {
 		m.updateShortcuts()
 		return m, nil
 	case ViewPRInspect:
+		if m.prInspect.GetMode() == views.PRInspectModeDiff {
+			logger.Log("UI: Navigating back from PR Diff to PR Description")
+			m.prInspect.SwitchToDescription()
+			m.topBar.SetView("PR Description")
+			m.updateShortcuts()
+			return m, nil
+		}
 		logger.Log("UI: Navigating back from PR Inspect to PR List")
 		m.state = ViewPRList
 		m.topBar.SetContext("", "")

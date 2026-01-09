@@ -11,6 +11,13 @@ import (
 	"github.com/johanforsgren/lgtmfaster/internal/logger"
 )
 
+type PRInspectMode int
+
+const (
+	PRInspectModeDescription PRInspectMode = iota
+	PRInspectModeDiff
+)
+
 type PRInspectViewModel struct {
 	pr           *domain.PullRequest
 	diff         *domain.Diff
@@ -20,6 +27,7 @@ type PRInspectViewModel struct {
 	width        int
 	height       int
 	showComments bool
+	mode         PRInspectMode
 }
 
 func NewPRInspectView() *PRInspectViewModel {
@@ -29,6 +37,7 @@ func NewPRInspectView() *PRInspectViewModel {
 		viewport:     vp,
 		currentFile:  0,
 		showComments: false,
+		mode:         PRInspectModeDescription,
 	}
 }
 
@@ -41,6 +50,7 @@ func (m *PRInspectViewModel) SetSize(width, height int) {
 
 func (m *PRInspectViewModel) SetPR(pr *domain.PullRequest) {
 	m.pr = pr
+	m.mode = PRInspectModeDescription
 	m.updateViewport()
 }
 
@@ -68,6 +78,20 @@ func (m *PRInspectViewModel) GetPR() *domain.PullRequest {
 	return m.pr
 }
 
+func (m *PRInspectViewModel) SwitchToDiff() {
+	m.mode = PRInspectModeDiff
+	m.updateViewport()
+}
+
+func (m *PRInspectViewModel) SwitchToDescription() {
+	m.mode = PRInspectModeDescription
+	m.updateViewport()
+}
+
+func (m *PRInspectViewModel) GetMode() PRInspectMode {
+	return m.mode
+}
+
 func (m *PRInspectViewModel) NextFile() {
 	if m.diff != nil && m.currentFile < len(m.diff.Files)-1 {
 		m.currentFile++
@@ -89,22 +113,6 @@ func (m *PRInspectViewModel) ToggleComments() {
 
 func (m *PRInspectViewModel) Update(msg tea.Msg) tea.Cmd {
 	var cmd tea.Cmd
-
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		switch msg.String() {
-		case "n":
-			m.NextFile()
-			return nil
-		case "p":
-			m.PrevFile()
-			return nil
-		case "c":
-			m.ToggleComments()
-			return nil
-		}
-	}
-
 	m.viewport, cmd = m.viewport.Update(msg)
 	return cmd
 }
@@ -112,10 +120,18 @@ func (m *PRInspectViewModel) Update(msg tea.Msg) tea.Cmd {
 func (m *PRInspectViewModel) View() string {
 	content := m.viewport.View()
 
+	var helpText string
+	switch m.mode {
+	case PRInspectModeDescription:
+		helpText = "\nd: View Diff | ctrl+o: Open in Browser | q: Back"
+	case PRInspectModeDiff:
+		helpText = "\nn/p/left/right: Navigate Files | c: Toggle Comments | a: Approve | r: Request Changes | Enter: Comment | ctrl+o: Open in Browser | q: Back to Description"
+	}
+
 	help := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#6B7280")).
 		Italic(true).
-		Render("\nn/p: Next/Prev File | c: Toggle Comments | a: Approve | r: Request Changes | Enter: Comment | q: Back")
+		Render(helpText)
 
 	return content + "\n" + help
 }
@@ -123,13 +139,15 @@ func (m *PRInspectViewModel) View() string {
 func (m *PRInspectViewModel) updateViewport() {
 	var b strings.Builder
 
-	if m.pr != nil {
-		b.WriteString(m.renderPRHeader())
-		b.WriteString("\n\n")
-	}
-
-	if m.diff != nil && len(m.diff.Files) > 0 {
-		b.WriteString(m.renderDiff())
+	switch m.mode {
+	case PRInspectModeDescription:
+		if m.pr != nil {
+			b.WriteString(m.renderPRHeader())
+		}
+	case PRInspectModeDiff:
+		if m.diff != nil && len(m.diff.Files) > 0 {
+			b.WriteString(m.renderDiff())
+		}
 	}
 
 	m.viewport.SetContent(b.String())
