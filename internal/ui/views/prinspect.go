@@ -80,6 +80,14 @@ func (m *PRInspectViewModel) GetPR() *domain.PullRequest {
 	return m.pr
 }
 
+func (m *PRInspectViewModel) GetComments() []domain.Comment {
+	return m.comments
+}
+
+func (m *PRInspectViewModel) GetDiff() *domain.Diff {
+	return m.diff
+}
+
 func (m *PRInspectViewModel) SwitchToDiff() {
 	m.mode = PRInspectModeDiff
 	m.updateViewport()
@@ -256,14 +264,14 @@ func (m *PRInspectViewModel) View() string {
 	var helpText string
 	switch m.mode {
 	case PRInspectModeDescription:
-		helpText = "\nd: View Diff | ctrl+o: Open in Browser | q: Back"
+		helpText = "\nd: View Diff | c: View Comments | ctrl+o: Open in Browser | q: Back"
 	case PRInspectModeDiff:
 		pendingCount := m.GetPendingCommentCount()
 		countInfo := ""
 		if pendingCount > 0 {
 			countInfo = fmt.Sprintf(" [%d pending comments]", pendingCount)
 		}
-		helpText = fmt.Sprintf("\nFiles: n/p/←/→ | Lines: j/k | i: Inline Comment%s | c: Toggle Comments | a: Approve | r: Request Changes | Enter: General Comment | ctrl+o: Browser | q: Back", countInfo)
+		helpText = fmt.Sprintf("\nFiles: n/p/←/→ | Lines: j/k | i: Inline Comment%s | c: View Comments | a: Approve | r: Request Changes | Enter: General Comment | ctrl+o: Browser | q: Back", countInfo)
 	}
 
 	help := lipgloss.NewStyle().

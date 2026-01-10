@@ -138,7 +138,7 @@ func (cr *CommandRegistry) registerKeyBindings() {
 		{
 			Keys:        []string{"down", "j"},
 			Description: "Navigate down",
-			ShortHelp:   "j/k",
+			ShortHelp:   "",
 			Handler:     handleDownKey,
 			AvailableIn: []ViewState{ViewPATs, ViewPRList, ViewPRInspect},
 		},
@@ -180,22 +180,22 @@ func (cr *CommandRegistry) registerKeyBindings() {
 		{
 			Keys:        []string{"n"},
 			Description: "Next file",
-			ShortHelp:   "n",
+			ShortHelp:   "n/p",
 			Handler:     handleNextFileKey,
 			AvailableIn: []ViewState{ViewPRInspect},
 		},
 		{
 			Keys:        []string{"p"},
 			Description: "Previous file",
-			ShortHelp:   "p",
+			ShortHelp:   "",
 			Handler:     handlePrevFileKey,
 			AvailableIn: []ViewState{ViewPRInspect},
 		},
 		{
 			Keys:        []string{"c"},
-			Description: "Toggle comments",
+			Description: "View comments",
 			ShortHelp:   "c",
-			Handler:     handleToggleCommentsKey,
+			Handler:     handleViewCommentsKey,
 			AvailableIn: []ViewState{ViewPRInspect},
 		},
 		{
@@ -229,14 +229,14 @@ func (cr *CommandRegistry) registerKeyBindings() {
 		{
 			Keys:        []string{"left"},
 			Description: "Previous file",
-			ShortHelp:   "left",
+			ShortHelp:   "",
 			Handler:     handlePrevFileKey,
 			AvailableIn: []ViewState{ViewPRInspect},
 		},
 		{
 			Keys:        []string{"right"},
 			Description: "Next file",
-			ShortHelp:   "right",
+			ShortHelp:   "",
 			Handler:     handleNextFileKey,
 			AvailableIn: []ViewState{ViewPRInspect},
 		},
@@ -581,9 +581,11 @@ func handlePrevFileKey(m Model) (Model, tea.Cmd) {
 	return m, nil
 }
 
-func handleToggleCommentsKey(m Model) (Model, tea.Cmd) {
-	if m.state == ViewPRInspect && m.prInspect.GetMode() == views.PRInspectModeDiff {
-		m.prInspect.ToggleComments()
+func handleViewCommentsKey(m Model) (Model, tea.Cmd) {
+	if m.state == ViewPRInspect {
+		comments := m.prInspect.GetComments()
+		diff := m.prInspect.GetDiff()
+		m.commentDetailView.Activate(comments, diff)
 		return m, nil
 	}
 	return m, nil

@@ -36,6 +36,7 @@ type Model struct {
 	prInspect         *views.PRInspectViewModel
 	reviewView        *views.ReviewViewModel
 	inlineCommentView *views.InlineCommentViewModel
+	commentDetailView *views.CommentDetailViewModel
 	logsView          *views.LogsViewModel
 	repository        domain.Repository
 	provider          domain.Provider
@@ -58,6 +59,7 @@ func NewModel(repository domain.Repository) Model {
 		prInspect:         views.NewPRInspectView(),
 		reviewView:        views.NewReviewView(),
 		inlineCommentView: views.NewInlineCommentView(),
+		commentDetailView: views.NewCommentDetailView(),
 		logsView:          views.NewLogsView(),
 		repository:        repository,
 		providers:         make(map[string]domain.Provider),
@@ -79,6 +81,9 @@ func (m Model) isInInputMode() bool {
 		return true
 	}
 	if m.inlineCommentView.IsActive() {
+		return true
+	}
+	if m.commentDetailView.IsActive() {
 		return true
 	}
 	if m.logsView.IsActive() {
@@ -106,6 +111,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.prInspect.SetSize(msg.Width, msg.Height)
 		m.reviewView.SetSize(msg.Width, msg.Height)
 		m.inlineCommentView.SetSize(msg.Width, msg.Height)
+		m.commentDetailView.SetSize(msg.Width, msg.Height)
 		m.logsView.SetSize(msg.Width, msg.Height)
 
 	case tea.KeyMsg:
@@ -153,6 +159,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				default:
 					cmd = m.inlineCommentView.Update(msg)
+					return m, cmd
+				}
+			}
+
+			if m.commentDetailView.IsActive() {
+				switch key {
+				case "esc", "q":
+					m.commentDetailView.Deactivate()
+					return m, nil
+				default:
+					cmd = m.commentDetailView.Update(msg)
 					return m, cmd
 				}
 			}
@@ -338,6 +355,8 @@ func (m Model) View() string {
 		content = m.reviewView.View()
 	} else if m.inlineCommentView.IsActive() {
 		content = m.inlineCommentView.View()
+	} else if m.commentDetailView.IsActive() {
+		content = m.commentDetailView.View()
 	} else {
 		switch m.state {
 		case ViewPATs:

@@ -19,6 +19,7 @@ func createTestModel() Model {
 		prInspect:         views.NewPRInspectView(),
 		reviewView:        views.NewReviewView(),
 		inlineCommentView: views.NewInlineCommentView(),
+		commentDetailView: views.NewCommentDetailView(),
 		logsView:          views.NewLogsView(),
 		commandRegistry:   NewCommandRegistry(),
 	}
@@ -182,10 +183,11 @@ func TestHandlePrevFileKey_OnlyWorksInDiffMode(t *testing.T) {
 	}
 }
 
-func TestHandleToggleCommentsKey_OnlyWorksInDiffMode(t *testing.T) {
+func TestHandleViewCommentsKey_WorksInBothModes(t *testing.T) {
 	m := createTestModel()
 	m.state = ViewPRInspect
 	m.prInspect.SetSize(80, 24)
+	m.commentDetailView.SetSize(80, 24)
 
 	comment := domain.Comment{
 		ID:       "comment1",
@@ -209,28 +211,23 @@ func TestHandleToggleCommentsKey_OnlyWorksInDiffMode(t *testing.T) {
 	}
 	m.prInspect.SetDiff(diff)
 	m.prInspect.SetComments([]domain.Comment{comment})
-	m.prInspect.SwitchToDiff()
 
-	initialView := m.prInspect.View()
-	if contains(initialView, "Test comment") {
-		t.Error("expected comments to be hidden initially")
-	}
-
+	// Test in description mode
 	m.prInspect.SwitchToDescription()
-	m2, _ := handleToggleCommentsKey(m)
-	m2.prInspect.SwitchToDiff()
+	m2, _ := handleViewCommentsKey(m)
 
-	viewAfterDescModeToggle := m2.prInspect.View()
-	if contains(viewAfterDescModeToggle, "Test comment") {
-		t.Error("expected comments to remain hidden when toggling in description mode")
+	if !m2.commentDetailView.IsActive() {
+		t.Error("expected comment detail view to activate in description mode")
 	}
 
-	m.prInspect.SwitchToDiff()
-	m3, _ := handleToggleCommentsKey(m)
+	m.commentDetailView.Deactivate()
 
-	viewAfterDiffModeToggle := m3.prInspect.View()
-	if !contains(viewAfterDiffModeToggle, "Test comment") {
-		t.Error("expected comments to be visible after toggling in diff mode")
+	// Test in diff mode
+	m.prInspect.SwitchToDiff()
+	m3, _ := handleViewCommentsKey(m)
+
+	if !m3.commentDetailView.IsActive() {
+		t.Error("expected comment detail view to activate in diff mode")
 	}
 }
 
