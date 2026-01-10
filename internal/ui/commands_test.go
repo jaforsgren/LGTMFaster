@@ -10,16 +10,17 @@ import (
 
 func createTestModel() Model {
 	return Model{
-		state:           ViewPRInspect,
-		topBar:          components.NewTopBar(),
-		statusBar:       components.NewStatusBar(),
-		commandBar:      components.NewCommandBar(),
-		patsView:        views.NewPATsView(),
-		prListView:      views.NewPRListView(),
-		prInspect:       views.NewPRInspectView(),
-		reviewView:      views.NewReviewView(),
-		logsView:        views.NewLogsView(),
-		commandRegistry: NewCommandRegistry(),
+		state:             ViewPRInspect,
+		topBar:            components.NewTopBar(),
+		statusBar:         components.NewStatusBar(),
+		commandBar:        components.NewCommandBar(),
+		patsView:          views.NewPATsView(),
+		prListView:        views.NewPRListView(),
+		prInspect:         views.NewPRInspectView(),
+		reviewView:        views.NewReviewView(),
+		inlineCommentView: views.NewInlineCommentView(),
+		logsView:          views.NewLogsView(),
+		commandRegistry:   NewCommandRegistry(),
 	}
 }
 
@@ -495,4 +496,169 @@ func containsSubstring(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+func TestHandleInlineCommentKey_OnlyWorksInDiffMode(t *testing.T) {
+	m := createTestModel()
+	m.state = ViewPRInspect
+	m.prInspect.SetSize(80, 24)
+
+	diff := &domain.Diff{
+		Files: []domain.FileDiff{
+			{
+				NewPath: "file1.go",
+				Hunks: []domain.DiffHunk{
+					{Header: "@@ -1,1 +1,1 @@", Lines: []domain.DiffLine{
+						{Type: "add", Content: "+line1", NewLine: 1},
+					}},
+				},
+			},
+		},
+	}
+	m.prInspect.SetDiff(diff)
+	m.prInspect.SwitchToDescription()
+
+	newModel, _ := handleInlineCommentKey(m)
+
+	if newModel.inlineCommentView.IsActive() {
+		t.Error("expected inline comment view to not activate in description mode")
+	}
+
+	m.prInspect.SwitchToDiff()
+	newModel, _ = handleInlineCommentKey(m)
+
+	if !newModel.inlineCommentView.IsActive() {
+		t.Error("expected inline comment view to activate in diff mode")
+	}
+}
+
+func TestIKeyBinding_AvailableInPRInspect(t *testing.T) {
+	registry := NewCommandRegistry()
+
+	var iBinding *KeyBinding
+	for _, binding := range registry.keyBindings {
+		for _, key := range binding.Keys {
+			if key == "i" {
+				availableInPRInspect := false
+				for _, state := range binding.AvailableIn {
+					if state == ViewPRInspect {
+						availableInPRInspect = true
+						break
+					}
+				}
+				if availableInPRInspect && binding.Description == "Inline comment on line" {
+					iBinding = binding
+					break
+				}
+			}
+		}
+	}
+
+	if iBinding == nil {
+		t.Error("expected 'i' key binding for 'Inline comment on line' to be available in ViewPRInspect")
+	}
+}
+
+func TestPendingComments_AddAndClear(t *testing.T) {
+	m := createTestModel()
+	m.state = ViewPRInspect
+	m.prInspect.SetSize(80, 24)
+
+	diff := &domain.Diff{
+		Files: []domain.FileDiff{
+			{
+				NewPath: "file1.go",
+				Hunks: []domain.DiffHunk{
+					{Header: "@@ -1,1 +1,1 @@", Lines: []domain.DiffLine{
+						{Type: "add", Content: "+line1", NewLine: 1},
+					}},
+				},
+			},
+		},
+	}
+	m.prInspect.SetDiff(diff)
+	m.prInspect.SwitchToDiff()
+
+	if m.prInspect.GetPendingCommentCount() != 0 {
+		t.Errorf("expected 0 pending comments initially, got %d", m.prInspect.GetPendingCommentCount())
+	}
+
+	m.prInspect.AddPendingComment("This is a test comment")
+
+	if m.prInspect.GetPendingCommentCount() != 1 {
+		t.Errorf("expected 1 pending comment after adding, got %d", m.prInspect.GetPendingCommentCount())
+	}
+
+	comments := m.prInspect.GetPendingComments()
+	if len(comments) != 1 {
+		t.Errorf("expected 1 pending comment in GetPendingComments(), got %d", len(comments))
+	}
+
+	if comments[0].Body != "This is a test comment" {
+		t.Errorf("expected comment body to be 'This is a test comment', got '%s'", comments[0].Body)
+	}
+
+	if comments[0].FilePath != "file1.go" {
+		t.Errorf("expected comment file path to be 'file1.go', got '%s'", comments[0].FilePath)
+	}
+
+	if comments[0].Line != 1 {
+		t.Errorf("expected comment line to be 1, got %d", comments[0].Line)
+	}
+
+	m.prInspect.ClearPendingComments()
+
+	if m.prInspect.GetPendingCommentCount() != 0 {
+		t.Errorf("expected 0 pending comments after clearing, got %d", m.prInspect.GetPendingCommentCount())
+	}
+}
+
+func TestLineNavigation_JKKeys(t *testing.T) {
+	m := createTestModel()
+	m.state = ViewPRInspect
+	m.prInspect.SetSize(80, 24)
+
+	diff := &domain.Diff{
+		Files: []domain.FileDiff{
+			{
+				NewPath: "file1.go",
+				Hunks: []domain.DiffHunk{
+					{Header: "@@ -1,3 +1,3 @@", Lines: []domain.DiffLine{
+						{Type: "context", Content: " line1", NewLine: 1},
+						{Type: "add", Content: "+line2", NewLine: 2},
+						{Type: "delete", Content: "-line3", OldLine: 3},
+					}},
+				},
+			},
+		},
+	}
+	m.prInspect.SetDiff(diff)
+	m.prInspect.SwitchToDiff()
+
+	initialLine := m.prInspect.GetCurrentLineInfo()
+	if initialLine == nil {
+		t.Fatal("expected current line info to not be nil")
+	}
+
+	if initialLine.Content != " line1" {
+		t.Errorf("expected to start on line 1, got '%s'", initialLine.Content)
+	}
+
+	m.prInspect.NextLine()
+	nextLine := m.prInspect.GetCurrentLineInfo()
+	if nextLine == nil {
+		t.Fatal("expected current line info to not be nil after NextLine")
+	}
+	if nextLine.Content != "+line2" {
+		t.Errorf("expected to be on line 2 after NextLine, got '%s'", nextLine.Content)
+	}
+
+	m.prInspect.PrevLine()
+	prevLine := m.prInspect.GetCurrentLineInfo()
+	if prevLine == nil {
+		t.Fatal("expected current line info to not be nil after PrevLine")
+	}
+	if prevLine.Content != " line1" {
+		t.Errorf("expected to be back on line 1 after PrevLine, got '%s'", prevLine.Content)
+	}
 }

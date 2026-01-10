@@ -19,15 +19,17 @@ const (
 )
 
 type PRInspectViewModel struct {
-	pr           *domain.PullRequest
-	diff         *domain.Diff
-	comments     []domain.Comment
-	viewport     viewport.Model
-	currentFile  int
-	width        int
-	height       int
-	showComments bool
-	mode         PRInspectMode
+	pr              *domain.PullRequest
+	diff            *domain.Diff
+	comments        []domain.Comment
+	viewport        viewport.Model
+	currentFile     int
+	currentLineIdx  int
+	width           int
+	height          int
+	showComments    bool
+	mode            PRInspectMode
+	pendingComments []domain.Comment
 }
 
 func NewPRInspectView() *PRInspectViewModel {
@@ -95,6 +97,7 @@ func (m *PRInspectViewModel) GetMode() PRInspectMode {
 func (m *PRInspectViewModel) NextFile() {
 	if m.diff != nil && m.currentFile < len(m.diff.Files)-1 {
 		m.currentFile++
+		m.currentLineIdx = 0
 		m.updateViewport()
 	}
 }
@@ -102,6 +105,7 @@ func (m *PRInspectViewModel) NextFile() {
 func (m *PRInspectViewModel) PrevFile() {
 	if m.currentFile > 0 {
 		m.currentFile--
+		m.currentLineIdx = 0
 		m.updateViewport()
 	}
 }
@@ -109,6 +113,135 @@ func (m *PRInspectViewModel) PrevFile() {
 func (m *PRInspectViewModel) ToggleComments() {
 	m.showComments = !m.showComments
 	m.updateViewport()
+}
+
+func (m *PRInspectViewModel) NextLine() {
+	if m.diff == nil || len(m.diff.Files) == 0 {
+		return
+	}
+	file := m.diff.Files[m.currentFile]
+	totalLines := m.countTotalLines(file)
+	if m.currentLineIdx < totalLines-1 {
+		m.currentLineIdx++
+		m.updateViewport()
+		m.ensureLineVisible()
+	}
+}
+
+func (m *PRInspectViewModel) PrevLine() {
+	if m.currentLineIdx > 0 {
+		m.currentLineIdx--
+		m.updateViewport()
+		m.ensureLineVisible()
+	}
+}
+
+func (m *PRInspectViewModel) ensureLineVisible() {
+	if m.diff == nil || len(m.diff.Files) == 0 {
+		return
+	}
+
+	// Calculate approximate line position in rendered output
+	// Each hunk has a header line, and we need to account for file header too
+	file := m.diff.Files[m.currentFile]
+
+	// Start with file header (takes about 3 lines)
+	linePosition := 3
+
+	lineIdx := 0
+	for _, hunk := range file.Hunks {
+		// Add 2 lines for hunk header and spacing
+		linePosition += 2
+
+		for range hunk.Lines {
+			if lineIdx == m.currentLineIdx {
+				// Found our line, now ensure it's visible
+				viewportHeight := m.viewport.Height
+
+				// If line is below visible area, scroll down
+				if linePosition > m.viewport.YOffset+viewportHeight-1 {
+					m.viewport.YOffset = linePosition - viewportHeight + 1
+				}
+				// If line is above visible area, scroll up
+				if linePosition < m.viewport.YOffset {
+					m.viewport.YOffset = linePosition
+				}
+				return
+			}
+			lineIdx++
+			linePosition++
+		}
+		// Add spacing after hunk
+		linePosition++
+	}
+}
+
+func (m *PRInspectViewModel) countTotalLines(file domain.FileDiff) int {
+	count := 0
+	for _, hunk := range file.Hunks {
+		count += len(hunk.Lines)
+	}
+	return count
+}
+
+func (m *PRInspectViewModel) GetCurrentLineInfo() *domain.DiffLine {
+	if m.diff == nil || len(m.diff.Files) == 0 {
+		return nil
+	}
+
+	file := m.diff.Files[m.currentFile]
+	lineIdx := 0
+	for _, hunk := range file.Hunks {
+		for _, line := range hunk.Lines {
+			if lineIdx == m.currentLineIdx {
+				return &line
+			}
+			lineIdx++
+		}
+	}
+	return nil
+}
+
+func (m *PRInspectViewModel) AddPendingComment(body string) {
+	if m.diff == nil || len(m.diff.Files) == 0 {
+		return
+	}
+
+	lineInfo := m.GetCurrentLineInfo()
+	if lineInfo == nil {
+		return
+	}
+
+	file := m.diff.Files[m.currentFile]
+	filePath := getFilePath(file)
+
+	lineNumber := lineInfo.NewLine
+	side := "RIGHT"
+	if lineInfo.Type == "delete" {
+		lineNumber = lineInfo.OldLine
+		side = "LEFT"
+	}
+
+	comment := domain.Comment{
+		Body:     body,
+		FilePath: filePath,
+		Line:     lineNumber,
+		Side:     side,
+	}
+
+	m.pendingComments = append(m.pendingComments, comment)
+}
+
+func (m *PRInspectViewModel) GetPendingComments() []domain.Comment {
+	return m.pendingComments
+}
+
+func (m *PRInspectViewModel) ClearPendingComments() {
+	m.pendingComments = []domain.Comment{}
+}
+
+func (m *PRInspectViewModel) GetPendingCommentCount() int {
+	return len(m.pendingComments)
 }
 
 func (m *PRInspectViewModel) Update(msg tea.Msg) tea.Cmd {
@@ -125,7 +258,12 @@ func (m *PRInspectViewModel) View() string {
 	case PRInspectModeDescription:
 		helpText = "\nd: View Diff | ctrl+o: Open in Browser | q: Back"
 	case PRInspectModeDiff:
-		helpText = "\nn/p/left/right: Navigate Files | c: Toggle Comments | a: Approve | r: Request Changes | Enter: Comment | ctrl+o: Open in Browser | q: Back to Description"
+		pendingCount := m.GetPendingCommentCount()
+		countInfo := ""
+		if pendingCount > 0 {
+			countInfo = fmt.Sprintf(" [%d pending comments]", pendingCount)
+		}
+		helpText = fmt.Sprintf("\nFiles: n/p/←/→ | Lines: j/k | i: Inline Comment%s | c: Toggle Comments | a: Approve | r: Request Changes | Enter: General Comment | ctrl+o: Browser | q: Back", countInfo)
 	}
 
 	help := lipgloss.NewStyle().
@@ -237,6 +375,7 @@ func (m *PRInspectViewModel) renderDiff() string {
 
 	logger.Log("PRInspectView: renderDiff - File has %d hunks", len(file.Hunks))
 
+	lineIdx := 0
 	for hunkIdx, hunk := range file.Hunks {
 		hunkHeaderStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#3B82F6"))
@@ -246,8 +385,9 @@ func (m *PRInspectViewModel) renderDiff() string {
 		logger.Log("PRInspectView: renderDiff - Hunk %d has %d lines", hunkIdx+1, len(hunk.Lines))
 
 		for _, line := range hunk.Lines {
-			b.WriteString(m.renderDiffLine(line))
+			b.WriteString(m.renderDiffLine(line, lineIdx))
 			b.WriteString("\n")
+			lineIdx++
 		}
 
 		b.WriteString("\n")
@@ -262,7 +402,7 @@ func (m *PRInspectViewModel) renderDiff() string {
 	return result
 }
 
-func (m *PRInspectViewModel) renderDiffLine(line domain.DiffLine) string {
+func (m *PRInspectViewModel) renderDiffLine(line domain.DiffLine, lineIdx int) string {
 	style := lipgloss.NewStyle()
 
 	switch line.Type {
@@ -274,7 +414,67 @@ func (m *PRInspectViewModel) renderDiffLine(line domain.DiffLine) string {
 		style = style.Foreground(lipgloss.Color("#6B7280"))
 	}
 
-	return style.Render(line.Content)
+	isCursor := lineIdx == m.currentLineIdx
+	hasPendingComment := m.hasPendingCommentOnLine(line)
+	hasSubmittedComment := m.hasSubmittedCommentOnLine(line)
+
+	prefix := ""
+	if isCursor {
+		prefix = "► "
+		style = style.Bold(true).Background(lipgloss.Color("#374151")).Underline(true)
+	} else {
+		prefix = "  "
+	}
+
+	if hasPendingComment {
+		prefix += "💬 "
+	} else if hasSubmittedComment {
+		prefix += "💭 "
+	}
+
+	return style.Render(prefix + line.Content)
+}
+
+func (m *PRInspectViewModel) hasPendingCommentOnLine(line domain.DiffLine) bool {
+	if m.diff == nil || len(m.diff.Files) == 0 {
+		return false
+	}
+
+	file := m.diff.Files[m.currentFile]
+	filePath := getFilePath(file)
+
+	lineNumber := line.NewLine
+	if line.Type == "delete" {
+		lineNumber = line.OldLine
+	}
+
+	for _, comment := range m.pendingComments {
+		if comment.FilePath == filePath && comment.Line == lineNumber {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *PRInspectViewModel) hasSubmittedCommentOnLine(line domain.DiffLine) bool {
+	if m.diff == nil || len(m.diff.Files) == 0 {
+		return false
+	}
+
+	file := m.diff.Files[m.currentFile]
+	filePath := getFilePath(file)
+
+	lineNumber := line.NewLine
+	if line.Type == "delete" {
+		lineNumber = line.OldLine
+	}
+
+	for _, comment := range m.comments {
+		if comment.FilePath == filePath && comment.Line == lineNumber {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *PRInspectViewModel) renderComments(filePath string) string {
