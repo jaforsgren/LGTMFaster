@@ -138,7 +138,7 @@ func (cr *CommandRegistry) registerKeyBindings() {
 		{
 			Keys:        []string{"down", "j"},
 			Description: "Navigate down",
-			ShortHelp:   "j/k",
+			ShortHelp:   "",
 			Handler:     handleDownKey,
 			AvailableIn: []ViewState{ViewPATs, ViewPRList, ViewPRInspect},
 		},
@@ -180,22 +180,22 @@ func (cr *CommandRegistry) registerKeyBindings() {
 		{
 			Keys:        []string{"n"},
 			Description: "Next file",
-			ShortHelp:   "n",
+			ShortHelp:   "n/p",
 			Handler:     handleNextFileKey,
 			AvailableIn: []ViewState{ViewPRInspect},
 		},
 		{
 			Keys:        []string{"p"},
 			Description: "Previous file",
-			ShortHelp:   "p",
+			ShortHelp:   "",
 			Handler:     handlePrevFileKey,
 			AvailableIn: []ViewState{ViewPRInspect},
 		},
 		{
 			Keys:        []string{"c"},
-			Description: "Toggle comments",
+			Description: "View comments",
 			ShortHelp:   "c",
-			Handler:     handleToggleCommentsKey,
+			Handler:     handleViewCommentsKey,
 			AvailableIn: []ViewState{ViewPRInspect},
 		},
 		{
@@ -220,16 +220,23 @@ func (cr *CommandRegistry) registerKeyBindings() {
 			AvailableIn: []ViewState{ViewPRInspect},
 		},
 		{
+			Keys:        []string{"i"},
+			Description: "Inline comment on line",
+			ShortHelp:   "i",
+			Handler:     handleInlineCommentKey,
+			AvailableIn: []ViewState{ViewPRInspect},
+		},
+		{
 			Keys:        []string{"left"},
 			Description: "Previous file",
-			ShortHelp:   "left",
+			ShortHelp:   "",
 			Handler:     handlePrevFileKey,
 			AvailableIn: []ViewState{ViewPRInspect},
 		},
 		{
 			Keys:        []string{"right"},
 			Description: "Next file",
-			ShortHelp:   "right",
+			ShortHelp:   "",
 			Handler:     handleNextFileKey,
 			AvailableIn: []ViewState{ViewPRInspect},
 		},
@@ -479,6 +486,10 @@ func handleUpKey(m Model) (Model, tea.Cmd) {
 	case ViewPRList:
 		cmd = m.prListView.Update(tea.KeyMsg{Type: tea.KeyUp})
 	case ViewPRInspect:
+		if m.prInspect.GetMode() == views.PRInspectModeDiff {
+			m.prInspect.PrevLine()
+			return m, nil
+		}
 		cmd = m.prInspect.Update(tea.KeyMsg{Type: tea.KeyUp})
 	}
 	return m, cmd
@@ -492,6 +503,10 @@ func handleDownKey(m Model) (Model, tea.Cmd) {
 	case ViewPRList:
 		cmd = m.prListView.Update(tea.KeyMsg{Type: tea.KeyDown})
 	case ViewPRInspect:
+		if m.prInspect.GetMode() == views.PRInspectModeDiff {
+			m.prInspect.NextLine()
+			return m, nil
+		}
 		cmd = m.prInspect.Update(tea.KeyMsg{Type: tea.KeyDown})
 	}
 	return m, cmd
@@ -566,9 +581,11 @@ func handlePrevFileKey(m Model) (Model, tea.Cmd) {
 	return m, nil
 }
 
-func handleToggleCommentsKey(m Model) (Model, tea.Cmd) {
-	if m.state == ViewPRInspect && m.prInspect.GetMode() == views.PRInspectModeDiff {
-		m.prInspect.ToggleComments()
+func handleViewCommentsKey(m Model) (Model, tea.Cmd) {
+	if m.state == ViewPRInspect {
+		comments := m.prInspect.GetComments()
+		diff := m.prInspect.GetDiff()
+		m.commentDetailView.Activate(comments, diff)
 		return m, nil
 	}
 	return m, nil
@@ -642,6 +659,20 @@ func handleOpenBrowserKey(m Model) (Model, tea.Cmd) {
 	}
 
 	m.statusBar.SetMessage("Opening PR in browser...", false)
+	return m, nil
+}
+
+func handleInlineCommentKey(m Model) (Model, tea.Cmd) {
+	if m.state == ViewPRInspect && m.prInspect.GetMode() == views.PRInspectModeDiff {
+		lineInfo := m.prInspect.GetCurrentLineInfo()
+		if lineInfo != nil {
+			lineDesc := fmt.Sprintf("Line %d", lineInfo.NewLine)
+			if lineInfo.Type == "delete" {
+				lineDesc = fmt.Sprintf("Line %d (deleted)", lineInfo.OldLine)
+			}
+			m.inlineCommentView.Activate(lineDesc)
+		}
+	}
 	return m, nil
 }
 

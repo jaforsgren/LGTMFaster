@@ -109,12 +109,12 @@ func TestView_ShowsCorrectHelpTextForDiffMode(t *testing.T) {
 
 	output := view.View()
 
-	expectedHelp := "n/p/left/right: Navigate Files"
+	expectedHelp := "Files: n/p"
 	if !contains(output, expectedHelp) {
 		t.Errorf("expected help text to contain '%s'", expectedHelp)
 	}
 
-	expectedBrowserHelp := "ctrl+o: Open in Browser"
+	expectedBrowserHelp := "ctrl+o: Browser"
 	if !contains(output, expectedBrowserHelp) {
 		t.Errorf("expected help text to contain '%s'", expectedBrowserHelp)
 	}

@@ -25,43 +25,47 @@ const (
 )
 
 type Model struct {
-	state            ViewState
-	width            int
-	height           int
-	topBar           *components.TopBarModel
-	statusBar        *components.StatusBarModel
-	commandBar       *components.CommandBarModel
-	patsView         *views.PATsViewModel
-	prListView       *views.PRListViewModel
-	prInspect        *views.PRInspectViewModel
-	reviewView       *views.ReviewViewModel
-	logsView         *views.LogsViewModel
-	repository       domain.Repository
-	provider         domain.Provider
-	providers        map[string]domain.Provider
-	primaryProvider  domain.Provider
-	primaryPATID     string
-	ctx              context.Context
-	commandRegistry  *CommandRegistry
-	isInitialStartup bool
+	state             ViewState
+	width             int
+	height            int
+	topBar            *components.TopBarModel
+	statusBar         *components.StatusBarModel
+	commandBar        *components.CommandBarModel
+	patsView          *views.PATsViewModel
+	prListView        *views.PRListViewModel
+	prInspect         *views.PRInspectViewModel
+	reviewView        *views.ReviewViewModel
+	inlineCommentView *views.InlineCommentViewModel
+	commentDetailView *views.CommentDetailViewModel
+	logsView          *views.LogsViewModel
+	repository        domain.Repository
+	provider          domain.Provider
+	providers         map[string]domain.Provider
+	primaryProvider   domain.Provider
+	primaryPATID      string
+	ctx               context.Context
+	commandRegistry   *CommandRegistry
+	isInitialStartup  bool
 }
 
 func NewModel(repository domain.Repository) Model {
 	return Model{
-		state:            ViewPATs,
-		topBar:           components.NewTopBar(),
-		statusBar:        components.NewStatusBar(),
-		commandBar:       components.NewCommandBar(),
-		patsView:         views.NewPATsView(),
-		prListView:       views.NewPRListView(),
-		prInspect:        views.NewPRInspectView(),
-		reviewView:       views.NewReviewView(),
-		logsView:         views.NewLogsView(),
-		repository:       repository,
-		providers:        make(map[string]domain.Provider),
-		ctx:              context.Background(),
-		commandRegistry:  NewCommandRegistry(),
-		isInitialStartup: true,
+		state:             ViewPATs,
+		topBar:            components.NewTopBar(),
+		statusBar:         components.NewStatusBar(),
+		commandBar:        components.NewCommandBar(),
+		patsView:          views.NewPATsView(),
+		prListView:        views.NewPRListView(),
+		prInspect:         views.NewPRInspectView(),
+		reviewView:        views.NewReviewView(),
+		inlineCommentView: views.NewInlineCommentView(),
+		commentDetailView: views.NewCommentDetailView(),
+		logsView:          views.NewLogsView(),
+		repository:        repository,
+		providers:         make(map[string]domain.Provider),
+		ctx:               context.Background(),
+		commandRegistry:   NewCommandRegistry(),
+		isInitialStartup:  true,
 	}
 }
 
@@ -74,6 +78,12 @@ func (m Model) isInInputMode() bool {
 		return true
 	}
 	if m.reviewView.IsActive() {
+		return true
+	}
+	if m.inlineCommentView.IsActive() {
+		return true
+	}
+	if m.commentDetailView.IsActive() {
 		return true
 	}
 	if m.logsView.IsActive() {
@@ -100,6 +110,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.prListView.SetSize(msg.Width, msg.Height)
 		m.prInspect.SetSize(msg.Width, msg.Height)
 		m.reviewView.SetSize(msg.Width, msg.Height)
+		m.inlineCommentView.SetSize(msg.Width, msg.Height)
+		m.commentDetailView.SetSize(msg.Width, msg.Height)
 		m.logsView.SetSize(msg.Width, msg.Height)
 
 	case tea.KeyMsg:
@@ -128,6 +140,36 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				default:
 					cmd = m.reviewView.Update(msg)
+					return m, cmd
+				}
+			}
+
+			if m.inlineCommentView.IsActive() {
+				switch key {
+				case "ctrl+s":
+					comment := m.inlineCommentView.GetComment()
+					if comment != "" {
+						m.prInspect.AddPendingComment(comment)
+						m.statusBar.SetMessage("Inline comment added. Submit review to post.", false)
+					}
+					m.inlineCommentView.Deactivate()
+					return m, nil
+				case "esc":
+					m.inlineCommentView.Deactivate()
+					return m, nil
+				default:
+					cmd = m.inlineCommentView.Update(msg)
+					return m, cmd
+				}
+			}
+
+			if m.commentDetailView.IsActive() {
+				switch key {
+				case "esc", "q":
+					m.commentDetailView.Deactivate()
+					return m, nil
+				default:
+					cmd = m.commentDetailView.Update(msg)
 					return m, cmd
 				}
 			}
@@ -277,6 +319,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case SuccessMsg:
 		m.statusBar.SetMessage(msg.message, false)
 		if msg.reloadComments && msg.reloadCommentsPR != nil {
+			m.prInspect.ClearPendingComments()
 			return m, m.loadComments(*msg.reloadCommentsPR)
 		}
 		return m, nil
@@ -310,6 +353,10 @@ func (m Model) View() string {
 		content = m.logsView.View()
 	} else if m.reviewView.IsActive() {
 		content = m.reviewView.View()
+	} else if m.inlineCommentView.IsActive() {
+		content = m.inlineCommentView.View()
+	} else if m.commentDetailView.IsActive() {
+		content = m.commentDetailView.View()
 	} else {
 		switch m.state {
 		case ViewPATs:
@@ -513,6 +560,9 @@ func (m Model) submitReview() tea.Cmd {
 		}
 	}
 
+	pendingComments := m.prInspect.GetPendingComments()
+	review.Comments = append(review.Comments, pendingComments...)
+
 	var authenticatedUser string
 	if pr.PATID != "" {
 		pat, err := m.repository.GetPAT(pr.PATID)
@@ -529,14 +579,23 @@ func (m Model) submitReview() tea.Cmd {
 
 	review.PRIdentifier = fmt.Sprintf("%s/%d", pr.Repository.FullName, pr.Number)
 
-	logger.Log("UI: Submitting review for %s using provider %s (PATID: %s, Action: %s)",
-		review.PRIdentifier, pr.ProviderType, pr.PATID, review.Action)
+	commentCount := len(review.Comments)
+	inlineCount := len(pendingComments)
+	logger.Log("UI: Submitting review for %s using provider %s (PATID: %s, Action: %s, Comments: %d, Inline: %d)",
+		review.PRIdentifier, pr.ProviderType, pr.PATID, review.Action, commentCount, inlineCount)
+
 	return func() tea.Msg {
 		if err := provider.SubmitReview(m.ctx, review); err != nil {
 			return ErrorMsg{err: err}
 		}
+
+		successMsg := "Review submitted successfully"
+		if inlineCount > 0 {
+			successMsg = fmt.Sprintf("Review submitted with %d inline comment(s). Press 'c' to view comments.", inlineCount)
+		}
+
 		return SuccessMsg{
-			message:          "Review submitted successfully",
+			message:          successMsg,
 			reloadComments:   true,
 			reloadCommentsPR: pr,
 		}
