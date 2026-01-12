@@ -9,6 +9,7 @@ import (
 	"github.com/microsoft/azure-devops-go-api/azuredevops/v7"
 	"github.com/microsoft/azure-devops-go-api/azuredevops/v7/core"
 	"github.com/microsoft/azure-devops-go-api/azuredevops/v7/git"
+	"github.com/sergi/go-diff/diffmatchpatch"
 )
 
 type Client struct {
@@ -224,12 +225,16 @@ func (c *Client) GetPullRequestIterationChanges(ctx context.Context, projectID s
 		Project:       &projectID,
 	})
 	if err != nil {
+		logger.LogError("AZURE_GET_ITERATIONS", fmt.Sprintf("project=%s repo=%s PR=%d", projectID, repoID, pullRequestID), err)
 		return "", fmt.Errorf("failed to get PR iterations: %w", err)
 	}
 
 	if iterations == nil || len(*iterations) == 0 {
-		return "", fmt.Errorf("no iterations found for PR")
+		logger.LogError("AZURE_NO_ITERATIONS", fmt.Sprintf("project=%s repo=%s PR=%d", projectID, repoID, pullRequestID), fmt.Errorf("PR has no iterations"))
+		return "", fmt.Errorf("no iterations found for PR #%d - this PR may not have any commits yet", pullRequestID)
 	}
+
+	logger.Log("AzureDevOps: Found %d iteration(s) for PR #%d", len(*iterations), pullRequestID)
 
 	latestIteration := (*iterations)[len(*iterations)-1]
 	if latestIteration.Id == nil {
@@ -243,40 +248,51 @@ func (c *Client) GetPullRequestIterationChanges(ctx context.Context, projectID s
 		Project:       &projectID,
 	})
 	if err != nil {
+		logger.LogError("AZURE_GET_ITERATION_CHANGES", fmt.Sprintf("project=%s repo=%s PR=%d iteration=%d", projectID, repoID, pullRequestID, *latestIteration.Id), err)
 		return "", fmt.Errorf("failed to get PR iteration changes: %w", err)
 	}
 
 	if changes == nil || changes.ChangeEntries == nil || len(*changes.ChangeEntries) == 0 {
-		return "", fmt.Errorf("no changes found in latest iteration")
+		logger.LogError("AZURE_NO_CHANGES", fmt.Sprintf("project=%s repo=%s PR=%d iteration=%d", projectID, repoID, pullRequestID, *latestIteration.Id), fmt.Errorf("no change entries"))
+		return "", fmt.Errorf("no changes found in latest iteration %d for PR #%d", *latestIteration.Id, pullRequestID)
 	}
 
+	logger.Log("AzureDevOps: Found %d change(s) in iteration %d for PR #%d", len(*changes.ChangeEntries), *latestIteration.Id, pullRequestID)
+
 	diffText := ""
-	for _, change := range *changes.ChangeEntries {
+	processedFiles := 0
+	skippedFiles := 0
+
+	for idx, change := range *changes.ChangeEntries {
 		itemMap, ok := change.Item.(map[string]interface{})
 		if !ok || itemMap == nil {
+			logger.Log("AzureDevOps: Change %d/%d - skipped (item is not a map or is nil)", idx+1, len(*changes.ChangeEntries))
+			skippedFiles++
 			continue
 		}
 
 		path, _ := itemMap["path"].(string)
 		if path == "" {
+			logger.Log("AzureDevOps: Change %d/%d - skipped (path is empty)", idx+1, len(*changes.ChangeEntries))
+			skippedFiles++
 			continue
 		}
 
 		isFolder, _ := itemMap["isFolder"].(bool)
 		if isFolder {
+			logger.Log("AzureDevOps: Change %d/%d - skipped folder: %s", idx+1, len(*changes.ChangeEntries), path)
+			skippedFiles++
 			continue
 		}
 
 		objectId, _ := itemMap["objectId"].(string)
 
-		originalObjectId := ""
-		if originalPath, ok := itemMap["originalPath"]; ok && originalPath != nil {
-			originalObjectId, _ = itemMap["originalObjectId"].(string)
-		}
+		originalObjectId, _ := itemMap["originalObjectId"].(string)
 
 		changeType := 0
+		changeTypeStr := ""
 		if change.ChangeType != nil {
-			changeTypeStr := string(*change.ChangeType)
+			changeTypeStr = string(*change.ChangeType)
 			switch changeTypeStr {
 			case "add", "1":
 				changeType = 1
@@ -287,6 +303,9 @@ func (c *Client) GetPullRequestIterationChanges(ctx context.Context, projectID s
 			}
 		}
 
+		logger.Log("AzureDevOps: Change %d/%d - path=%s, changeType=%s (%d), objectId=%s, originalObjectId=%s",
+			idx+1, len(*changes.ChangeEntries), path, changeTypeStr, changeType, objectId, originalObjectId)
+
 		const (
 			changeTypeAdd    = 1
 			changeTypeEdit   = 2
@@ -296,12 +315,17 @@ func (c *Client) GetPullRequestIterationChanges(ctx context.Context, projectID s
 		switch changeType {
 		case changeTypeAdd:
 			if objectId == "" {
+				logger.Log("AzureDevOps: Change %d/%d - skipped ADD (objectId is empty)", idx+1, len(*changes.ChangeEntries))
+				skippedFiles++
 				continue
 			}
 			content, err := c.getFileContent(ctx, projectID, repoID, objectId)
 			if err != nil {
+				logger.LogError("AZURE_GET_FILE_CONTENT", fmt.Sprintf("path=%s objectId=%s", path, objectId), err)
+				skippedFiles++
 				continue
 			}
+			processedFiles++
 			diffText += fmt.Sprintf("diff --git a%s b%s\n", path, path)
 			diffText += "--- /dev/null\n"
 			diffText += fmt.Sprintf("+++ b%s\n", path)
@@ -312,12 +336,17 @@ func (c *Client) GetPullRequestIterationChanges(ctx context.Context, projectID s
 
 		case changeTypeDelete:
 			if originalObjectId == "" {
+				logger.Log("AzureDevOps: Change %d/%d - skipped DELETE (originalObjectId is empty)", idx+1, len(*changes.ChangeEntries))
+				skippedFiles++
 				continue
 			}
 			content, err := c.getFileContent(ctx, projectID, repoID, originalObjectId)
 			if err != nil {
+				logger.LogError("AZURE_GET_FILE_CONTENT", fmt.Sprintf("path=%s originalObjectId=%s", path, originalObjectId), err)
+				skippedFiles++
 				continue
 			}
+			processedFiles++
 			diffText += fmt.Sprintf("diff --git a%s b%s\n", path, path)
 			diffText += fmt.Sprintf("--- a%s\n", path)
 			diffText += "+++ /dev/null\n"
@@ -328,17 +357,25 @@ func (c *Client) GetPullRequestIterationChanges(ctx context.Context, projectID s
 
 		case changeTypeEdit:
 			if objectId == "" || originalObjectId == "" {
+				logger.Log("AzureDevOps: Change %d/%d - skipped EDIT (objectId=%s, originalObjectId=%s)",
+					idx+1, len(*changes.ChangeEntries), objectId, originalObjectId)
+				skippedFiles++
 				continue
 			}
 
 			newContent, err := c.getFileContent(ctx, projectID, repoID, objectId)
 			if err != nil {
+				logger.LogError("AZURE_GET_FILE_CONTENT", fmt.Sprintf("path=%s objectId=%s (new)", path, objectId), err)
+				skippedFiles++
 				continue
 			}
 			oldContent, err := c.getFileContent(ctx, projectID, repoID, originalObjectId)
 			if err != nil {
+				logger.LogError("AZURE_GET_FILE_CONTENT", fmt.Sprintf("path=%s originalObjectId=%s (old)", path, originalObjectId), err)
+				skippedFiles++
 				continue
 			}
+			processedFiles++
 
 			diffText += fmt.Sprintf("diff --git a%s b%s\n", path, path)
 			diffText += fmt.Sprintf("--- a%s\n", path)
@@ -346,8 +383,15 @@ func (c *Client) GetPullRequestIterationChanges(ctx context.Context, projectID s
 
 			unifiedDiff := generateUnifiedDiff(oldContent, newContent)
 			diffText += unifiedDiff
+
+		default:
+			logger.Log("AzureDevOps: Change %d/%d - skipped UNKNOWN changeType=%s (%d) for path=%s",
+				idx+1, len(*changes.ChangeEntries), changeTypeStr, changeType, path)
+			skippedFiles++
 		}
 	}
+
+	logger.Log("AzureDevOps: Processed %d file(s), skipped %d file(s) for PR #%d", processedFiles, skippedFiles, pullRequestID)
 
 	return diffText, nil
 }
@@ -384,33 +428,77 @@ func (c *Client) getFileContent(ctx context.Context, projectID string, repoID st
 }
 
 func generateUnifiedDiff(oldLines, newLines []string) string {
-	return generateSimpleDiff(oldLines, newLines)
+	dmp := diffmatchpatch.New()
+
+	oldText := strings.Join(oldLines, "\n")
+	newText := strings.Join(newLines, "\n")
+
+	a, b, lineArray := dmp.DiffLinesToChars(oldText, newText)
+	diffs := dmp.DiffMain(a, b, false)
+	diffs = dmp.DiffCharsToLines(diffs, lineArray)
+
+	unifiedDiff := convertDiffsToUnifiedFormat(diffs)
+
+	return unifiedDiff
 }
 
-func generateSimpleDiff(oldLines, newLines []string) string {
-	result := fmt.Sprintf("@@ -1,%d +1,%d @@\n", len(oldLines), len(newLines))
+func convertDiffsToUnifiedFormat(diffs []diffmatchpatch.Diff) string {
+	var result strings.Builder
 
-	maxLen := len(oldLines)
-	if len(newLines) > maxLen {
-		maxLen = len(newLines)
-	}
+	oldLineCount := 0
+	newLineCount := 0
 
-	for i := 0; i < maxLen; i++ {
-		if i < len(oldLines) && i < len(newLines) {
-			if oldLines[i] == newLines[i] {
-				result += " " + oldLines[i] + "\n"
-			} else {
-				result += "-" + oldLines[i] + "\n"
-				result += "+" + newLines[i] + "\n"
+	for _, diff := range diffs {
+		lines := strings.Split(diff.Text, "\n")
+		switch diff.Type {
+		case diffmatchpatch.DiffDelete:
+			oldLineCount += len(lines)
+			if diff.Text != "" && !strings.HasSuffix(diff.Text, "\n") {
+				oldLineCount--
 			}
-		} else if i < len(oldLines) {
-			result += "-" + oldLines[i] + "\n"
-		} else {
-			result += "+" + newLines[i] + "\n"
+		case diffmatchpatch.DiffInsert:
+			newLineCount += len(lines)
+			if diff.Text != "" && !strings.HasSuffix(diff.Text, "\n") {
+				newLineCount--
+			}
+		case diffmatchpatch.DiffEqual:
+			count := len(lines)
+			if diff.Text != "" && !strings.HasSuffix(diff.Text, "\n") {
+				count--
+			}
+			oldLineCount += count
+			newLineCount += count
 		}
 	}
 
-	return result
+	result.WriteString(fmt.Sprintf("@@ -1,%d +1,%d @@\n", oldLineCount, newLineCount))
+
+	for _, diff := range diffs {
+		lines := strings.Split(diff.Text, "\n")
+
+		for i, line := range lines {
+			if i == len(lines)-1 && line == "" {
+				continue
+			}
+
+			switch diff.Type {
+			case diffmatchpatch.DiffDelete:
+				result.WriteString("-")
+				result.WriteString(line)
+				result.WriteString("\n")
+			case diffmatchpatch.DiffInsert:
+				result.WriteString("+")
+				result.WriteString(line)
+				result.WriteString("\n")
+			case diffmatchpatch.DiffEqual:
+				result.WriteString(" ")
+				result.WriteString(line)
+				result.WriteString("\n")
+			}
+		}
+	}
+
+	return result.String()
 }
 
 func boolPtr(b bool) *bool {

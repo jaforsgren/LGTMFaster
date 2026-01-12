@@ -149,7 +149,7 @@ func (p *Provider) GetDiff(ctx context.Context, identifier domain.PRIdentifier) 
 	}
 
 	if pr.LastMergeSourceCommit == nil || pr.LastMergeTargetCommit == nil {
-		return &domain.Diff{Files: []domain.FileDiff{}}, nil
+		logger.Log("AzureDevOps: PR #%d has no merge commits (LastMergeSourceCommit or LastMergeTargetCommit is nil), attempting to fetch diff anyway", identifier.Number)
 	}
 
 	logger.Log("AzureDevOps: Requesting PR iteration changes for PR #%d", identifier.Number)
