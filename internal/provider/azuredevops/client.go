@@ -571,6 +571,42 @@ func (c *Client) CreatePullRequestReview(ctx context.Context, projectID string, 
 	return nil
 }
 
+func (c *Client) CompletePullRequest(ctx context.Context, projectID string, repoID string, pullRequestID int, mergeMethod string, deleteBranch bool) error {
+	completionOptions := &git.GitPullRequestCompletionOptions{
+		DeleteSourceBranch: &deleteBranch,
+	}
+
+	var mergeStrategy git.GitPullRequestMergeStrategy
+	switch mergeMethod {
+	case "squash":
+		mergeStrategy = git.GitPullRequestMergeStrategyValues.Squash
+	case "rebase":
+		mergeStrategy = git.GitPullRequestMergeStrategyValues.Rebase
+	default:
+		mergeStrategy = git.GitPullRequestMergeStrategyValues.NoFastForward
+	}
+	completionOptions.MergeStrategy = &mergeStrategy
+
+	status := git.PullRequestStatusValues.Completed
+	updateRequest := git.GitPullRequest{
+		Status:            &status,
+		CompletionOptions: completionOptions,
+	}
+
+	_, err := c.gitClient.UpdatePullRequest(ctx, git.UpdatePullRequestArgs{
+		RepositoryId:           &repoID,
+		PullRequestId:          &pullRequestID,
+		Project:                &projectID,
+		GitPullRequestToUpdate: &updateRequest,
+	})
+
+	if err != nil {
+		return fmt.Errorf("failed to complete pull request: %w", err)
+	}
+
+	return nil
+}
+
 func intPtr(i int) *int {
 	return &i
 }

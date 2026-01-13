@@ -74,6 +74,10 @@ func (m *mockGitClient) CreatePullRequestReviewer(ctx context.Context, args git.
 	return nil, nil
 }
 
+func (m *mockGitClient) UpdatePullRequest(ctx context.Context, args git.UpdatePullRequestArgs) (*git.GitPullRequest, error) {
+	return nil, nil
+}
+
 func TestGetPullRequestIterationChanges_AddedFile(t *testing.T) {
 	iterationID := 1
 	changeType := git.VersionControlChangeTypeValues.Add

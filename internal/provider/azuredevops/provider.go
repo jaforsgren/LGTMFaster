@@ -301,6 +301,25 @@ func (p *Provider) ValidateCredentials(ctx context.Context) error {
 	return p.client.ValidateCredentials(ctx)
 }
 
+func (p *Provider) MergePullRequest(ctx context.Context, identifier domain.PRIdentifier, mergeMethod string, deleteBranch bool) error {
+	logger.Log("AzureDevOps: Completing PR #%d from %s (method: %s, deleteBranch: %v)",
+		identifier.Number, identifier.Repository, mergeMethod, deleteBranch)
+
+	projectID, repoID, err := p.resolveProjectAndRepoWithCache(ctx, identifier.Repository)
+	if err != nil {
+		logger.LogError("AZDO_MERGE_PR", identifier.Repository, err)
+		return err
+	}
+
+	if err := p.client.CompletePullRequest(ctx, projectID, repoID, identifier.Number, mergeMethod, deleteBranch); err != nil {
+		logger.LogError("AZDO_MERGE_PR", fmt.Sprintf("%s#%d", identifier.Repository, identifier.Number), err)
+		return fmt.Errorf("failed to complete PR: %w", err)
+	}
+
+	logger.Log("AzureDevOps: Successfully completed PR #%d", identifier.Number)
+	return nil
+}
+
 func (p *Provider) buildPRURL(projectName, repoName string, prNumber int) string {
 	return fmt.Sprintf("https://dev.azure.com/%s/%s/_git/%s/pullrequest/%d",
 		p.client.organization, projectName, repoName, prNumber)

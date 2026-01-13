@@ -128,3 +128,44 @@ func (c *Client) CreateReview(ctx context.Context, owner, repo string, number in
 	}
 	return nil
 }
+
+func (c *Client) MergePullRequest(ctx context.Context, owner, repo string, number int, mergeMethod string, deleteBranch bool) error {
+	options := &github.PullRequestOptions{
+		MergeMethod:        mergeMethod,
+		DontDefaultIfBlank: true,
+	}
+
+	commitMessage := ""
+	result, resp, err := c.client.PullRequests.Merge(ctx, owner, repo, number, commitMessage, options)
+	if err != nil {
+		return fmt.Errorf("failed to merge pull request: %w", err)
+	}
+
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("merge failed with status %d", resp.StatusCode)
+	}
+
+	if result.Merged == nil || !*result.Merged {
+		msg := "unknown error"
+		if result.Message != nil {
+			msg = *result.Message
+		}
+		return fmt.Errorf("merge was not successful: %s", msg)
+	}
+
+	if deleteBranch {
+		pr, _, err := c.client.PullRequests.Get(ctx, owner, repo, number)
+		if err != nil {
+			return fmt.Errorf("failed to get PR for branch deletion: %w", err)
+		}
+
+		if pr.Head != nil && pr.Head.Ref != nil {
+			_, err := c.client.Git.DeleteRef(ctx, owner, repo, fmt.Sprintf("heads/%s", *pr.Head.Ref))
+			if err != nil {
+				return fmt.Errorf("failed to delete branch: %w", err)
+			}
+		}
+	}
+
+	return nil
+}

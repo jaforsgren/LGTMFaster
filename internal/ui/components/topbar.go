@@ -16,6 +16,8 @@ type TopBarModel struct {
 	repoCount      int
 	currentRepo    string
 	currentPR      string
+	prStatus       string
+	prMergeable    bool
 	activePAT      string
 	patProvider    string
 	selectedCount  int
@@ -53,6 +55,11 @@ func (m *TopBarModel) SetPRBreakdown(authored, assigned, other int) {
 func (m *TopBarModel) SetContext(repo, pr string) {
 	m.currentRepo = repo
 	m.currentPR = pr
+}
+
+func (m *TopBarModel) SetPRStatus(status string, mergeable bool) {
+	m.prStatus = status
+	m.prMergeable = mergeable
 }
 
 func (m *TopBarModel) SetActivePAT(pat, provider string) {
@@ -178,9 +185,38 @@ func (m *TopBarModel) buildContextInfo() []string {
 		contextValue = m.currentRepo
 		if m.currentPR != "" {
 			contextValue = fmt.Sprintf("%s #%s", m.currentRepo, m.currentPR)
+
+			if m.prStatus != "" {
+				var statusColor lipgloss.Color
+				var statusText string
+				var mergeIcon string
+
+				switch m.prStatus {
+				case "merged":
+					statusColor = lipgloss.Color("10")
+					statusText = "MERGED"
+					mergeIcon = "✓"
+				case "open":
+					statusColor = lipgloss.Color("214")
+					statusText = "OPEN"
+					if m.prMergeable {
+						mergeIcon = "✓"
+					} else {
+						mergeIcon = "✗"
+					}
+				case "closed":
+					statusColor = lipgloss.Color("8")
+					statusText = "CLOSED"
+					mergeIcon = ""
+				}
+
+				statusStyle := lipgloss.NewStyle().Foreground(statusColor).Bold(true)
+				statusBadge := statusStyle.Render(fmt.Sprintf("[%s %s]", statusText, mergeIcon))
+				contextValue = fmt.Sprintf("%s %s", contextValue, statusBadge)
+			}
 		}
-		if len(contextValue) > 25 {
-			contextValue = contextValue[:22] + "..."
+		if len(contextValue) > 45 {
+			contextValue = contextValue[:42] + "..."
 		}
 	}
 	lines = append(lines,

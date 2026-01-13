@@ -169,6 +169,25 @@ func (p *Provider) ValidateCredentials(ctx context.Context) error {
 	return err
 }
 
+func (p *Provider) MergePullRequest(ctx context.Context, identifier domain.PRIdentifier, mergeMethod string, deleteBranch bool) error {
+	logger.Log("GitHub: Merging PR #%d from %s (method: %s, deleteBranch: %v)",
+		identifier.Number, identifier.Repository, mergeMethod, deleteBranch)
+
+	owner, repo, err := common.ParseGitHubRepository(identifier.Repository)
+	if err != nil {
+		logger.LogError("GITHUB_MERGE_PR", identifier.Repository, err)
+		return err
+	}
+
+	if err := p.client.MergePullRequest(ctx, owner, repo, identifier.Number, mergeMethod, deleteBranch); err != nil {
+		logger.LogError("GITHUB_MERGE_PR", fmt.Sprintf("%s/%s#%d", owner, repo, identifier.Number), err)
+		return fmt.Errorf("%s", common.ExtractErrorMessage(err))
+	}
+
+	logger.Log("GitHub: Successfully merged PR #%d", identifier.Number)
+	return nil
+}
+
 func (p *Provider) convertPullRequest(ghPR *github.PullRequest, currentUser string) domain.PullRequest {
 	category := domain.PRCategoryOther
 	if ghPR.User != nil && ghPR.User.Login != nil && *ghPR.User.Login == currentUser {

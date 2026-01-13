@@ -17,5 +17,7 @@ type Provider interface {
 
 	SubmitReview(ctx context.Context, review Review) error
 
+	MergePullRequest(ctx context.Context, identifier PRIdentifier, mergeMethod string, deleteBranch bool) error
+
 	ValidateCredentials(ctx context.Context) error
 }

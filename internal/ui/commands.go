@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/johanforsgren/lgtmfaster/internal/domain"
 	"github.com/johanforsgren/lgtmfaster/internal/ui/views"
 )
 
@@ -71,6 +72,14 @@ func (cr *CommandRegistry) registerCommands() {
 			ShortHelp:   ":logs",
 			Handler:     handleLogsCommand,
 			AvailableIn: []ViewState{ViewPATs, ViewPRList, ViewPRInspect},
+		},
+		{
+			Name:        "merge",
+			Aliases:     []string{"m"},
+			Description: "Merge pull request",
+			ShortHelp:   ":merge",
+			Handler:     handleMergeCommand,
+			AvailableIn: []ViewState{ViewPRInspect},
 		},
 		{
 			Name:        "quit",
@@ -217,6 +226,13 @@ func (cr *CommandRegistry) registerKeyBindings() {
 			Description: "View diff",
 			ShortHelp:   "d",
 			Handler:     handleViewDiffKey,
+			AvailableIn: []ViewState{ViewPRInspect},
+		},
+		{
+			Keys:        []string{"m"},
+			Description: "Merge PR",
+			ShortHelp:   "m",
+			Handler:     handleMergeKey,
 			AvailableIn: []ViewState{ViewPRInspect},
 		},
 		{
@@ -604,6 +620,41 @@ func handleRequestChangesKey(m Model) (Model, tea.Cmd) {
 		m.reviewView.Activate(views.ReviewModeRequestChanges)
 		return m, nil
 	}
+	return m, nil
+}
+
+func handleMergeCommand(m Model, args []string) (Model, tea.Cmd) {
+	return handleMergeKey(m)
+}
+
+func handleMergeKey(m Model) (Model, tea.Cmd) {
+	if m.state != ViewPRInspect {
+		return m, nil
+	}
+
+	pr := m.prInspect.GetPR()
+	if pr == nil {
+		m.statusBar.SetMessage("No PR selected", true)
+		return m, nil
+	}
+
+	if pr.Status == domain.PRStatusMerged {
+		m.statusBar.SetMessage("PR is already merged", true)
+		return m, nil
+	}
+
+	if pr.Status != domain.PRStatusOpen {
+		m.statusBar.SetMessage("Can only merge open PRs", true)
+		return m, nil
+	}
+
+	provider := m.getProviderForPR(*pr)
+	if provider == nil {
+		m.statusBar.SetMessage("No provider available", true)
+		return m, nil
+	}
+
+	m.mergeView.Activate(pr, provider.GetType())
 	return m, nil
 }
 

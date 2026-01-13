@@ -35,6 +35,7 @@ type Model struct {
 	prListView        *views.PRListViewModel
 	prInspect         *views.PRInspectViewModel
 	reviewView        *views.ReviewViewModel
+	mergeView         *views.MergeViewModel
 	inlineCommentView *views.InlineCommentViewModel
 	commentDetailView *views.CommentDetailViewModel
 	logsView          *views.LogsViewModel
@@ -58,6 +59,7 @@ func NewModel(repository domain.Repository) Model {
 		prListView:        views.NewPRListView(),
 		prInspect:         views.NewPRInspectView(),
 		reviewView:        views.NewReviewView(),
+		mergeView:         views.NewMergeView(),
 		inlineCommentView: views.NewInlineCommentView(),
 		commentDetailView: views.NewCommentDetailView(),
 		logsView:          views.NewLogsView(),
@@ -78,6 +80,9 @@ func (m Model) isInInputMode() bool {
 		return true
 	}
 	if m.reviewView.IsActive() {
+		return true
+	}
+	if m.mergeView.IsActive() {
 		return true
 	}
 	if m.inlineCommentView.IsActive() {
@@ -140,6 +145,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				default:
 					cmd = m.reviewView.Update(msg)
+					return m, cmd
+				}
+			}
+
+			if m.mergeView.IsActive() {
+				switch key {
+				case "enter":
+					return m, m.executeMerge()
+				case "esc":
+					m.mergeView.Deactivate()
+					return m, nil
+				case "up", "k":
+					m.mergeView.PrevOption()
+					return m, nil
+				case "down", "j":
+					m.mergeView.NextOption()
+					return m, nil
+				default:
+					cmd = m.mergeView.Update(msg)
 					return m, cmd
 				}
 			}
@@ -290,6 +314,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case PRDetailLoadedMsg:
 		m.prInspect.SetPR(msg.pr)
+		m.topBar.SetPRStatus(string(msg.pr.Status), msg.pr.Mergeable)
 		return m, nil
 
 	case DiffLoadedMsg:
@@ -324,6 +349,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case MergeSuccessMsg:
+		m.statusBar.SetMessage(fmt.Sprintf("PR %s merged successfully", msg.prIdentifier), false)
+		if pr := m.prInspect.GetPR(); pr != nil {
+			return m, tea.Batch(m.loadPRDetail(*pr), clearStatusAfterDelay(4*time.Second))
+		}
+		return m, clearStatusAfterDelay(4 * time.Second)
+
+	case MergeErrorMsg:
+		m.statusBar.SetMessage(fmt.Sprintf("Merge failed: %v", msg.err), true)
+		return m, clearStatusAfterDelay(8 * time.Second)
+
 	case ClearStatusMsg:
 		m.statusBar.ClearMessage()
 		return m, nil
@@ -353,6 +389,8 @@ func (m Model) View() string {
 		content = m.logsView.View()
 	} else if m.reviewView.IsActive() {
 		content = m.reviewView.View()
+	} else if m.mergeView.IsActive() {
+		content = m.mergeView.View()
 	} else if m.inlineCommentView.IsActive() {
 		content = m.inlineCommentView.View()
 	} else if m.commentDetailView.IsActive() {
@@ -602,6 +640,41 @@ func (m Model) submitReview() tea.Cmd {
 	}
 }
 
+func (m Model) executeMerge() tea.Cmd {
+	selectedMethod := m.mergeView.GetSelectedMethod()
+	pr := m.mergeView.GetPR()
+	m.mergeView.Deactivate()
+
+	if pr == nil {
+		return func() tea.Msg {
+			return MergeErrorMsg{err: fmt.Errorf("no PR selected")}
+		}
+	}
+
+	provider := m.getProviderForPR(*pr)
+	if provider == nil {
+		return func() tea.Msg {
+			return MergeErrorMsg{err: fmt.Errorf("no provider available")}
+		}
+	}
+
+	identifier := domain.PRIdentifier{
+		Provider:   pr.ProviderType,
+		Repository: pr.Repository.FullName,
+		Number:     pr.Number,
+	}
+
+	prIdentifier := fmt.Sprintf("%s#%d", pr.Repository.FullName, pr.Number)
+	logger.Log("UI: Merging PR %s with method %s", prIdentifier, selectedMethod)
+
+	return func() tea.Msg {
+		if err := provider.MergePullRequest(m.ctx, identifier, selectedMethod, true); err != nil {
+			return MergeErrorMsg{err: err}
+		}
+		return MergeSuccessMsg{prIdentifier: prIdentifier}
+	}
+}
+
 func (m Model) createProvider(pat domain.PAT) (domain.Provider, error) {
 	switch pat.Provider {
 	case domain.ProviderGitHub:
@@ -833,6 +906,14 @@ type SuccessMsg struct {
 	message             string
 	reloadComments      bool
 	reloadCommentsPR    *domain.PullRequest
+}
+
+type MergeSuccessMsg struct {
+	prIdentifier string
+}
+
+type MergeErrorMsg struct {
+	err error
 }
 
 type ClearStatusMsg struct{}
