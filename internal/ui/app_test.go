@@ -112,6 +112,10 @@ func (m *mockProvider) ValidateCredentials(ctx context.Context) error {
 	return nil
 }
 
+func (m *mockProvider) MergePullRequest(ctx context.Context, identifier domain.PRIdentifier, mergeMethod string, deleteBranch bool) error {
+	return nil
+}
+
 func (m *mockProvider) GetType() domain.ProviderType {
 	return domain.ProviderGitHub
 }

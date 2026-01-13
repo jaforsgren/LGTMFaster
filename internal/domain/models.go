@@ -33,6 +33,15 @@ const (
 	PRCategoryOther    PRCategory = "other"
 )
 
+type MergeMethod string
+
+const (
+	MergeMethodMerge         MergeMethod = "merge"
+	MergeMethodSquash        MergeMethod = "squash"
+	MergeMethodRebase        MergeMethod = "rebase"
+	MergeMethodNoFastForward MergeMethod = "noFastForward"
+)
+
 type User struct {
 	ID       string
 	Username string
