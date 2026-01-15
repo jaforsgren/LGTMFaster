@@ -567,6 +567,7 @@ func handleRefreshKey(m Model) (Model, tea.Cmd) {
 
 func handleFilterKey(m Model) (Model, tea.Cmd) {
 	if m.state == ViewPRList {
+		m.prListView.ActivateFilter()
 		return m, nil
 	}
 	return m, nil
@@ -677,6 +678,10 @@ func handleEscKey(m Model) (Model, tea.Cmd) {
 	}
 	if m.reviewView.IsActive() {
 		m.reviewView.Deactivate()
+		return m, nil
+	}
+	if m.state == ViewPRList && m.prListView.GetFilterText() != "" {
+		m.prListView.ClearFilter()
 		return m, nil
 	}
 	newModel, cmd := m.navigateBack()

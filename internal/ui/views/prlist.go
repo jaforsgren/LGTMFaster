@@ -3,9 +3,12 @@ package views
 import (
 	"fmt"
 	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/johanforsgren/lgtmfaster/internal/domain"
@@ -65,10 +68,15 @@ func (i PRItem) Description() string {
 }
 
 type PRListViewModel struct {
-	list   list.Model
-	prs    []domain.PullRequest
-	width  int
-	height int
+	list        list.Model
+	prs         []domain.PullRequest
+	allPRs      []domain.PullRequest
+	allGroups   []domain.PRGroup
+	width       int
+	height      int
+	filterInput textinput.Model
+	filtering   bool
+	filterText  string
 }
 
 func NewPRListView() *PRListViewModel {
@@ -76,11 +84,16 @@ func NewPRListView() *PRListViewModel {
 	l := list.New(items, list.NewDefaultDelegate(), 0, 0)
 	l.Title = "Pull Requests"
 	l.SetShowStatusBar(true)
-	l.SetFilteringEnabled(true)
+	l.SetFilteringEnabled(false)
+
+	ti := textinput.New()
+	ti.Placeholder = "Filter by title, author, or PR number..."
+	ti.CharLimit = 100
 
 	return &PRListViewModel{
-		list: l,
-		prs:  []domain.PullRequest{},
+		list:        l,
+		prs:         []domain.PullRequest{},
+		filterInput: ti,
 	}
 }
 
@@ -92,7 +105,13 @@ func (m *PRListViewModel) SetSize(width, height int) {
 
 func (m *PRListViewModel) SetPRs(prs []domain.PullRequest) {
 	m.prs = prs
+	m.allPRs = prs
+	m.allGroups = nil
 
+	m.applyFilter()
+}
+
+func (m *PRListViewModel) sortAndSetItems(prs []domain.PullRequest) {
 	sort.SliceStable(prs, func(i, j int) bool {
 		if prs[i].Category != prs[j].Category {
 			categoryOrder := map[domain.PRCategory]int{
@@ -125,12 +144,44 @@ func (m *PRListViewModel) SetPRs(prs []domain.PullRequest) {
 		}
 	}
 
-	m.list.Title = fmt.Sprintf("Pull Requests (✎ %d | → %d | ○ %d)", authored, assigned, other)
+	title := fmt.Sprintf("Pull Requests (✎ %d | → %d | ○ %d)", authored, assigned, other)
+	if m.filterText != "" {
+		title = fmt.Sprintf("Pull Requests [filter: %s] (✎ %d | → %d | ○ %d)", m.filterText, authored, assigned, other)
+	}
+	m.list.Title = title
 }
 
 func (m *PRListViewModel) SetPRGroups(groups []domain.PRGroup) {
+	var allPRs []domain.PullRequest
+	for _, group := range groups {
+		allPRs = append(allPRs, group.PRs...)
+	}
+
+	m.allGroups = groups
+	m.allPRs = allPRs
+	m.prs = allPRs
+
+	m.applyFilter()
+}
+
+func (m *PRListViewModel) applyFilter() {
+	if m.allGroups != nil && len(m.allGroups) > 0 {
+		m.applyFilterToGroups()
+	} else {
+		m.applyFilterToFlat()
+	}
+}
+
+func (m *PRListViewModel) applyFilterToFlat() {
+	filtered := m.filterPRs(m.allPRs)
+	m.prs = filtered
+	m.sortAndSetItems(filtered)
+}
+
+func (m *PRListViewModel) applyFilterToGroups() {
 	var items []list.Item
 
+	groups := m.allGroups
 	sort.SliceStable(groups, func(i, j int) bool {
 		if groups[i].IsPrimary != groups[j].IsPrimary {
 			return groups[i].IsPrimary
@@ -141,15 +192,20 @@ func (m *PRListViewModel) SetPRGroups(groups []domain.PRGroup) {
 		return groups[i].Username < groups[j].Username
 	})
 
-	var allPRs []domain.PullRequest
+	var filteredPRs []domain.PullRequest
 	for _, group := range groups {
+		filteredGroupPRs := m.filterPRs(group.PRs)
+		if len(filteredGroupPRs) == 0 {
+			continue
+		}
+
 		headerText := fmt.Sprintf("%s: %s", group.Provider, group.Username)
 		if group.IsPrimary {
 			headerText += " ●"
 		}
 		items = append(items, SectionHeaderItem{text: headerText})
 
-		prs := group.PRs
+		prs := filteredGroupPRs
 		sort.SliceStable(prs, func(i, j int) bool {
 			if prs[i].Category != prs[j].Category {
 				categoryOrder := map[domain.PRCategory]int{
@@ -164,17 +220,17 @@ func (m *PRListViewModel) SetPRGroups(groups []domain.PRGroup) {
 
 		for _, pr := range prs {
 			items = append(items, PRItem{pr: pr})
-			allPRs = append(allPRs, pr)
+			filteredPRs = append(filteredPRs, pr)
 		}
 	}
 
 	m.list.SetItems(items)
-	m.prs = allPRs
+	m.prs = filteredPRs
 
 	authored := 0
 	assigned := 0
 	other := 0
-	for _, pr := range allPRs {
+	for _, pr := range filteredPRs {
 		switch pr.Category {
 		case domain.PRCategoryAuthored:
 			authored++
@@ -185,7 +241,32 @@ func (m *PRListViewModel) SetPRGroups(groups []domain.PRGroup) {
 		}
 	}
 
-	m.list.Title = fmt.Sprintf("Pull Requests (✎ %d | → %d | ○ %d)", authored, assigned, other)
+	title := fmt.Sprintf("Pull Requests (✎ %d | → %d | ○ %d)", authored, assigned, other)
+	if m.filterText != "" {
+		title = fmt.Sprintf("Pull Requests [filter: %s] (✎ %d | → %d | ○ %d)", m.filterText, authored, assigned, other)
+	}
+	m.list.Title = title
+}
+
+func (m *PRListViewModel) filterPRs(prs []domain.PullRequest) []domain.PullRequest {
+	if m.filterText == "" {
+		return prs
+	}
+
+	filter := strings.ToLower(m.filterText)
+	var filtered []domain.PullRequest
+
+	for _, pr := range prs {
+		titleMatch := strings.Contains(strings.ToLower(pr.Title), filter)
+		authorMatch := strings.Contains(strings.ToLower(pr.Author.Username), filter)
+		numberMatch := strings.Contains(strconv.Itoa(pr.Number), filter)
+
+		if titleMatch || authorMatch || numberMatch {
+			filtered = append(filtered, pr)
+		}
+	}
+
+	return filtered
 }
 
 func (m *PRListViewModel) GetSelectedPR() *domain.PullRequest {
@@ -238,11 +319,69 @@ func (m *PRListViewModel) Update(msg tea.Msg) tea.Cmd {
 	return cmd
 }
 
+func (m *PRListViewModel) UpdateFilterInput(msg tea.Msg) tea.Cmd {
+	var cmd tea.Cmd
+	m.filterInput, cmd = m.filterInput.Update(msg)
+	return cmd
+}
+
+func (m *PRListViewModel) ActivateFilter() {
+	m.filtering = true
+	m.filterInput.SetValue(m.filterText)
+	m.filterInput.Focus()
+}
+
+func (m *PRListViewModel) DeactivateFilter() {
+	m.filtering = false
+	m.filterInput.Blur()
+}
+
+func (m *PRListViewModel) IsFiltering() bool {
+	return m.filtering
+}
+
+func (m *PRListViewModel) ApplyFilterInput() {
+	m.filterText = m.filterInput.Value()
+	m.filtering = false
+	m.filterInput.Blur()
+	m.applyFilter()
+}
+
+func (m *PRListViewModel) ClearFilter() {
+	m.filterText = ""
+	m.filtering = false
+	m.filterInput.SetValue("")
+	m.filterInput.Blur()
+	m.applyFilter()
+}
+
+func (m *PRListViewModel) GetFilterText() string {
+	return m.filterText
+}
+
 func (m *PRListViewModel) View() string {
+	var helpText string
+	if m.filtering {
+		helpText = "Enter: Apply filter | Esc: Cancel"
+	} else if m.filterText != "" {
+		helpText = "Enter: Inspect | r: Refresh | /: Filter | Esc: Clear filter | q: Back"
+	} else {
+		helpText = "Enter: Inspect | r: Refresh | /: Filter | q: Back"
+	}
+
 	help := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#6B7280")).
 		Italic(true).
-		Render("\nEnter: Inspect | r: Refresh | /: Filter | q: Back")
+		Render("\n" + helpText)
+
+	if m.filtering {
+		filterStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#F59E0B")).
+			Bold(true)
+		filterLabel := filterStyle.Render("Filter: ")
+		filterLine := "\n" + filterLabel + m.filterInput.View()
+		return m.list.View() + filterLine + help
+	}
 
 	return m.list.View() + help
 }
