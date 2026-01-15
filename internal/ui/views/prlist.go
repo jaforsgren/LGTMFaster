@@ -336,6 +336,11 @@ func (m *PRListViewModel) ApplyFilterInput() {
 	m.applyFilter()
 }
 
+func (m *PRListViewModel) ApplyFilterFromInput() {
+	m.filterText = m.filterInput.Value()
+	m.applyFilter()
+}
+
 func (m *PRListViewModel) ClearFilter() {
 	m.filterText = ""
 	m.filtering = false
@@ -351,7 +356,7 @@ func (m *PRListViewModel) GetFilterText() string {
 func (m *PRListViewModel) View() string {
 	var helpText string
 	if m.filtering {
-		helpText = "Enter: Apply filter | Esc: Cancel"
+		helpText = "Type to filter | Enter/Esc: Close"
 	} else if m.filterText != "" {
 		helpText = "Enter: Inspect | r: Refresh | /: Filter | Esc: Clear filter | q: Back"
 	} else {
