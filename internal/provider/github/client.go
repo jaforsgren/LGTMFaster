@@ -121,6 +121,15 @@ func (c *Client) CreateComment(ctx context.Context, owner, repo string, number i
 	return nil
 }
 
+func (c *Client) ListReviews(ctx context.Context, owner, repo string, number int) ([]*github.PullRequestReview, error) {
+	opts := &github.ListOptions{PerPage: 100}
+	reviews, _, err := c.client.PullRequests.ListReviews(ctx, owner, repo, number, opts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list reviews: %w", err)
+	}
+	return reviews, nil
+}
+
 func (c *Client) CreateReview(ctx context.Context, owner, repo string, number int, review *github.PullRequestReviewRequest) error {
 	_, _, err := c.client.PullRequests.CreateReview(ctx, owner, repo, number, review)
 	if err != nil {

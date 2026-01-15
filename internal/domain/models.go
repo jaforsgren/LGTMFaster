@@ -33,6 +33,15 @@ const (
 	PRCategoryOther    PRCategory = "other"
 )
 
+type ApprovalStatus string
+
+const (
+	ApprovalStatusNone             ApprovalStatus = "none"
+	ApprovalStatusApproved         ApprovalStatus = "approved"
+	ApprovalStatusChangesRequested ApprovalStatus = "changes_requested"
+	ApprovalStatusPending          ApprovalStatus = "pending"
+)
+
 type MergeMethod string
 
 const (
@@ -58,23 +67,24 @@ type Repo struct {
 }
 
 type PullRequest struct {
-	ID           string
-	Number       int
-	Title        string
-	Description  string
-	Author       User
-	Repository   Repo
-	SourceBranch string
-	TargetBranch string
-	Status       PRStatus
-	Category     PRCategory
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
-	URL          string
-	IsDraft      bool
-	Mergeable    bool
-	ProviderType ProviderType
-	PATID        string
+	ID             string
+	Number         int
+	Title          string
+	Description    string
+	Author         User
+	Repository     Repo
+	SourceBranch   string
+	TargetBranch   string
+	Status         PRStatus
+	Category       PRCategory
+	ApprovalStatus ApprovalStatus
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	URL            string
+	IsDraft        bool
+	Mergeable      bool
+	ProviderType   ProviderType
+	PATID          string
 }
 
 type Comment struct {

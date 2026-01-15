@@ -327,19 +327,20 @@ func (p *Provider) buildPRURL(projectName, repoName string, prNumber int) string
 
 func convertPullRequest(adoPR *git.GitPullRequest, currentUser string) domain.PullRequest {
 	pr := domain.PullRequest{
-		ID:           fmt.Sprintf("%d", *adoPR.PullRequestId),
-		Number:       *adoPR.PullRequestId,
-		Title:        common.GetString(adoPR.Title),
-		Description:  common.GetString(adoPR.Description),
-		Status:       mapPRStatus(adoPR.Status, adoPR.MergeStatus),
-		Category:     determinePRCategory(adoPR, currentUser),
-		CreatedAt:    adoPR.CreationDate.Time,
-		UpdatedAt:    getUpdateTime(adoPR),
-		URL:          buildPRWebURL(adoPR),
-		IsDraft:      common.GetBool(adoPR.IsDraft),
-		Mergeable:    isMergeable(adoPR.MergeStatus),
-		SourceBranch: extractBranchName(adoPR.SourceRefName),
-		TargetBranch: extractBranchName(adoPR.TargetRefName),
+		ID:             fmt.Sprintf("%d", *adoPR.PullRequestId),
+		Number:         *adoPR.PullRequestId,
+		Title:          common.GetString(adoPR.Title),
+		Description:    common.GetString(adoPR.Description),
+		Status:         mapPRStatus(adoPR.Status, adoPR.MergeStatus),
+		Category:       determinePRCategory(adoPR, currentUser),
+		ApprovalStatus: calculateApprovalStatus(adoPR),
+		CreatedAt:      adoPR.CreationDate.Time,
+		UpdatedAt:      getUpdateTime(adoPR),
+		URL:            buildPRWebURL(adoPR),
+		IsDraft:        common.GetBool(adoPR.IsDraft),
+		Mergeable:      isMergeable(adoPR.MergeStatus),
+		SourceBranch:   extractBranchName(adoPR.SourceRefName),
+		TargetBranch:   extractBranchName(adoPR.TargetRefName),
 	}
 
 	if adoPR.CreatedBy != nil {
@@ -351,6 +352,35 @@ func convertPullRequest(adoPR *git.GitPullRequest, currentUser string) domain.Pu
 	}
 
 	return pr
+}
+
+func calculateApprovalStatus(adoPR *git.GitPullRequest) domain.ApprovalStatus {
+	if adoPR.Reviewers == nil || len(*adoPR.Reviewers) == 0 {
+		return domain.ApprovalStatusNone
+	}
+
+	hasApproval := false
+	hasRejection := false
+
+	for _, reviewer := range *adoPR.Reviewers {
+		if reviewer.Vote == nil {
+			continue
+		}
+		vote := *reviewer.Vote
+		if vote >= 10 {
+			hasApproval = true
+		} else if vote <= -10 {
+			hasRejection = true
+		}
+	}
+
+	if hasRejection {
+		return domain.ApprovalStatusChangesRequested
+	}
+	if hasApproval {
+		return domain.ApprovalStatusApproved
+	}
+	return domain.ApprovalStatusPending
 }
 
 func convertIdentity(identity *webapi.IdentityRef) domain.User {
