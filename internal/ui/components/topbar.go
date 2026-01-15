@@ -89,7 +89,11 @@ func (m *TopBarModel) View() string {
 	topSection = append(topSection, titleLine)
 	topSection = append(topSection, "")
 
+	minRows := 5
 	maxLines := len(contextLines)
+	if minRows > maxLines {
+		maxLines = minRows
+	}
 	if len(shortcutCol1) > maxLines {
 		maxLines = len(shortcutCol1)
 	}
@@ -149,8 +153,8 @@ func (m *TopBarModel) buildContextInfo() []string {
 		if m.selectedCount > 1 {
 			patName = fmt.Sprintf("%s + %d more", patName, m.selectedCount-1)
 		}
-		if len(patName) > 25 {
-			patName = patName[:22] + "..."
+		if len(patName) > 35 {
+			patName = patName[:32] + "..."
 		}
 	}
 	lines = append(lines,
@@ -158,33 +162,18 @@ func (m *TopBarModel) buildContextInfo() []string {
 			titleOrangeStyle.Render("PAT: ")+
 			valueWhiteStyle.Render(patName))
 
-	prEmoji := "📋"
-	if m.totalPRs > 0 {
-		prBreakdown := fmt.Sprintf("%d (✎%d →%d ○%d)",
-			m.totalPRs, m.authoredPRs, m.assignedPRs, m.otherPRs)
-		lines = append(lines,
-			prEmoji+" "+
-				titleOrangeStyle.Render("PRs: ")+
-				valueWhiteStyle.Render(prBreakdown))
-	} else {
-		lines = append(lines,
-			prEmoji+" "+
-				titleOrangeStyle.Render("PRs: ")+
-				valueWhiteStyle.Render("0"))
-	}
+	isPRView := m.currentView == "PR Description" || m.currentView == "PR Diff" || m.currentView == "PR Inspect"
 
-	repoEmoji := "📦"
-	lines = append(lines,
-		repoEmoji+" "+
-			titleOrangeStyle.Render("Repositories: ")+
-			valueWhiteStyle.Render(fmt.Sprintf("%d", m.repoCount)))
+	if isPRView && m.currentRepo != "" {
+		repoEmoji := "📦"
+		lines = append(lines,
+			repoEmoji+" "+
+				titleOrangeStyle.Render("Repo: ")+
+				valueWhiteStyle.Render(m.currentRepo))
 
-	contextEmoji := "📍"
-	contextValue := "none"
-	if m.currentRepo != "" {
-		contextValue = m.currentRepo
 		if m.currentPR != "" {
-			contextValue = fmt.Sprintf("%s #%s", m.currentRepo, m.currentPR)
+			prEmoji := "📋"
+			prValue := fmt.Sprintf("#%s", m.currentPR)
 
 			if m.prStatus != "" {
 				var statusColor lipgloss.Color
@@ -212,17 +201,52 @@ func (m *TopBarModel) buildContextInfo() []string {
 
 				statusStyle := lipgloss.NewStyle().Foreground(statusColor).Bold(true)
 				statusBadge := statusStyle.Render(fmt.Sprintf("[%s %s]", statusText, mergeIcon))
-				contextValue = fmt.Sprintf("%s %s", contextValue, statusBadge)
+				prValue = fmt.Sprintf("%s %s", prValue, statusBadge)
+			}
+
+			lines = append(lines,
+				prEmoji+" "+
+					titleOrangeStyle.Render("PR: ")+
+					valueWhiteStyle.Render(prValue))
+		}
+	} else {
+		prEmoji := "📋"
+		if m.totalPRs > 0 {
+			prBreakdown := fmt.Sprintf("%d (✎%d →%d ○%d)",
+				m.totalPRs, m.authoredPRs, m.assignedPRs, m.otherPRs)
+			lines = append(lines,
+				prEmoji+" "+
+					titleOrangeStyle.Render("PRs: ")+
+					valueWhiteStyle.Render(prBreakdown))
+		} else {
+			lines = append(lines,
+				prEmoji+" "+
+					titleOrangeStyle.Render("PRs: ")+
+					valueWhiteStyle.Render("0"))
+		}
+
+		repoEmoji := "📦"
+		lines = append(lines,
+			repoEmoji+" "+
+				titleOrangeStyle.Render("Repositories: ")+
+				valueWhiteStyle.Render(fmt.Sprintf("%d", m.repoCount)))
+
+		contextEmoji := "📍"
+		contextValue := "none"
+		if m.currentRepo != "" {
+			contextValue = m.currentRepo
+			if m.currentPR != "" {
+				contextValue = fmt.Sprintf("%s #%s", m.currentRepo, m.currentPR)
+			}
+			if len(contextValue) > 40 {
+				contextValue = contextValue[:37] + "..."
 			}
 		}
-		if len(contextValue) > 45 {
-			contextValue = contextValue[:42] + "..."
-		}
+		lines = append(lines,
+			contextEmoji+" "+
+				titleOrangeStyle.Render("Context: ")+
+				valueWhiteStyle.Render(contextValue))
 	}
-	lines = append(lines,
-		contextEmoji+" "+
-			titleOrangeStyle.Render("Context: ")+
-			valueWhiteStyle.Render(contextValue))
 
 	viewEmoji := "🎯"
 	viewName := m.currentView
@@ -259,12 +283,17 @@ func (m *TopBarModel) buildShortcutsDisplay(contextHeight int) ([]string, []stri
 		}
 	}
 
+	minRows := 5
+	if contextHeight > minRows {
+		minRows = contextHeight
+	}
+
 	var col1, col2 []string
 
-	if len(formattedShortcuts) <= contextHeight {
+	if len(formattedShortcuts) <= minRows {
 		col1 = formattedShortcuts
 	} else {
-		splitPoint := contextHeight
+		splitPoint := minRows
 		col1 = formattedShortcuts[:splitPoint]
 		col2 = formattedShortcuts[splitPoint:]
 	}
