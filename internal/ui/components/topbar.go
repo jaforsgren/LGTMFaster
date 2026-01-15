@@ -22,6 +22,7 @@ type TopBarModel struct {
 	activePAT      string
 	patProvider    string
 	selectedCount  int
+	totalPATCount  int
 	currentView    string
 	shortcuts      []string
 }
@@ -74,6 +75,11 @@ func (m *TopBarModel) SetActivePAT(pat, provider string) {
 
 func (m *TopBarModel) SetSelectedPATCount(count int) {
 	m.selectedCount = count
+}
+
+func (m *TopBarModel) SetPATCounts(selected, total int) {
+	m.selectedCount = selected
+	m.totalPATCount = total
 }
 
 func (m *TopBarModel) SetView(view string) {
@@ -162,10 +168,13 @@ func (m *TopBarModel) buildContextInfo() []string {
 			patName = patName[:32] + "..."
 		}
 	}
-	lines = append(lines,
-		patEmoji+" "+
-			titleOrangeStyle.Render("PAT: ")+
-			valueWhiteStyle.Render(patName))
+
+	patLine := patEmoji + " " + titleOrangeStyle.Render("PAT: ") + valueWhiteStyle.Render(patName)
+	if m.totalPATCount > 0 {
+		countInfo := fmt.Sprintf(" [%d/%d]", m.selectedCount, m.totalPATCount)
+		patLine += descGrayStyle.Render(countInfo)
+	}
+	lines = append(lines, patLine)
 
 	isPRView := m.currentView == "PR Description" || m.currentView == "PR Diff" || m.currentView == "PR Inspect"
 
