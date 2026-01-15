@@ -358,7 +358,7 @@ func (cr *CommandRegistry) GetContextualShortcuts(state ViewState) []string {
 		if !isInViews(state, kb.AvailableIn) {
 			continue
 		}
-		if kb.Description == "" {
+		if kb.Description == "" || kb.ShortHelp == "" {
 			continue
 		}
 		if seen[kb.ShortHelp] {
