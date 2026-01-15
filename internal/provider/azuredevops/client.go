@@ -129,8 +129,8 @@ func (c *Client) getAuthenticatedUserID(ctx context.Context) (string, error) {
 				}
 
 				for _, pr := range *prs {
-					if pr.CreatedBy != nil && pr.CreatedBy.Id != nil && pr.CreatedBy.UniqueName != nil {
-						if *pr.CreatedBy.UniqueName == c.username {
+					if pr.CreatedBy != nil && pr.CreatedBy.Id != nil {
+						if c.matchesUsername(pr.CreatedBy.DisplayName, pr.CreatedBy.UniqueName) {
 							logger.Log("AzureDevOps: Found user ID %s from PR creator in %s/%s", *pr.CreatedBy.Id, *project.Name, *repo.Name)
 							return *pr.CreatedBy.Id, nil
 						}
@@ -138,11 +138,9 @@ func (c *Client) getAuthenticatedUserID(ctx context.Context) (string, error) {
 
 					if pr.Reviewers != nil {
 						for _, reviewer := range *pr.Reviewers {
-							if reviewer.UniqueName != nil && reviewer.Id != nil {
-								if *reviewer.UniqueName == c.username {
-									logger.Log("AzureDevOps: Found user ID %s from PR reviewer in %s/%s", *reviewer.Id, *project.Name, *repo.Name)
-									return *reviewer.Id, nil
-								}
+							if reviewer.Id != nil && c.matchesUsername(reviewer.DisplayName, reviewer.UniqueName) {
+								logger.Log("AzureDevOps: Found user ID %s from PR reviewer in %s/%s", *reviewer.Id, *project.Name, *repo.Name)
+								return *reviewer.Id, nil
 							}
 						}
 					}
@@ -609,4 +607,26 @@ func (c *Client) CompletePullRequest(ctx context.Context, projectID string, repo
 
 func intPtr(i int) *int {
 	return &i
+}
+
+func (c *Client) matchesUsername(displayName, uniqueName *string) bool {
+	username := strings.ToLower(c.username)
+
+	if displayName != nil {
+		if strings.EqualFold(*displayName, c.username) {
+			return true
+		}
+	}
+
+	if uniqueName != nil {
+		un := strings.ToLower(*uniqueName)
+		if un == username {
+			return true
+		}
+		if strings.HasPrefix(un, username+"@") {
+			return true
+		}
+	}
+
+	return false
 }

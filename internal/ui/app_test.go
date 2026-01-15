@@ -424,3 +424,290 @@ func TestOwnPRValidation_NoPATIDNoConversion(t *testing.T) {
 		t.Errorf("Expected action to remain approve when no PATID, got %s", provider.lastReview.Action)
 	}
 }
+
+func TestSubmitReview_ApproveOtherUserPR_SubmitsApproval(t *testing.T) {
+	repo := &mockRepository{
+		pats: map[string]*domain.PAT{
+			"pat-1": {
+				ID:       "pat-1",
+				Username: "reviewer",
+				Provider: domain.ProviderGitHub,
+			},
+		},
+	}
+
+	provider := &mockProvider{}
+
+	prInspect := views.NewPRInspectView()
+	reviewView := views.NewReviewView()
+
+	m := Model{
+		ctx:        context.Background(),
+		repository: repo,
+		prInspect:  prInspect,
+		reviewView: reviewView,
+		providers: map[string]domain.Provider{
+			"pat-1": provider,
+		},
+	}
+
+	pr := &domain.PullRequest{
+		Number: 42,
+		Author: domain.User{
+			Username: "prauthor",
+		},
+		Repository: domain.Repo{
+			FullName: "owner/repo",
+		},
+		PATID:        "pat-1",
+		ProviderType: domain.ProviderGitHub,
+	}
+
+	m.prInspect.SetPR(pr)
+	m.reviewView.Activate(views.ReviewModeApprove)
+
+	cmd := m.submitReview()
+	msg := cmd()
+
+	_, ok := msg.(SuccessMsg)
+	if !ok {
+		t.Fatalf("Expected SuccessMsg, got %T", msg)
+	}
+
+	if !provider.submitReviewCalled {
+		t.Error("Expected SubmitReview to be called")
+	}
+
+	if provider.lastReview.Action != domain.ReviewActionApprove {
+		t.Errorf("Expected action to be approve for other user's PR, got %s", provider.lastReview.Action)
+	}
+
+	if provider.lastReview.PRIdentifier != "owner/repo/42" {
+		t.Errorf("Expected PR identifier to be owner/repo/42, got %s", provider.lastReview.PRIdentifier)
+	}
+}
+
+func TestSubmitReview_RequestChanges_SubmitsCorrectAction(t *testing.T) {
+	repo := &mockRepository{
+		pats: map[string]*domain.PAT{
+			"pat-1": {
+				ID:       "pat-1",
+				Username: "reviewer",
+				Provider: domain.ProviderGitHub,
+			},
+		},
+	}
+
+	provider := &mockProvider{}
+
+	prInspect := views.NewPRInspectView()
+	reviewView := views.NewReviewView()
+
+	m := Model{
+		ctx:        context.Background(),
+		repository: repo,
+		prInspect:  prInspect,
+		reviewView: reviewView,
+		providers: map[string]domain.Provider{
+			"pat-1": provider,
+		},
+	}
+
+	pr := &domain.PullRequest{
+		Number: 42,
+		Author: domain.User{
+			Username: "prauthor",
+		},
+		Repository: domain.Repo{
+			FullName: "owner/repo",
+		},
+		PATID:        "pat-1",
+		ProviderType: domain.ProviderGitHub,
+	}
+
+	m.prInspect.SetPR(pr)
+	m.reviewView.Activate(views.ReviewModeRequestChanges)
+
+	cmd := m.submitReview()
+	msg := cmd()
+
+	_, ok := msg.(SuccessMsg)
+	if !ok {
+		t.Fatalf("Expected SuccessMsg, got %T", msg)
+	}
+
+	if provider.lastReview.Action != domain.ReviewActionRequestChanges {
+		t.Errorf("Expected action to be request_changes, got %s", provider.lastReview.Action)
+	}
+}
+
+func TestSubmitReview_WithInlineComments_IncludesComments(t *testing.T) {
+	repo := &mockRepository{
+		pats: map[string]*domain.PAT{
+			"pat-1": {
+				ID:       "pat-1",
+				Username: "reviewer",
+				Provider: domain.ProviderGitHub,
+			},
+		},
+	}
+
+	provider := &mockProvider{}
+
+	prInspect := views.NewPRInspectView()
+	prInspect.SetSize(80, 24)
+	reviewView := views.NewReviewView()
+
+	diff := &domain.Diff{
+		Files: []domain.FileDiff{
+			{
+				NewPath: "file1.go",
+				Hunks: []domain.DiffHunk{
+					{Header: "@@ -1,1 +1,1 @@", Lines: []domain.DiffLine{
+						{Type: "add", Content: "+line1", NewLine: 1},
+					}},
+				},
+			},
+		},
+	}
+	prInspect.SetDiff(diff)
+	prInspect.SwitchToDiff()
+	prInspect.AddPendingComment("This needs fixing")
+
+	m := Model{
+		ctx:        context.Background(),
+		repository: repo,
+		prInspect:  prInspect,
+		reviewView: reviewView,
+		providers: map[string]domain.Provider{
+			"pat-1": provider,
+		},
+	}
+
+	pr := &domain.PullRequest{
+		Number: 42,
+		Author: domain.User{
+			Username: "prauthor",
+		},
+		Repository: domain.Repo{
+			FullName: "owner/repo",
+		},
+		PATID:        "pat-1",
+		ProviderType: domain.ProviderGitHub,
+	}
+
+	m.prInspect.SetPR(pr)
+	m.reviewView.Activate(views.ReviewModeApprove)
+
+	cmd := m.submitReview()
+	msg := cmd()
+
+	_, ok := msg.(SuccessMsg)
+	if !ok {
+		t.Fatalf("Expected SuccessMsg, got %T", msg)
+	}
+
+	if len(provider.lastReview.Comments) != 1 {
+		t.Errorf("Expected 1 inline comment, got %d", len(provider.lastReview.Comments))
+	}
+
+	if len(provider.lastReview.Comments) > 0 {
+		if provider.lastReview.Comments[0].Body != "This needs fixing" {
+			t.Errorf("Expected comment body to be 'This needs fixing', got '%s'", provider.lastReview.Comments[0].Body)
+		}
+		if provider.lastReview.Comments[0].FilePath != "file1.go" {
+			t.Errorf("Expected comment file path to be 'file1.go', got '%s'", provider.lastReview.Comments[0].FilePath)
+		}
+	}
+}
+
+func TestSubmitReview_AzureDevOps_SubmitsCorrectly(t *testing.T) {
+	repo := &mockRepository{
+		pats: map[string]*domain.PAT{
+			"pat-1": {
+				ID:           "pat-1",
+				Username:     "reviewer",
+				Provider:     domain.ProviderAzureDevOps,
+				Organization: "myorg",
+			},
+		},
+	}
+
+	provider := &mockProvider{}
+
+	prInspect := views.NewPRInspectView()
+	reviewView := views.NewReviewView()
+
+	m := Model{
+		ctx:        context.Background(),
+		repository: repo,
+		prInspect:  prInspect,
+		reviewView: reviewView,
+		providers: map[string]domain.Provider{
+			"pat-1": provider,
+		},
+	}
+
+	pr := &domain.PullRequest{
+		Number: 42,
+		Author: domain.User{
+			Username: "prauthor",
+		},
+		Repository: domain.Repo{
+			FullName: "MyProject/MyRepo",
+		},
+		PATID:        "pat-1",
+		ProviderType: domain.ProviderAzureDevOps,
+	}
+
+	m.prInspect.SetPR(pr)
+	m.reviewView.Activate(views.ReviewModeApprove)
+
+	cmd := m.submitReview()
+	msg := cmd()
+
+	_, ok := msg.(SuccessMsg)
+	if !ok {
+		t.Fatalf("Expected SuccessMsg, got %T", msg)
+	}
+
+	if provider.lastReview.Action != domain.ReviewActionApprove {
+		t.Errorf("Expected action to be approve, got %s", provider.lastReview.Action)
+	}
+
+	if provider.lastReview.PRIdentifier != "MyProject/MyRepo/42" {
+		t.Errorf("Expected PR identifier to be MyProject/MyRepo/42, got %s", provider.lastReview.PRIdentifier)
+	}
+}
+
+func TestSubmitReview_NoPRSelected_ReturnsError(t *testing.T) {
+	repo := &mockRepository{
+		pats: map[string]*domain.PAT{},
+	}
+
+	provider := &mockProvider{}
+
+	prInspect := views.NewPRInspectView()
+	reviewView := views.NewReviewView()
+
+	m := Model{
+		ctx:        context.Background(),
+		repository: repo,
+		prInspect:  prInspect,
+		reviewView: reviewView,
+		providers: map[string]domain.Provider{
+			"": provider,
+		},
+		provider: provider,
+	}
+
+	m.reviewView.Activate(views.ReviewModeApprove)
+
+	cmd := m.submitReview()
+	msg := cmd()
+
+	_, ok := msg.(ErrorMsg)
+	if !ok {
+		t.Fatalf("Expected ErrorMsg when no PR selected, got %T", msg)
+	}
+}

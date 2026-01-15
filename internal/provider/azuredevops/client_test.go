@@ -420,3 +420,146 @@ func TestGetPullRequestIterationChanges_NoChanges(t *testing.T) {
 		t.Errorf("Expected 'no changes found' error, got: %v", err)
 	}
 }
+
+func TestMatchesUsername_ExactDisplayName(t *testing.T) {
+	client := &Client{username: "johan"}
+
+	displayName := "johan"
+	if !client.matchesUsername(&displayName, nil) {
+		t.Error("Expected exact display name match")
+	}
+}
+
+func TestMatchesUsername_CaseInsensitiveDisplayName(t *testing.T) {
+	client := &Client{username: "johan"}
+
+	displayName := "Johan"
+	if !client.matchesUsername(&displayName, nil) {
+		t.Error("Expected case-insensitive display name match")
+	}
+
+	displayName = "JOHAN"
+	if !client.matchesUsername(&displayName, nil) {
+		t.Error("Expected case-insensitive display name match (uppercase)")
+	}
+}
+
+func TestMatchesUsername_ExactUniqueName(t *testing.T) {
+	client := &Client{username: "johan"}
+
+	uniqueName := "johan"
+	if !client.matchesUsername(nil, &uniqueName) {
+		t.Error("Expected exact unique name match")
+	}
+}
+
+func TestMatchesUsername_EmailPrefix(t *testing.T) {
+	client := &Client{username: "johan"}
+
+	uniqueName := "johan@company.com"
+	if !client.matchesUsername(nil, &uniqueName) {
+		t.Error("Expected email prefix match")
+	}
+
+	uniqueName = "johan@domain.org"
+	if !client.matchesUsername(nil, &uniqueName) {
+		t.Error("Expected email prefix match with different domain")
+	}
+}
+
+func TestMatchesUsername_EmailPrefixCaseInsensitive(t *testing.T) {
+	client := &Client{username: "johan"}
+
+	uniqueName := "Johan@Company.com"
+	if !client.matchesUsername(nil, &uniqueName) {
+		t.Error("Expected case-insensitive email prefix match")
+	}
+}
+
+func TestMatchesUsername_NoMatch(t *testing.T) {
+	client := &Client{username: "johan"}
+
+	displayName := "otheruser"
+	uniqueName := "otheruser@company.com"
+	if client.matchesUsername(&displayName, &uniqueName) {
+		t.Error("Expected no match for different user")
+	}
+}
+
+func TestMatchesUsername_PartialNameNoMatch(t *testing.T) {
+	client := &Client{username: "johan"}
+
+	uniqueName := "johansson@company.com"
+	if client.matchesUsername(nil, &uniqueName) {
+		t.Error("Expected no match for partial name (johansson should not match johan)")
+	}
+}
+
+func TestMatchesUsername_NilValues(t *testing.T) {
+	client := &Client{username: "johan"}
+
+	if client.matchesUsername(nil, nil) {
+		t.Error("Expected no match when both display name and unique name are nil")
+	}
+}
+
+func TestMatchesUsername_EmptyStrings(t *testing.T) {
+	client := &Client{username: "johan"}
+
+	emptyString := ""
+	if client.matchesUsername(&emptyString, &emptyString) {
+		t.Error("Expected no match for empty strings")
+	}
+}
+
+func TestCreatePullRequestReview_ApproveVote(t *testing.T) {
+	mockClient := &mockGitClient{}
+
+	client := &Client{
+		gitClient: mockClient,
+	}
+
+	err := client.CreatePullRequestReview(context.Background(), "project1", "repo1", 42, "user-id-123", 10)
+	if err != nil {
+		t.Errorf("Expected no error, got: %v", err)
+	}
+}
+
+func TestCreatePullRequestReview_RejectVote(t *testing.T) {
+	mockClient := &mockGitClient{}
+
+	client := &Client{
+		gitClient: mockClient,
+	}
+
+	err := client.CreatePullRequestReview(context.Background(), "project1", "repo1", 42, "user-id-123", -10)
+	if err != nil {
+		t.Errorf("Expected no error, got: %v", err)
+	}
+}
+
+func TestCreateCommentThread_InlineComment(t *testing.T) {
+	mockClient := &mockGitClient{}
+
+	client := &Client{
+		gitClient: mockClient,
+	}
+
+	err := client.CreateCommentThread(context.Background(), "project1", "repo1", 42, "This is a comment", "/src/file.go", 10)
+	if err != nil {
+		t.Errorf("Expected no error, got: %v", err)
+	}
+}
+
+func TestCreateCommentThread_ReviewBodyComment(t *testing.T) {
+	mockClient := &mockGitClient{}
+
+	client := &Client{
+		gitClient: mockClient,
+	}
+
+	err := client.CreateCommentThread(context.Background(), "project1", "repo1", 42, "LGTM! Great work.", "", 0)
+	if err != nil {
+		t.Errorf("Expected no error, got: %v", err)
+	}
+}

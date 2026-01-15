@@ -231,38 +231,40 @@ func TestHandleViewCommentsKey_WorksInBothModes(t *testing.T) {
 	}
 }
 
-func TestHandleApproveKey_OnlyWorksInDiffMode(t *testing.T) {
+func TestHandleApproveKey_WorksInPRInspect(t *testing.T) {
 	m := createTestModel()
 	m.state = ViewPRInspect
 	m.prInspect.SwitchToDescription()
 
-	handleApproveKey(m)
+	m, _ = handleApproveKey(m)
 
-	if m.reviewView.IsActive() {
-		t.Error("expected review view to not activate in description mode")
+	if !m.reviewView.IsActive() {
+		t.Error("expected review view to activate in description mode")
 	}
 
+	m.reviewView.Deactivate()
 	m.prInspect.SwitchToDiff()
-	handleApproveKey(m)
+	m, _ = handleApproveKey(m)
 
 	if !m.reviewView.IsActive() {
 		t.Error("expected review view to activate in diff mode")
 	}
 }
 
-func TestHandleRequestChangesKey_OnlyWorksInDiffMode(t *testing.T) {
+func TestHandleRequestChangesKey_WorksInPRInspect(t *testing.T) {
 	m := createTestModel()
 	m.state = ViewPRInspect
 	m.prInspect.SwitchToDescription()
 
-	handleRequestChangesKey(m)
+	m, _ = handleRequestChangesKey(m)
 
-	if m.reviewView.IsActive() {
-		t.Error("expected review view to not activate in description mode")
+	if !m.reviewView.IsActive() {
+		t.Error("expected review view to activate in description mode")
 	}
 
+	m.reviewView.Deactivate()
 	m.prInspect.SwitchToDiff()
-	handleRequestChangesKey(m)
+	m, _ = handleRequestChangesKey(m)
 
 	if !m.reviewView.IsActive() {
 		t.Error("expected review view to activate in diff mode")
@@ -657,5 +659,130 @@ func TestLineNavigation_JKKeys(t *testing.T) {
 	}
 	if prevLine.Content != " line1" {
 		t.Errorf("expected to be back on line 1 after PrevLine, got '%s'", prevLine.Content)
+	}
+}
+
+func TestAKeyBinding_AvailableInPRInspect(t *testing.T) {
+	registry := NewCommandRegistry()
+
+	var aBinding *KeyBinding
+	for _, binding := range registry.keyBindings {
+		for _, key := range binding.Keys {
+			if key == "a" {
+				availableInPRInspect := false
+				for _, state := range binding.AvailableIn {
+					if state == ViewPRInspect {
+						availableInPRInspect = true
+						break
+					}
+				}
+				if availableInPRInspect && binding.Description == "Approve PR" {
+					aBinding = binding
+					break
+				}
+			}
+		}
+	}
+
+	if aBinding == nil {
+		t.Error("expected 'a' key binding for 'Approve PR' to be available in ViewPRInspect")
+	}
+}
+
+func TestRKeyBinding_AvailableInPRInspect(t *testing.T) {
+	registry := NewCommandRegistry()
+
+	var rBinding *KeyBinding
+	for _, binding := range registry.keyBindings {
+		for _, key := range binding.Keys {
+			if key == "r" {
+				availableInPRInspect := false
+				for _, state := range binding.AvailableIn {
+					if state == ViewPRInspect {
+						availableInPRInspect = true
+						break
+					}
+				}
+				if availableInPRInspect && binding.Description == "Request changes" {
+					rBinding = binding
+					break
+				}
+			}
+		}
+	}
+
+	if rBinding == nil {
+		t.Error("expected 'r' key binding for 'Request changes' to be available in ViewPRInspect")
+	}
+}
+
+func TestHandleApproveKey_NotInPRInspect_DoesNothing(t *testing.T) {
+	m := createTestModel()
+	m.state = ViewPRList
+
+	m, _ = handleApproveKey(m)
+
+	if m.reviewView.IsActive() {
+		t.Error("expected review view to not activate when not in PR inspect view")
+	}
+}
+
+func TestHandleRequestChangesKey_NotInPRInspect_DoesNothing(t *testing.T) {
+	m := createTestModel()
+	m.state = ViewPRList
+
+	m, _ = handleRequestChangesKey(m)
+
+	if m.reviewView.IsActive() {
+		t.Error("expected review view to not activate when not in PR inspect view")
+	}
+}
+
+func TestHandleApproveKey_ActivatesReviewModeApprove(t *testing.T) {
+	m := createTestModel()
+	m.state = ViewPRInspect
+
+	m, _ = handleApproveKey(m)
+
+	if !m.reviewView.IsActive() {
+		t.Error("expected review view to be active")
+	}
+
+	review := m.reviewView.GetReview()
+	if review.Action != domain.ReviewActionApprove {
+		t.Errorf("expected review action to be approve, got %s", review.Action)
+	}
+}
+
+func TestHandleRequestChangesKey_ActivatesReviewModeRequestChanges(t *testing.T) {
+	m := createTestModel()
+	m.state = ViewPRInspect
+
+	m, _ = handleRequestChangesKey(m)
+
+	if !m.reviewView.IsActive() {
+		t.Error("expected review view to be active")
+	}
+
+	review := m.reviewView.GetReview()
+	if review.Action != domain.ReviewActionRequestChanges {
+		t.Errorf("expected review action to be request_changes, got %s", review.Action)
+	}
+}
+
+func TestReviewView_GetReview_IncludesBody(t *testing.T) {
+	m := createTestModel()
+	m.state = ViewPRInspect
+
+	m, _ = handleApproveKey(m)
+
+	review := m.reviewView.GetReview()
+
+	if review.Action != domain.ReviewActionApprove {
+		t.Errorf("expected review action to be approve, got %s", review.Action)
+	}
+
+	if review.Comments == nil {
+		t.Error("expected review comments to not be nil")
 	}
 }

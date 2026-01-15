@@ -281,7 +281,7 @@ func (p *Provider) SubmitReview(ctx context.Context, review domain.Review) error
 		}
 	}
 
-	if review.Body != "" && review.Action == domain.ReviewActionComment {
+	if review.Body != "" {
 		logger.Log("AzureDevOps: Creating review body comment")
 		if err := p.client.CreateCommentThread(ctx, projectID, repoID, prNumber, review.Body, "", 0); err != nil {
 			logger.LogError("AZDO_CREATE_REVIEW_BODY", fmt.Sprintf("%s#%d", repository, prNumber), err)

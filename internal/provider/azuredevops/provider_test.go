@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/johanforsgren/lgtmfaster/internal/domain"
 	"github.com/microsoft/azure-devops-go-api/azuredevops/v7"
 	"github.com/microsoft/azure-devops-go-api/azuredevops/v7/git"
 )
@@ -191,4 +192,54 @@ func TestBuildPRWebURL(t *testing.T) {
 
 func strPtr(s string) *string {
 	return &s
+}
+
+func TestConvertReviewActionToVote(t *testing.T) {
+	tests := []struct {
+		name     string
+		action   string
+		expected int
+	}{
+		{
+			name:     "approve returns 10",
+			action:   "approve",
+			expected: 10,
+		},
+		{
+			name:     "request_changes returns -10",
+			action:   "request_changes",
+			expected: -10,
+		},
+		{
+			name:     "comment returns 0",
+			action:   "comment",
+			expected: 0,
+		},
+		{
+			name:     "unknown action returns 0",
+			action:   "unknown",
+			expected: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var action domain.ReviewAction
+			switch tt.action {
+			case "approve":
+				action = domain.ReviewActionApprove
+			case "request_changes":
+				action = domain.ReviewActionRequestChanges
+			case "comment":
+				action = domain.ReviewActionComment
+			default:
+				action = domain.ReviewAction(tt.action)
+			}
+
+			result := convertReviewActionToVote(action)
+			if result != tt.expected {
+				t.Errorf("convertReviewActionToVote(%s) = %d, want %d", tt.action, result, tt.expected)
+			}
+		})
+	}
 }
