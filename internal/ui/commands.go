@@ -608,7 +608,7 @@ func handleViewCommentsKey(m Model) (Model, tea.Cmd) {
 }
 
 func handleApproveKey(m Model) (Model, tea.Cmd) {
-	if m.state == ViewPRInspect && m.prInspect.GetMode() == views.PRInspectModeDiff {
+	if m.state == ViewPRInspect {
 		m.reviewView.Activate(views.ReviewModeApprove)
 		return m, nil
 	}
@@ -616,7 +616,7 @@ func handleApproveKey(m Model) (Model, tea.Cmd) {
 }
 
 func handleRequestChangesKey(m Model) (Model, tea.Cmd) {
-	if m.state == ViewPRInspect && m.prInspect.GetMode() == views.PRInspectModeDiff {
+	if m.state == ViewPRInspect {
 		m.reviewView.Activate(views.ReviewModeRequestChanges)
 		return m, nil
 	}
