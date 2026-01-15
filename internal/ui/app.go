@@ -97,6 +97,9 @@ func (m Model) isInInputMode() bool {
 	if m.state == ViewPATs && (m.patsView.Mode == views.PATModeAdd || m.patsView.Mode == views.PATModeEdit) {
 		return true
 	}
+	if m.state == ViewPRList && m.prListView.IsFiltering() {
+		return true
+	}
 	return false
 }
 
@@ -218,6 +221,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				default:
 					cmd = m.patsView.Update(msg)
+					return m, cmd
+				}
+			}
+
+			if m.state == ViewPRList && m.prListView.IsFiltering() {
+				switch key {
+				case "enter":
+					m.prListView.ApplyFilterInput()
+					return m, nil
+				case "esc":
+					m.prListView.DeactivateFilter()
+					return m, nil
+				default:
+					cmd = m.prListView.UpdateFilterInput(msg)
 					return m, cmd
 				}
 			}
