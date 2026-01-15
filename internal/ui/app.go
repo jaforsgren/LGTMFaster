@@ -253,14 +253,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			if m.state == ViewPRList && m.prListView.IsFiltering() {
 				switch key {
-				case "enter":
-					m.prListView.ApplyFilterInput()
-					return m, nil
-				case "esc":
+				case "enter", "esc":
 					m.prListView.DeactivateFilter()
 					return m, nil
 				default:
 					cmd = m.prListView.UpdateFilterInput(msg)
+					m.prListView.ApplyFilterFromInput()
 					return m, cmd
 				}
 			}
@@ -308,9 +306,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		if selectedCount > 1 {
-			m.topBar.SetSelectedPATCount(selectedCount)
-		}
+		m.topBar.SetPATCounts(selectedCount, len(msg.pats))
 
 		if selectedCount > 0 && m.isInitialStartup {
 			m.isInitialStartup = false
