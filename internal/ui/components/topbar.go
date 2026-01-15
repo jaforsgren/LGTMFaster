@@ -18,6 +18,7 @@ type TopBarModel struct {
 	currentPR      string
 	prStatus       string
 	prMergeable    bool
+	prApproval     string
 	activePAT      string
 	patProvider    string
 	selectedCount  int
@@ -60,6 +61,10 @@ func (m *TopBarModel) SetContext(repo, pr string) {
 func (m *TopBarModel) SetPRStatus(status string, mergeable bool) {
 	m.prStatus = status
 	m.prMergeable = mergeable
+}
+
+func (m *TopBarModel) SetPRApproval(approval string) {
+	m.prApproval = approval
 }
 
 func (m *TopBarModel) SetActivePAT(pat, provider string) {
@@ -202,6 +207,29 @@ func (m *TopBarModel) buildContextInfo() []string {
 				statusStyle := lipgloss.NewStyle().Foreground(statusColor).Bold(true)
 				statusBadge := statusStyle.Render(fmt.Sprintf("[%s %s]", statusText, mergeIcon))
 				prValue = fmt.Sprintf("%s %s", prValue, statusBadge)
+			}
+
+			if m.prApproval != "" {
+				var approvalColor lipgloss.Color
+				var approvalText string
+
+				switch m.prApproval {
+				case "approved":
+					approvalColor = lipgloss.Color("10")
+					approvalText = "APPROVED ✓"
+				case "changes_requested":
+					approvalColor = lipgloss.Color("9")
+					approvalText = "CHANGES ✗"
+				case "pending":
+					approvalColor = lipgloss.Color("214")
+					approvalText = "PENDING ◯"
+				}
+
+				if approvalText != "" {
+					approvalStyle := lipgloss.NewStyle().Foreground(approvalColor).Bold(true)
+					approvalBadge := approvalStyle.Render(fmt.Sprintf("[%s]", approvalText))
+					prValue = fmt.Sprintf("%s %s", prValue, approvalBadge)
+				}
 			}
 
 			lines = append(lines,

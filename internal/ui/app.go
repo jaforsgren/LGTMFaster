@@ -465,6 +465,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case PRDetailLoadedMsg:
 		m.prInspect.SetPR(msg.pr)
 		m.topBar.SetPRStatus(string(msg.pr.Status), msg.pr.Mergeable)
+		m.topBar.SetPRApproval(string(msg.pr.ApprovalStatus))
 		return m, nil
 
 	case DiffLoadedMsg:

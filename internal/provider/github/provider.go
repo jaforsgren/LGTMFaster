@@ -37,6 +37,16 @@ func (p *Provider) ListPullRequests(ctx context.Context, username string) ([]dom
 	prs := make([]domain.PullRequest, 0, len(ghPRs))
 	for _, ghPR := range ghPRs {
 		pr := p.convertPullRequest(ghPR, username)
+
+		if ghPR.Base != nil && ghPR.Base.Repo != nil {
+			owner := ghPR.Base.Repo.GetOwner().GetLogin()
+			repo := ghPR.Base.Repo.GetName()
+			reviews, err := p.client.ListReviews(ctx, owner, repo, ghPR.GetNumber())
+			if err == nil {
+				pr.ApprovalStatus = p.calculateApprovalStatus(reviews)
+			}
+		}
+
 		prs = append(prs, pr)
 	}
 
@@ -59,6 +69,12 @@ func (p *Provider) GetPullRequest(ctx context.Context, identifier domain.PRIdent
 	}
 
 	pr := p.convertPullRequest(ghPR, p.username)
+
+	reviews, err := p.client.ListReviews(ctx, owner, repo, identifier.Number)
+	if err == nil {
+		pr.ApprovalStatus = p.calculateApprovalStatus(reviews)
+	}
+
 	logger.Log("GitHub: Retrieved PR #%d: %s", identifier.Number, *ghPR.Title)
 	return &pr, nil
 }
@@ -276,4 +292,47 @@ func convertReviewAction(action domain.ReviewAction) string {
 	default:
 		return "COMMENT"
 	}
+}
+
+func (p *Provider) calculateApprovalStatus(reviews []*github.PullRequestReview) domain.ApprovalStatus {
+	if len(reviews) == 0 {
+		return domain.ApprovalStatusNone
+	}
+
+	latestByUser := make(map[string]*github.PullRequestReview)
+	for _, review := range reviews {
+		if review.User == nil || review.User.Login == nil {
+			continue
+		}
+		state := review.GetState()
+		if state == "COMMENTED" || state == "DISMISSED" || state == "PENDING" {
+			continue
+		}
+		username := *review.User.Login
+		existing, exists := latestByUser[username]
+		if !exists || review.GetSubmittedAt().After(existing.GetSubmittedAt().Time) {
+			latestByUser[username] = review
+		}
+	}
+
+	hasApproval := false
+	hasChangesRequested := false
+
+	for _, review := range latestByUser {
+		state := review.GetState()
+		switch state {
+		case "APPROVED":
+			hasApproval = true
+		case "CHANGES_REQUESTED":
+			hasChangesRequested = true
+		}
+	}
+
+	if hasChangesRequested {
+		return domain.ApprovalStatusChangesRequested
+	}
+	if hasApproval {
+		return domain.ApprovalStatusApproved
+	}
+	return domain.ApprovalStatusPending
 }

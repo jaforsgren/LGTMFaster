@@ -54,8 +54,23 @@ func (i PRItem) Title() string {
 		style = style.Italic(true)
 	}
 
-	title := fmt.Sprintf("%s %s", categoryIndicator, i.pr.Title)
+	approvalBadge := formatApprovalBadge(i.pr.ApprovalStatus)
+
+	title := fmt.Sprintf("%s %s%s", categoryIndicator, approvalBadge, i.pr.Title)
 	return style.Render(title)
+}
+
+func formatApprovalBadge(status domain.ApprovalStatus) string {
+	switch status {
+	case domain.ApprovalStatusApproved:
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#10B981")).Render("✓ ")
+	case domain.ApprovalStatusChangesRequested:
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#EF4444")).Render("✗ ")
+	case domain.ApprovalStatusPending:
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#F59E0B")).Render("◯ ")
+	default:
+		return ""
+	}
 }
 
 func (i PRItem) Description() string {
