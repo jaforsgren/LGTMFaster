@@ -206,6 +206,32 @@ func (m *PRListViewModel) GetSelectedPR() *domain.PullRequest {
 	return &prItem.pr
 }
 
+func (m *PRListViewModel) GetCursorIndex() int {
+	return m.list.Cursor()
+}
+
+func (m *PRListViewModel) RestoreCursor(index int) {
+	items := m.list.Items()
+	if len(items) == 0 {
+		return
+	}
+
+	if index >= len(items) {
+		index = len(items) - 1
+	}
+	if index < 0 {
+		index = 0
+	}
+
+	if _, ok := items[index].(SectionHeaderItem); ok {
+		if index+1 < len(items) {
+			index++
+		}
+	}
+
+	m.list.Select(index)
+}
+
 func (m *PRListViewModel) Update(msg tea.Msg) tea.Cmd {
 	var cmd tea.Cmd
 	m.list, cmd = m.list.Update(msg)

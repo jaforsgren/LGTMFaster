@@ -416,12 +416,11 @@ func handlePATsCommand(m Model, args []string) (Model, tea.Cmd) {
 }
 
 func handlePRCommand(m Model, args []string) (Model, tea.Cmd) {
-	if m.provider == nil {
+	if len(m.providers) == 0 && m.provider == nil {
 		m.statusBar.SetMessage("No active PAT. Please select a PAT first.", true)
 		return m, nil
 	}
-	m.statusBar.SetMessage("Loading pull requests...", false)
-	return m, m.loadPRs()
+	return m, m.loadPRsWithCache()
 }
 
 func handleLogsCommand(m Model, args []string) (Model, tea.Cmd) {
@@ -559,8 +558,9 @@ func handleDeleteKey(m Model) (Model, tea.Cmd) {
 
 func handleRefreshKey(m Model) (Model, tea.Cmd) {
 	if m.state == ViewPRList {
-		m.statusBar.SetMessage("Refreshing pull requests...", false)
-		return m, m.loadPRs()
+		m.loadingState = LoadingState{}
+		m.prCache = nil
+		return m, m.loadPRsStreaming()
 	}
 	return m, nil
 }

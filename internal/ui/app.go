@@ -6,7 +6,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/google/uuid"
 	"github.com/johanforsgren/lgtmfaster/internal/domain"
 	"github.com/johanforsgren/lgtmfaster/internal/logger"
@@ -23,6 +25,22 @@ const (
 	ViewPRList
 	ViewPRInspect
 )
+
+const prCacheTTL = 30 * time.Second
+
+type LoadingState struct {
+	IsLoading         bool
+	TotalPATs         int
+	LoadedPATs        int
+	AccumulatedGroups []domain.PRGroup
+	FailedPATs        []string
+}
+
+type PRCache struct {
+	Groups    []domain.PRGroup
+	AllPRs    []domain.PullRequest
+	FetchedAt time.Time
+}
 
 type Model struct {
 	state             ViewState
@@ -47,9 +65,16 @@ type Model struct {
 	ctx               context.Context
 	commandRegistry   *CommandRegistry
 	isInitialStartup  bool
+	loadingState      LoadingState
+	spinner           spinner.Model
+	prCache           *PRCache
 }
 
 func NewModel(repository domain.Repository) Model {
+	s := spinner.New()
+	s.Spinner = spinner.Dot
+	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#7C3AED"))
+
 	return Model{
 		state:             ViewPATs,
 		topBar:            components.NewTopBar(),
@@ -68,6 +93,7 @@ func NewModel(repository domain.Repository) Model {
 		ctx:               context.Background(),
 		commandRegistry:   NewCommandRegistry(),
 		isInitialStartup:  true,
+		spinner:           s,
 	}
 }
 
@@ -275,7 +301,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.topBar.SetView("PRs")
 			m.updateShortcuts()
 			logger.Log("UI: Starting in PR list view with %d selected PAT(s)", selectedCount)
-			return m, m.loadPRs()
+			return m, m.loadPRsStreaming()
 		}
 
 		m.isInitialStartup = false
@@ -283,11 +309,118 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.updateShortcuts()
 		return m, nil
 
+	case spinner.TickMsg:
+		if m.loadingState.IsLoading {
+			var cmd tea.Cmd
+			m.spinner, cmd = m.spinner.Update(msg)
+			return m, cmd
+		}
+		return m, nil
+
+	case PRLoadingStartedMsg:
+		m.loadingState = LoadingState{
+			IsLoading:         true,
+			TotalPATs:         msg.TotalPATs,
+			LoadedPATs:        0,
+			AccumulatedGroups: []domain.PRGroup{},
+			FailedPATs:        []string{},
+		}
+		m.state = ViewPRList
+		m.topBar.SetView("PR List")
+		m.updateShortcuts()
+		m.statusBar.SetMessage(fmt.Sprintf("%s Loading PRs (0/%d PATs)...",
+			m.spinner.View(), msg.TotalPATs), false)
+		return m, m.spinner.Tick
+
+	case PRGroupLoadedMsg:
+		if !m.loadingState.IsLoading {
+			return m, nil
+		}
+
+		currentCursor := m.prListView.GetCursorIndex()
+		m.loadingState.LoadedPATs++
+
+		if msg.LoadError != nil {
+			logger.LogError("LOAD_PRS_STREAMING", msg.Group.PATName, msg.LoadError)
+			m.loadingState.FailedPATs = append(m.loadingState.FailedPATs, msg.Group.PATName)
+		} else if len(msg.Group.PRs) > 0 || msg.Group.PATID != "" {
+			m.loadingState.AccumulatedGroups = append(m.loadingState.AccumulatedGroups, msg.Group)
+		}
+
+		if len(m.loadingState.AccumulatedGroups) > 0 {
+			m.prListView.SetPRGroups(m.loadingState.AccumulatedGroups)
+		}
+
+		m.prListView.RestoreCursor(currentCursor)
+
+		totalPRs := 0
+		repoMap := make(map[string]bool)
+		authored, assigned, other := 0, 0, 0
+		for _, group := range m.loadingState.AccumulatedGroups {
+			for _, pr := range group.PRs {
+				totalPRs++
+				repoMap[pr.Repository.FullName] = true
+				switch pr.Category {
+				case domain.PRCategoryAuthored:
+					authored++
+				case domain.PRCategoryAssigned:
+					assigned++
+				default:
+					other++
+				}
+			}
+		}
+		m.topBar.SetStats(totalPRs, len(repoMap))
+		m.topBar.SetPRBreakdown(authored, assigned, other)
+
+		if m.loadingState.LoadedPATs < m.loadingState.TotalPATs {
+			progress := fmt.Sprintf("%d/%d", m.loadingState.LoadedPATs, m.loadingState.TotalPATs)
+			m.statusBar.SetMessage(fmt.Sprintf("%s Loading PRs (%s PATs)... %d PRs",
+				m.spinner.View(), progress, totalPRs), false)
+			return m, m.spinner.Tick
+		}
+
+		m.loadingState.IsLoading = false
+
+		var allPRs []domain.PullRequest
+		for _, group := range m.loadingState.AccumulatedGroups {
+			allPRs = append(allPRs, group.PRs...)
+		}
+		m.prCache = &PRCache{
+			Groups:    m.loadingState.AccumulatedGroups,
+			AllPRs:    allPRs,
+			FetchedAt: time.Now(),
+		}
+
+		var finalMsg string
+		if len(m.loadingState.FailedPATs) > 0 {
+			finalMsg = fmt.Sprintf("Loaded %d PRs (%d PAT(s) failed)", totalPRs, len(m.loadingState.FailedPATs))
+		} else {
+			finalMsg = fmt.Sprintf("Loaded %d pull requests", totalPRs)
+		}
+		m.statusBar.SetMessage(finalMsg, len(m.loadingState.FailedPATs) > 0)
+		return m, clearStatusAfterDelay(4 * time.Second)
+
 	case PRsLoadedMsg:
 		if msg.groups != nil && len(msg.groups) > 0 {
 			m.prListView.SetPRGroups(msg.groups)
+
+			var allPRs []domain.PullRequest
+			for _, group := range msg.groups {
+				allPRs = append(allPRs, group.PRs...)
+			}
+			m.prCache = &PRCache{
+				Groups:    msg.groups,
+				AllPRs:    allPRs,
+				FetchedAt: time.Now(),
+			}
 		} else {
 			m.prListView.SetPRs(msg.prs)
+			m.prCache = &PRCache{
+				Groups:    nil,
+				AllPRs:    msg.prs,
+				FetchedAt: time.Now(),
+			}
 		}
 
 		repoMap := make(map[string]bool)
@@ -507,8 +640,7 @@ func (m Model) handlePATEnter() (tea.Model, tea.Cmd) {
 
 	if m.patsView.Mode == views.PATModeList {
 		if len(m.providers) > 0 {
-			m.statusBar.SetMessage("Loading pull requests...", false)
-			return m, m.loadPRs()
+			return m, m.loadPRsWithCache()
 		}
 
 		pat := m.patsView.GetSelectedPAT()
@@ -779,6 +911,97 @@ func (m Model) loadPRs() tea.Cmd {
 	}
 }
 
+func (m Model) loadPRsForPAT(pat domain.PAT) tea.Cmd {
+	return func() tea.Msg {
+		provider := m.providers[pat.ID]
+		if provider == nil {
+			return PRGroupLoadedMsg{
+				Group:     domain.PRGroup{PATName: pat.Name, PATID: pat.ID},
+				LoadError: fmt.Errorf("provider not found for PAT %s", pat.Name),
+			}
+		}
+
+		prs, err := provider.ListPullRequests(m.ctx, pat.Username)
+		if err != nil {
+			return PRGroupLoadedMsg{
+				Group:     domain.PRGroup{PATName: pat.Name, PATID: pat.ID},
+				LoadError: err,
+			}
+		}
+
+		taggedPRs := make([]domain.PullRequest, len(prs))
+		for i, pr := range prs {
+			pr.ProviderType = pat.Provider
+			pr.PATID = pat.ID
+			taggedPRs[i] = pr
+		}
+
+		return PRGroupLoadedMsg{
+			Group: domain.PRGroup{
+				PATName:   pat.Name,
+				PATID:     pat.ID,
+				Provider:  pat.Provider,
+				Username:  pat.Username,
+				IsPrimary: pat.IsPrimary,
+				PRs:       taggedPRs,
+			},
+			LoadError: nil,
+		}
+	}
+}
+
+func (m Model) loadPRsStreaming() tea.Cmd {
+	if len(m.providers) == 0 && m.provider == nil {
+		return func() tea.Msg {
+			return ErrorMsg{err: fmt.Errorf("no PATs selected")}
+		}
+	}
+
+	if len(m.providers) == 0 && m.provider != nil {
+		return m.loadPRs()
+	}
+
+	selectedPATs, err := m.repository.GetSelectedPATs()
+	if err != nil {
+		return func() tea.Msg {
+			return ErrorMsg{err: err}
+		}
+	}
+
+	cmds := []tea.Cmd{
+		func() tea.Msg {
+			return PRLoadingStartedMsg{TotalPATs: len(selectedPATs)}
+		},
+		m.spinner.Tick,
+	}
+
+	for _, pat := range selectedPATs {
+		cmds = append(cmds, m.loadPRsForPAT(pat))
+	}
+
+	return tea.Batch(cmds...)
+}
+
+func (m Model) loadPRsWithCache() tea.Cmd {
+	cmds := []tea.Cmd{}
+
+	if m.prCache != nil && time.Since(m.prCache.FetchedAt) < prCacheTTL {
+		cmds = append(cmds, func() tea.Msg {
+			return PRsLoadedMsg{prs: m.prCache.AllPRs, groups: m.prCache.Groups}
+		})
+		return tea.Batch(cmds...)
+	}
+
+	if m.prCache != nil {
+		cmds = append(cmds, func() tea.Msg {
+			return PRsLoadedMsg{prs: m.prCache.AllPRs, groups: m.prCache.Groups}
+		})
+	}
+
+	cmds = append(cmds, m.loadPRsStreaming())
+	return tea.Batch(cmds...)
+}
+
 func (m Model) loadPRDetail(pr domain.PullRequest) tea.Cmd {
 	return func() tea.Msg {
 		provider := m.getProviderForPR(pr)
@@ -917,3 +1140,12 @@ type MergeErrorMsg struct {
 }
 
 type ClearStatusMsg struct{}
+
+type PRLoadingStartedMsg struct {
+	TotalPATs int
+}
+
+type PRGroupLoadedMsg struct {
+	Group     domain.PRGroup
+	LoadError error
+}
