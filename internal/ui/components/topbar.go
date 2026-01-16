@@ -100,19 +100,12 @@ func (m *TopBarModel) View() string {
 	topSection = append(topSection, titleLine)
 	topSection = append(topSection, "")
 
-	minRows := 5
-	maxLines := len(contextLines)
-	if minRows > maxLines {
-		maxLines = minRows
-	}
-	if len(shortcutCol1) > maxLines {
-		maxLines = len(shortcutCol1)
-	}
+	const fixedRows = 5
 
 	const contextColWidth = 45
 	const colMargin = 4
 
-	for i := 0; i < maxLines; i++ {
+	for i := 0; i < fixedRows; i++ {
 		var contextCol, sc1, sc2 string
 
 		if i < len(contextLines) {
@@ -247,42 +240,20 @@ func (m *TopBarModel) buildContextInfo() []string {
 					valueWhiteStyle.Render(prValue))
 		}
 	} else {
-		prEmoji := "📋"
-		if m.totalPRs > 0 {
-			prBreakdown := fmt.Sprintf("%d (✎%d →%d ○%d)",
-				m.totalPRs, m.authoredPRs, m.assignedPRs, m.otherPRs)
-			lines = append(lines,
-				prEmoji+" "+
-					titleOrangeStyle.Render("PRs: ")+
-					valueWhiteStyle.Render(prBreakdown))
-		} else {
-			lines = append(lines,
-				prEmoji+" "+
-					titleOrangeStyle.Render("PRs: ")+
-					valueWhiteStyle.Render("0"))
-		}
-
-		repoEmoji := "📦"
 		lines = append(lines,
-			repoEmoji+" "+
-				titleOrangeStyle.Render("Repositories: ")+
-				valueWhiteStyle.Render(fmt.Sprintf("%d", m.repoCount)))
+			"❤️ "+
+				titleOrangeStyle.Render("your: ")+
+				valueWhiteStyle.Render(fmt.Sprintf("%d", m.authoredPRs)))
 
-		contextEmoji := "📍"
-		contextValue := "none"
-		if m.currentRepo != "" {
-			contextValue = m.currentRepo
-			if m.currentPR != "" {
-				contextValue = fmt.Sprintf("%s #%s", m.currentRepo, m.currentPR)
-			}
-			if len(contextValue) > 40 {
-				contextValue = contextValue[:37] + "..."
-			}
-		}
 		lines = append(lines,
-			contextEmoji+" "+
-				titleOrangeStyle.Render("Context: ")+
-				valueWhiteStyle.Render(contextValue))
+			"👀 "+
+				titleOrangeStyle.Render("assigned: ")+
+				valueWhiteStyle.Render(fmt.Sprintf("%d", m.assignedPRs)))
+
+		lines = append(lines,
+			"⏳ "+
+				titleOrangeStyle.Render("pending: ")+
+				valueWhiteStyle.Render(fmt.Sprintf("%d", m.otherPRs)))
 	}
 
 	viewEmoji := "🎯"
@@ -294,6 +265,11 @@ func (m *TopBarModel) buildContextInfo() []string {
 		viewEmoji+" "+
 			titleOrangeStyle.Render("View: ")+
 			valueWhiteStyle.Render(viewName))
+
+	const minContextLines = 5
+	for len(lines) < minContextLines {
+		lines = append(lines, "")
+	}
 
 	return lines
 }
