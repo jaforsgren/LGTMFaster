@@ -280,10 +280,6 @@ func (m *PRListViewModel) ClearFilter() {
 }
 
 func (m *PRListViewModel) View() string {
-	title := m.buildTitle()
-	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF"))
-	container := lipgloss.NewStyle().Padding(1, 2, 1, 2)
-
 	help := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#6B7280")).
 		Italic(true).
@@ -296,17 +292,14 @@ func (m *PRListViewModel) View() string {
 		filterStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#F59E0B")).
 			Bold(true)
-		content = titleStyle.Render(title) +
-			"\n\n" + tableView +
+		content = tableView +
 			"\n" + filterStyle.Render("Filter: ") + m.filterInput.View() +
 			help
 	} else {
-		content = titleStyle.Render(title) +
-			"\n\n" + tableView +
-			help
+		content = tableView + help
 	}
 
-	return container.Render(content)
+	return content
 }
 
 func (m *PRListViewModel) colorizeTableRows(tableOutput string) string {
@@ -332,26 +325,6 @@ func (m *PRListViewModel) helpText() string {
 		return "Enter: Inspect | r: Refresh | /: Filter | Esc: Clear filter | q: Back"
 	}
 	return "Enter: Inspect | r: Refresh | /: Filter | q: Back"
-}
-
-func (m *PRListViewModel) buildTitle() string {
-	authored, assigned, other := 0, 0, 0
-	for _, pr := range m.visiblePRs {
-		switch pr.Category {
-		case domain.PRCategoryAuthored:
-			authored++
-		case domain.PRCategoryAssigned:
-			assigned++
-		default:
-			other++
-		}
-	}
-
-	base := fmt.Sprintf("Pull Requests (✎ %d | → %d | ○ %d)", authored, assigned, other)
-	if m.filterText != "" {
-		return fmt.Sprintf("Pull Requests [filter: %s] %s", m.filterText, base)
-	}
-	return base
 }
 
 func (m *PRListViewModel) IsFiltering() bool {
