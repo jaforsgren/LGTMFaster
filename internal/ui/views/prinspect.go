@@ -18,6 +18,13 @@ const (
 	PRInspectModeDiff
 )
 
+type DiffViewMode int
+
+const (
+	DiffViewModeFull    DiffViewMode = iota // Show all lines including context
+	DiffViewModeCompact                     // Show only added/deleted lines
+)
+
 type PRInspectViewModel struct {
 	pr              *domain.PullRequest
 	diff            *domain.Diff
@@ -29,6 +36,7 @@ type PRInspectViewModel struct {
 	height          int
 	showComments    bool
 	mode            PRInspectMode
+	diffViewMode    DiffViewMode
 	pendingComments []domain.Comment
 }
 
@@ -100,6 +108,19 @@ func (m *PRInspectViewModel) SwitchToDescription() {
 
 func (m *PRInspectViewModel) GetMode() PRInspectMode {
 	return m.mode
+}
+
+func (m *PRInspectViewModel) GetDiffViewMode() DiffViewMode {
+	return m.diffViewMode
+}
+
+func (m *PRInspectViewModel) ToggleDiffViewMode() {
+	if m.diffViewMode == DiffViewModeFull {
+		m.diffViewMode = DiffViewModeCompact
+	} else {
+		m.diffViewMode = DiffViewModeFull
+	}
+	m.updateViewport()
 }
 
 func (m *PRInspectViewModel) NextFile() {
@@ -192,6 +213,15 @@ func (m *PRInspectViewModel) countTotalLines(file domain.FileDiff) int {
 	return count
 }
 
+func (m *PRInspectViewModel) hunkHasChanges(hunk domain.DiffHunk) bool {
+	for _, line := range hunk.Lines {
+		if line.Type == "add" || line.Type == "delete" {
+			return true
+		}
+	}
+	return false
+}
+
 func (m *PRInspectViewModel) GetCurrentLineInfo() *domain.DiffLine {
 	if m.diff == nil || len(m.diff.Files) == 0 {
 		return nil
@@ -269,9 +299,13 @@ func (m *PRInspectViewModel) View() string {
 		pendingCount := m.GetPendingCommentCount()
 		countInfo := ""
 		if pendingCount > 0 {
-			countInfo = fmt.Sprintf(" [%d pending comments]", pendingCount)
+			countInfo = fmt.Sprintf(" [%d pending]", pendingCount)
 		}
-		helpText = fmt.Sprintf("\nFiles: n/p/←/→ | Lines: j/k | i: Inline Comment%s | c: View Comments | a: Approve | r: Request Changes | Enter: General Comment | ctrl+o: Browser | q: Back", countInfo)
+		viewModeText := "full"
+		if m.diffViewMode == DiffViewModeCompact {
+			viewModeText = "compact"
+		}
+		helpText = fmt.Sprintf("\nFiles: n/p | Lines: j/k | f: Toggle view (%s) | y/Y: Yank | i: Comment%s | a: Approve | r: Request | ctrl+o: Browser | q: Back", viewModeText, countInfo)
 	}
 
 	help := lipgloss.NewStyle().
@@ -387,18 +421,28 @@ func (m *PRInspectViewModel) renderDiff() string {
 	for hunkIdx, hunk := range file.Hunks {
 		hunkHeaderStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#3B82F6"))
-		b.WriteString(hunkHeaderStyle.Render(hunk.Header))
-		b.WriteString("\n")
+
+		hasVisibleLines := m.diffViewMode == DiffViewModeFull || m.hunkHasChanges(hunk)
+		if hasVisibleLines {
+			b.WriteString(hunkHeaderStyle.Render(hunk.Header))
+			b.WriteString("\n")
+		}
 
 		logger.Log("PRInspectView: renderDiff - Hunk %d has %d lines", hunkIdx+1, len(hunk.Lines))
 
 		for _, line := range hunk.Lines {
+			if m.diffViewMode == DiffViewModeCompact && line.Type == "context" {
+				lineIdx++
+				continue
+			}
 			b.WriteString(m.renderDiffLine(line, lineIdx))
 			b.WriteString("\n")
 			lineIdx++
 		}
 
-		b.WriteString("\n")
+		if hasVisibleLines {
+			b.WriteString("\n")
+		}
 	}
 
 	if m.showComments {
@@ -526,6 +570,51 @@ func (m *PRInspectViewModel) renderComments(filePath string) string {
 			PaddingLeft(2)
 		b.WriteString(commentStyle.Render(comment.Body))
 		b.WriteString("\n\n")
+	}
+
+	return b.String()
+}
+
+func (m *PRInspectViewModel) GetCurrentFileDiffText() string {
+	if m.diff == nil || len(m.diff.Files) == 0 {
+		return ""
+	}
+	return m.generateFileDiffText(m.diff.Files[m.currentFile])
+}
+
+func (m *PRInspectViewModel) GetAllFilesDiffText() string {
+	if m.diff == nil || len(m.diff.Files) == 0 {
+		return ""
+	}
+
+	var b strings.Builder
+	for i, file := range m.diff.Files {
+		if i > 0 {
+			b.WriteString("\n")
+		}
+		b.WriteString(fmt.Sprintf("=== %s ===\n", getFilePath(file)))
+		b.WriteString(m.generateFileDiffText(file))
+	}
+	return b.String()
+}
+
+func (m *PRInspectViewModel) generateFileDiffText(file domain.FileDiff) string {
+	var b strings.Builder
+
+	for _, hunk := range file.Hunks {
+		hasVisibleLines := m.diffViewMode == DiffViewModeFull || m.hunkHasChanges(hunk)
+		if hasVisibleLines {
+			b.WriteString(hunk.Header)
+			b.WriteString("\n")
+		}
+
+		for _, line := range hunk.Lines {
+			if m.diffViewMode == DiffViewModeCompact && line.Type == "context" {
+				continue
+			}
+			b.WriteString(line.Content)
+			b.WriteString("\n")
+		}
 	}
 
 	return b.String()

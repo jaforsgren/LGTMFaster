@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/atotto/clipboard"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/johanforsgren/lgtmfaster/internal/domain"
 	"github.com/johanforsgren/lgtmfaster/internal/ui/views"
@@ -240,6 +241,27 @@ func (cr *CommandRegistry) registerKeyBindings() {
 			Description: "Inline comment on line",
 			ShortHelp:   "i",
 			Handler:     handleInlineCommentKey,
+			AvailableIn: []ViewState{ViewPRInspect},
+		},
+		{
+			Keys:        []string{"f"},
+			Description: "Toggle diff view mode",
+			ShortHelp:   "f",
+			Handler:     handleToggleDiffViewKey,
+			AvailableIn: []ViewState{ViewPRInspect},
+		},
+		{
+			Keys:        []string{"y"},
+			Description: "Yank current file diff",
+			ShortHelp:   "y",
+			Handler:     handleYankCurrentFileKey,
+			AvailableIn: []ViewState{ViewPRInspect},
+		},
+		{
+			Keys:        []string{"Y"},
+			Description: "Yank all files diff",
+			ShortHelp:   "Y",
+			Handler:     handleYankAllFilesKey,
 			AvailableIn: []ViewState{ViewPRInspect},
 		},
 		{
@@ -729,6 +751,63 @@ func handleInlineCommentKey(m Model) (Model, tea.Cmd) {
 			m.inlineCommentView.Activate(lineDesc)
 		}
 	}
+	return m, nil
+}
+
+func handleToggleDiffViewKey(m Model) (Model, tea.Cmd) {
+	if m.state == ViewPRInspect && m.prInspect.GetMode() == views.PRInspectModeDiff {
+		m.prInspect.ToggleDiffViewMode()
+		mode := "full"
+		if m.prInspect.GetDiffViewMode() == views.DiffViewModeCompact {
+			mode = "compact"
+		}
+		m.statusBar.SetMessage(fmt.Sprintf("Diff view: %s", mode), false)
+	}
+	return m, nil
+}
+
+func handleYankCurrentFileKey(m Model) (Model, tea.Cmd) {
+	if m.state != ViewPRInspect || m.prInspect.GetMode() != views.PRInspectModeDiff {
+		return m, nil
+	}
+
+	diffText := m.prInspect.GetCurrentFileDiffText()
+	if diffText == "" {
+		m.statusBar.SetMessage("No diff to copy", true)
+		return m, nil
+	}
+
+	if err := clipboard.WriteAll(diffText); err != nil {
+		m.statusBar.SetMessage(fmt.Sprintf("Failed to copy: %v", err), true)
+		return m, nil
+	}
+
+	m.statusBar.SetMessage("Copied current file diff to clipboard", false)
+	return m, nil
+}
+
+func handleYankAllFilesKey(m Model) (Model, tea.Cmd) {
+	if m.state != ViewPRInspect || m.prInspect.GetMode() != views.PRInspectModeDiff {
+		return m, nil
+	}
+
+	diffText := m.prInspect.GetAllFilesDiffText()
+	if diffText == "" {
+		m.statusBar.SetMessage("No diff to copy", true)
+		return m, nil
+	}
+
+	if err := clipboard.WriteAll(diffText); err != nil {
+		m.statusBar.SetMessage(fmt.Sprintf("Failed to copy: %v", err), true)
+		return m, nil
+	}
+
+	diff := m.prInspect.GetDiff()
+	fileCount := 0
+	if diff != nil {
+		fileCount = len(diff.Files)
+	}
+	m.statusBar.SetMessage(fmt.Sprintf("Copied diff from %d files to clipboard", fileCount), false)
 	return m, nil
 }
 
