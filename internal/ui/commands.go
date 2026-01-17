@@ -265,6 +265,13 @@ func (cr *CommandRegistry) registerKeyBindings() {
 			AvailableIn: []ViewState{ViewPRInspect},
 		},
 		{
+			Keys:        []string{"e"},
+			Description: "Edit PR description",
+			ShortHelp:   "e",
+			Handler:     handleEditDescriptionKey,
+			AvailableIn: []ViewState{ViewPRInspect},
+		},
+		{
 			Keys:        []string{"left"},
 			Description: "Previous file",
 			ShortHelp:   "",
@@ -808,6 +815,26 @@ func handleYankAllFilesKey(m Model) (Model, tea.Cmd) {
 		fileCount = len(diff.Files)
 	}
 	m.statusBar.SetMessage(fmt.Sprintf("Copied diff from %d files to clipboard", fileCount), false)
+	return m, nil
+}
+
+func handleEditDescriptionKey(m Model) (Model, tea.Cmd) {
+	if m.state != ViewPRInspect {
+		return m, nil
+	}
+
+	pr := m.prInspect.GetPR()
+	if pr == nil {
+		m.statusBar.SetMessage("No PR selected", true)
+		return m, nil
+	}
+
+	if pr.Category != domain.PRCategoryAuthored {
+		m.statusBar.SetMessage("Can only edit description on your own PRs", true)
+		return m, nil
+	}
+
+	m.descriptionEditView.Activate(pr.Description)
 	return m, nil
 }
 

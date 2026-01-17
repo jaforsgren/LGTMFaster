@@ -294,7 +294,7 @@ func (m *PRInspectViewModel) View() string {
 	var helpText string
 	switch m.mode {
 	case PRInspectModeDescription:
-		helpText = "\nd: View Diff | c: View Comments | ctrl+o: Open in Browser | q: Back"
+		helpText = "\nd: View Diff | e: Edit Description | c: View Comments | ctrl+o: Open in Browser | q: Back"
 	case PRInspectModeDiff:
 		pendingCount := m.GetPendingCommentCount()
 		countInfo := ""

@@ -320,6 +320,24 @@ func (p *Provider) MergePullRequest(ctx context.Context, identifier domain.PRIde
 	return nil
 }
 
+func (p *Provider) UpdatePullRequestDescription(ctx context.Context, identifier domain.PRIdentifier, description string) error {
+	logger.Log("AzureDevOps: Updating PR #%d description from %s", identifier.Number, identifier.Repository)
+
+	projectID, repoID, err := p.resolveProjectAndRepoWithCache(ctx, identifier.Repository)
+	if err != nil {
+		logger.LogError("AZDO_UPDATE_PR_DESC", identifier.Repository, err)
+		return err
+	}
+
+	if err := p.client.UpdatePullRequestDescription(ctx, projectID, repoID, identifier.Number, description); err != nil {
+		logger.LogError("AZDO_UPDATE_PR_DESC", fmt.Sprintf("%s#%d", identifier.Repository, identifier.Number), err)
+		return fmt.Errorf("failed to update PR description: %w", err)
+	}
+
+	logger.Log("AzureDevOps: Successfully updated PR #%d description", identifier.Number)
+	return nil
+}
+
 func (p *Provider) buildPRURL(projectName, repoName string, prNumber int) string {
 	return fmt.Sprintf("https://dev.azure.com/%s/%s/_git/%s/pullrequest/%d",
 		p.client.organization, projectName, repoName, prNumber)
