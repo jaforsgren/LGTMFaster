@@ -118,3 +118,38 @@ func TestDescriptionEditView_ActivateMultipleTimes(t *testing.T) {
 		t.Error("expected second description to overwrite first")
 	}
 }
+
+func TestDescriptionEditView_GetValue(t *testing.T) {
+	view := NewDescriptionEditView()
+	description := "Test description for GetValue"
+
+	view.Activate(description)
+
+	if got := view.GetValue(); got != description {
+		t.Errorf("GetValue: expected %q, got %q", description, got)
+	}
+}
+
+func TestDescriptionEditView_SetValue(t *testing.T) {
+	view := NewDescriptionEditView()
+	view.Activate("Initial description")
+
+	newValue := "Updated description via SetValue"
+	view.SetValue(newValue)
+
+	if got := view.GetValue(); got != newValue {
+		t.Errorf("SetValue: expected %q, got %q", newValue, got)
+	}
+}
+
+func TestDescriptionEditView_ViewShowsEditorShortcut(t *testing.T) {
+	view := NewDescriptionEditView()
+	view.SetSize(80, 24)
+	view.Activate("Test description")
+
+	output := view.View()
+
+	if !strings.Contains(output, "Ctrl+G") {
+		t.Error("expected output to contain 'Ctrl+G' shortcut for opening editor")
+	}
+}

@@ -3,6 +3,8 @@ package ui
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -42,6 +44,14 @@ type PRCache struct {
 	FetchedAt time.Time
 }
 
+type EditorSource int
+
+const (
+	EditorSourceReview EditorSource = iota
+	EditorSourceInlineComment
+	EditorSourceDescriptionEdit
+)
+
 type Model struct {
 	state             ViewState
 	width             int
@@ -69,6 +79,8 @@ type Model struct {
 	loadingState      LoadingState
 	spinner           spinner.Model
 	prCache           *PRCache
+	editorTempFile    string
+	editorSource      EditorSource
 }
 
 func NewModel(repository domain.Repository) Model {
@@ -175,6 +187,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				switch key {
 				case "ctrl+s":
 					return m, m.submitReview()
+				case "ctrl+g":
+					content := m.reviewView.GetValue()
+					return m, m.openExternalEditor(content, EditorSourceReview)
 				case "esc":
 					m.reviewView.Deactivate()
 					return m, nil
@@ -213,6 +228,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					m.inlineCommentView.Deactivate()
 					return m, nil
+				case "ctrl+g":
+					content := m.inlineCommentView.GetValue()
+					return m, m.openExternalEditor(content, EditorSourceInlineComment)
 				case "esc":
 					m.inlineCommentView.Deactivate()
 					return m, nil
@@ -248,6 +266,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				switch key {
 				case "ctrl+s":
 					return m, m.saveDescription()
+				case "ctrl+g":
+					content := m.descriptionEditView.GetValue()
+					return m, m.openExternalEditor(content, EditorSourceDescriptionEdit)
 				case "esc":
 					m.descriptionEditView.Deactivate()
 					return m, nil
@@ -537,6 +558,37 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case DescriptionUpdateErrorMsg:
 		m.statusBar.SetMessage(fmt.Sprintf("Failed to update description: %v", msg.err), true)
 		return m, clearStatusAfterDelay(8 * time.Second)
+
+	case ExternalEditorFinishedMsg:
+		if msg.err != nil {
+			logger.LogError("EXTERNAL_EDITOR", "editor process", msg.err)
+			m.statusBar.SetMessage(fmt.Sprintf("Editor error: %v", msg.err), true)
+			os.Remove(m.editorTempFile)
+			return m, clearStatusAfterDelay(4 * time.Second)
+		}
+
+		content, err := os.ReadFile(m.editorTempFile)
+		os.Remove(m.editorTempFile)
+
+		if err != nil {
+			logger.LogError("EXTERNAL_EDITOR", "read temp file", err)
+			m.statusBar.SetMessage(fmt.Sprintf("Failed to read editor content: %v", err), true)
+			return m, clearStatusAfterDelay(4 * time.Second)
+		}
+
+		editedContent := string(content)
+		logger.Log("UI: External editor returned with %d bytes", len(editedContent))
+
+		switch m.editorSource {
+		case EditorSourceReview:
+			m.reviewView.SetValue(editedContent)
+		case EditorSourceInlineComment:
+			m.inlineCommentView.SetValue(editedContent)
+		case EditorSourceDescriptionEdit:
+			m.descriptionEditView.SetValue(editedContent)
+		}
+
+		return m, nil
 
 	case ClearStatusMsg:
 		m.statusBar.ClearMessage()
@@ -889,6 +941,41 @@ func (m Model) saveDescription() tea.Cmd {
 	}
 }
 
+func (m *Model) openExternalEditor(content string, source EditorSource) tea.Cmd {
+	tmpFile, err := os.CreateTemp("", "lgtmfaster_*.md")
+	if err != nil {
+		logger.LogError("EXTERNAL_EDITOR", "create temp file", err)
+		return func() tea.Msg {
+			return ErrorMsg{err: fmt.Errorf("failed to create temp file: %w", err)}
+		}
+	}
+
+	if _, err := tmpFile.WriteString(content); err != nil {
+		tmpFile.Close()
+		os.Remove(tmpFile.Name())
+		logger.LogError("EXTERNAL_EDITOR", "write temp file", err)
+		return func() tea.Msg {
+			return ErrorMsg{err: fmt.Errorf("failed to write temp file: %w", err)}
+		}
+	}
+	tmpFile.Close()
+
+	m.editorTempFile = tmpFile.Name()
+	m.editorSource = source
+
+	editor := os.Getenv("EDITOR")
+	if editor == "" {
+		editor = "nvim"
+	}
+
+	logger.Log("UI: Opening external editor %s for %s", editor, tmpFile.Name())
+
+	c := exec.Command(editor, tmpFile.Name())
+	return tea.ExecProcess(c, func(err error) tea.Msg {
+		return ExternalEditorFinishedMsg{err: err}
+	})
+}
+
 func (m Model) createProvider(pat domain.PAT) (domain.Provider, error) {
 	switch pat.Provider {
 	case domain.ProviderGitHub:
@@ -1230,6 +1317,10 @@ type DescriptionUpdateErrorMsg struct {
 }
 
 type ClearStatusMsg struct{}
+
+type ExternalEditorFinishedMsg struct {
+	err error
+}
 
 type PRLoadingStartedMsg struct {
 	TotalPATs int
