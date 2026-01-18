@@ -38,6 +38,7 @@ type PRInspectViewModel struct {
 	mode            PRInspectMode
 	diffViewMode    DiffViewMode
 	pendingComments []domain.Comment
+	contentLines    int
 }
 
 func NewPRInspectView() *PRInspectViewModel {
@@ -170,38 +171,48 @@ func (m *PRInspectViewModel) ensureLineVisible() {
 		return
 	}
 
-	// Calculate approximate line position in rendered output
-	// Each hunk has a header line, and we need to account for file header too
 	file := m.diff.Files[m.currentFile]
-
-	// Start with file header (takes about 3 lines)
 	linePosition := 3
-
 	lineIdx := 0
+
 	for _, hunk := range file.Hunks {
-		// Add 2 lines for hunk header and spacing
 		linePosition += 2
 
 		for range hunk.Lines {
 			if lineIdx == m.currentLineIdx {
-				// Found our line, now ensure it's visible
 				viewportHeight := m.viewport.Height
+				if viewportHeight <= 0 {
+					return
+				}
 
-				// If line is below visible area, scroll down
 				if linePosition > m.viewport.YOffset+viewportHeight-1 {
 					m.viewport.YOffset = linePosition - viewportHeight + 1
 				}
-				// If line is above visible area, scroll up
 				if linePosition < m.viewport.YOffset {
 					m.viewport.YOffset = linePosition
 				}
+
+				m.clampViewportOffset()
 				return
 			}
 			lineIdx++
 			linePosition++
 		}
-		// Add spacing after hunk
 		linePosition++
+	}
+}
+
+func (m *PRInspectViewModel) clampViewportOffset() {
+	if m.viewport.YOffset < 0 {
+		m.viewport.YOffset = 0
+	}
+
+	maxOffset := m.contentLines - m.viewport.Height
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
+	if m.viewport.YOffset > maxOffset {
+		m.viewport.YOffset = maxOffset
 	}
 }
 
@@ -330,7 +341,9 @@ func (m *PRInspectViewModel) updateViewport() {
 		}
 	}
 
-	m.viewport.SetContent(b.String())
+	content := b.String()
+	m.contentLines = strings.Count(content, "\n") + 1
+	m.viewport.SetContent(content)
 }
 
 func (m *PRInspectViewModel) renderPRHeader() string {
