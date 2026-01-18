@@ -116,6 +116,10 @@ func (m *mockProvider) MergePullRequest(ctx context.Context, identifier domain.P
 	return nil
 }
 
+func (m *mockProvider) UpdatePullRequestDescription(ctx context.Context, identifier domain.PRIdentifier, description string) error {
+	return nil
+}
+
 func (m *mockProvider) GetType() domain.ProviderType {
 	return domain.ProviderGitHub
 }

@@ -204,6 +204,29 @@ func (p *Provider) MergePullRequest(ctx context.Context, identifier domain.PRIde
 	return nil
 }
 
+func (p *Provider) UpdatePullRequestDescription(ctx context.Context, identifier domain.PRIdentifier, description string) error {
+	logger.Log("GitHub: Updating PR #%d description from %s", identifier.Number, identifier.Repository)
+
+	owner, repo, err := common.ParseGitHubRepository(identifier.Repository)
+	if err != nil {
+		logger.LogError("GITHUB_UPDATE_PR_DESC", identifier.Repository, err)
+		return err
+	}
+
+	update := &github.PullRequest{
+		Body: github.String(description),
+	}
+
+	_, err = p.client.UpdatePullRequest(ctx, owner, repo, identifier.Number, update)
+	if err != nil {
+		logger.LogError("GITHUB_UPDATE_PR_DESC", fmt.Sprintf("%s/%s#%d", owner, repo, identifier.Number), err)
+		return fmt.Errorf("%s", common.ExtractErrorMessage(err))
+	}
+
+	logger.Log("GitHub: Successfully updated PR #%d description", identifier.Number)
+	return nil
+}
+
 func (p *Provider) convertPullRequest(ghPR *github.PullRequest, currentUser string) domain.PullRequest {
 	category := domain.PRCategoryOther
 	if ghPR.User != nil && ghPR.User.Login != nil && *ghPR.User.Login == currentUser {

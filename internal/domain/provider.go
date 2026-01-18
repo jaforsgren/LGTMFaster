@@ -19,5 +19,7 @@ type Provider interface {
 
 	MergePullRequest(ctx context.Context, identifier PRIdentifier, mergeMethod string, deleteBranch bool) error
 
+	UpdatePullRequestDescription(ctx context.Context, identifier PRIdentifier, description string) error
+
 	ValidateCredentials(ctx context.Context) error
 }

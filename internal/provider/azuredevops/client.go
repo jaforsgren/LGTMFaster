@@ -569,6 +569,25 @@ func (c *Client) CreatePullRequestReview(ctx context.Context, projectID string, 
 	return nil
 }
 
+func (c *Client) UpdatePullRequestDescription(ctx context.Context, projectID string, repoID string, pullRequestID int, description string) error {
+	updateRequest := git.GitPullRequest{
+		Description: &description,
+	}
+
+	_, err := c.gitClient.UpdatePullRequest(ctx, git.UpdatePullRequestArgs{
+		RepositoryId:           &repoID,
+		PullRequestId:          &pullRequestID,
+		Project:                &projectID,
+		GitPullRequestToUpdate: &updateRequest,
+	})
+
+	if err != nil {
+		return fmt.Errorf("failed to update pull request description: %w", err)
+	}
+
+	return nil
+}
+
 func (c *Client) CompletePullRequest(ctx context.Context, projectID string, repoID string, pullRequestID int, mergeMethod string, deleteBranch bool) error {
 	completionOptions := &git.GitPullRequestCompletionOptions{
 		DeleteSourceBranch: &deleteBranch,

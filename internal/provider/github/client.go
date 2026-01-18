@@ -138,6 +138,14 @@ func (c *Client) CreateReview(ctx context.Context, owner, repo string, number in
 	return nil
 }
 
+func (c *Client) UpdatePullRequest(ctx context.Context, owner, repo string, number int, update *github.PullRequest) (*github.PullRequest, error) {
+	pr, _, err := c.client.PullRequests.Edit(ctx, owner, repo, number, update)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update pull request: %w", err)
+	}
+	return pr, nil
+}
+
 func (c *Client) MergePullRequest(ctx context.Context, owner, repo string, number int, mergeMethod string, deleteBranch bool) error {
 	options := &github.PullRequestOptions{
 		MergeMethod:        mergeMethod,

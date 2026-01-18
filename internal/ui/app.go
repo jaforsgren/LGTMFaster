@@ -52,11 +52,12 @@ type Model struct {
 	patsView          *views.PATsViewModel
 	prListView        *views.PRListViewModel
 	prInspect         *views.PRInspectViewModel
-	reviewView        *views.ReviewViewModel
-	mergeView         *views.MergeViewModel
-	inlineCommentView *views.InlineCommentViewModel
-	commentDetailView *views.CommentDetailViewModel
-	logsView          *views.LogsViewModel
+	reviewView          *views.ReviewViewModel
+	mergeView           *views.MergeViewModel
+	inlineCommentView   *views.InlineCommentViewModel
+	commentDetailView   *views.CommentDetailViewModel
+	descriptionEditView *views.DescriptionEditViewModel
+	logsView            *views.LogsViewModel
 	repository        domain.Repository
 	provider          domain.Provider
 	providers         map[string]domain.Provider
@@ -83,11 +84,12 @@ func NewModel(repository domain.Repository) Model {
 		patsView:          views.NewPATsView(),
 		prListView:        views.NewPRListView(),
 		prInspect:         views.NewPRInspectView(),
-		reviewView:        views.NewReviewView(),
-		mergeView:         views.NewMergeView(),
-		inlineCommentView: views.NewInlineCommentView(),
-		commentDetailView: views.NewCommentDetailView(),
-		logsView:          views.NewLogsView(),
+		reviewView:          views.NewReviewView(),
+		mergeView:           views.NewMergeView(),
+		inlineCommentView:   views.NewInlineCommentView(),
+		commentDetailView:   views.NewCommentDetailView(),
+		descriptionEditView: views.NewDescriptionEditView(),
+		logsView:            views.NewLogsView(),
 		repository:        repository,
 		providers:         make(map[string]domain.Provider),
 		ctx:               context.Background(),
@@ -120,6 +122,9 @@ func (m Model) isInInputMode() bool {
 	if m.logsView.IsActive() {
 		return true
 	}
+	if m.descriptionEditView.IsActive() {
+		return true
+	}
 	if m.state == ViewPATs && (m.patsView.Mode == views.PATModeAdd || m.patsView.Mode == views.PATModeEdit) {
 		return true
 	}
@@ -145,6 +150,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.prInspect.SetSize(msg.Width, msg.Height)
 		m.reviewView.SetSize(msg.Width, msg.Height)
 		m.inlineCommentView.SetSize(msg.Width, msg.Height)
+		m.descriptionEditView.SetSize(msg.Width, msg.Height)
 		m.commentDetailView.SetSize(msg.Width, msg.Height)
 		m.logsView.SetSize(msg.Width, msg.Height)
 
@@ -234,6 +240,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				default:
 					cmd = m.logsView.Update(msg)
+					return m, cmd
+				}
+			}
+
+			if m.descriptionEditView.IsActive() {
+				switch key {
+				case "ctrl+s":
+					return m, m.saveDescription()
+				case "esc":
+					m.descriptionEditView.Deactivate()
+					return m, nil
+				default:
+					cmd = m.descriptionEditView.Update(msg)
 					return m, cmd
 				}
 			}
@@ -507,6 +526,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.statusBar.SetMessage(fmt.Sprintf("Merge failed: %v", msg.err), true)
 		return m, clearStatusAfterDelay(8 * time.Second)
 
+	case DescriptionUpdateSuccessMsg:
+		m.statusBar.SetMessage("PR description updated", false)
+		if pr := m.prInspect.GetPR(); pr != nil {
+			pr.Description = msg.description
+			m.prInspect.SetPR(pr)
+		}
+		return m, clearStatusAfterDelay(4 * time.Second)
+
+	case DescriptionUpdateErrorMsg:
+		m.statusBar.SetMessage(fmt.Sprintf("Failed to update description: %v", msg.err), true)
+		return m, clearStatusAfterDelay(8 * time.Second)
+
 	case ClearStatusMsg:
 		m.statusBar.ClearMessage()
 		return m, nil
@@ -542,6 +573,8 @@ func (m Model) View() string {
 		content = m.inlineCommentView.View()
 	} else if m.commentDetailView.IsActive() {
 		content = m.commentDetailView.View()
+	} else if m.descriptionEditView.IsActive() {
+		content = m.descriptionEditView.View()
 	} else {
 		switch m.state {
 		case ViewPATs:
@@ -818,6 +851,41 @@ func (m Model) executeMerge() tea.Cmd {
 			return MergeErrorMsg{err: err}
 		}
 		return MergeSuccessMsg{prIdentifier: prIdentifier}
+	}
+}
+
+func (m Model) saveDescription() tea.Cmd {
+	newDescription := m.descriptionEditView.GetDescription()
+	m.descriptionEditView.Deactivate()
+
+	pr := m.prInspect.GetPR()
+	if pr == nil {
+		return func() tea.Msg {
+			return DescriptionUpdateErrorMsg{err: fmt.Errorf("no PR selected")}
+		}
+	}
+
+	provider := m.getProviderForPR(*pr)
+	if provider == nil {
+		return func() tea.Msg {
+			return DescriptionUpdateErrorMsg{err: fmt.Errorf("no provider available")}
+		}
+	}
+
+	identifier := domain.PRIdentifier{
+		Provider:   pr.ProviderType,
+		Repository: pr.Repository.FullName,
+		Number:     pr.Number,
+	}
+
+	prIdentifier := fmt.Sprintf("%s#%d", pr.Repository.FullName, pr.Number)
+	logger.Log("UI: Updating description for PR %s", prIdentifier)
+
+	return func() tea.Msg {
+		if err := provider.UpdatePullRequestDescription(m.ctx, identifier, newDescription); err != nil {
+			return DescriptionUpdateErrorMsg{err: err}
+		}
+		return DescriptionUpdateSuccessMsg{description: newDescription}
 	}
 }
 
@@ -1150,6 +1218,14 @@ type MergeSuccessMsg struct {
 }
 
 type MergeErrorMsg struct {
+	err error
+}
+
+type DescriptionUpdateSuccessMsg struct {
+	description string
+}
+
+type DescriptionUpdateErrorMsg struct {
 	err error
 }
 
