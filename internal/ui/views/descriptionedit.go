@@ -54,6 +54,14 @@ func (m *DescriptionEditViewModel) GetDescription() string {
 	return m.textarea.Value()
 }
 
+func (m *DescriptionEditViewModel) GetValue() string {
+	return m.textarea.Value()
+}
+
+func (m *DescriptionEditViewModel) SetValue(value string) {
+	m.textarea.SetValue(value)
+}
+
 func (m *DescriptionEditViewModel) Update(msg tea.Msg) tea.Cmd {
 	var cmd tea.Cmd
 	m.textarea, cmd = m.textarea.Update(msg)
@@ -81,7 +89,7 @@ func (m *DescriptionEditViewModel) View() string {
 		Foreground(lipgloss.Color("#6B7280")).
 		Italic(true)
 
-	help := "Ctrl+S: Save | Esc: Cancel"
+	help := "Ctrl+S: Save | Ctrl+G: Open in editor | Esc: Cancel"
 	b.WriteString(helpStyle.Render(help))
 
 	boxStyle := lipgloss.NewStyle().

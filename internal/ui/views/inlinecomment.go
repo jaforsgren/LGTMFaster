@@ -56,6 +56,14 @@ func (m *InlineCommentViewModel) GetComment() string {
 	return m.textarea.Value()
 }
 
+func (m *InlineCommentViewModel) GetValue() string {
+	return m.textarea.Value()
+}
+
+func (m *InlineCommentViewModel) SetValue(value string) {
+	m.textarea.SetValue(value)
+}
+
 func (m *InlineCommentViewModel) Update(msg tea.Msg) tea.Cmd {
 	var cmd tea.Cmd
 	m.textarea, cmd = m.textarea.Update(msg)
@@ -88,7 +96,7 @@ func (m *InlineCommentViewModel) View() string {
 		Foreground(lipgloss.Color("#6B7280")).
 		Italic(true)
 
-	help := "Ctrl+S: Add Comment | Esc: Cancel"
+	help := "Ctrl+S: Add Comment | Ctrl+G: Open in editor | Esc: Cancel"
 	b.WriteString(helpStyle.Render(help))
 
 	boxStyle := lipgloss.NewStyle().

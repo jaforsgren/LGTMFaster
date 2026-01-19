@@ -62,6 +62,14 @@ func (m *ReviewViewModel) IsActive() bool {
 	return m.active
 }
 
+func (m *ReviewViewModel) GetValue() string {
+	return m.textarea.Value()
+}
+
+func (m *ReviewViewModel) SetValue(value string) {
+	m.textarea.SetValue(value)
+}
+
 func (m *ReviewViewModel) GetReview() domain.Review {
 	action := domain.ReviewActionComment
 	switch m.mode {
@@ -115,7 +123,7 @@ func (m *ReviewViewModel) View() string {
 		Foreground(lipgloss.Color("#6B7280")).
 		Italic(true)
 
-	help := "Ctrl+S: Submit | Esc: Cancel"
+	help := "Ctrl+S: Submit | Ctrl+G: Open in editor | Esc: Cancel"
 	b.WriteString(helpStyle.Render(help))
 
 	boxStyle := lipgloss.NewStyle().

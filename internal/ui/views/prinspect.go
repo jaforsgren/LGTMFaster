@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/johanforsgren/lgtmfaster/internal/domain"
 	"github.com/johanforsgren/lgtmfaster/internal/logger"
+	"github.com/johanforsgren/lgtmfaster/internal/ui/markdown"
 )
 
 type PRInspectMode int
@@ -39,6 +40,7 @@ type PRInspectViewModel struct {
 	diffViewMode    DiffViewMode
 	pendingComments []domain.Comment
 	contentLines    int
+	mdRenderer      *markdown.Renderer
 }
 
 func NewPRInspectView() *PRInspectViewModel {
@@ -49,6 +51,7 @@ func NewPRInspectView() *PRInspectViewModel {
 		currentFile:  0,
 		showComments: false,
 		mode:         PRInspectModeDescription,
+		mdRenderer:   markdown.NewRenderer(markdown.DefaultStyles()),
 	}
 }
 
@@ -57,6 +60,7 @@ func (m *PRInspectViewModel) SetSize(width, height int) {
 	m.height = height
 	m.viewport.Width = width
 	m.viewport.Height = height - 10
+	m.mdRenderer.SetWidth(width)
 }
 
 func (m *PRInspectViewModel) SetPR(pr *domain.PullRequest) {
@@ -392,10 +396,12 @@ func (m *PRInspectViewModel) renderPRHeader() string {
 	b.WriteString("\n")
 
 	if m.pr.Description != "" {
+		dividerStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#374151"))
+		divider := strings.Repeat("─", m.width-4)
 		b.WriteString("\n")
-		descStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#F9FAFB"))
-		b.WriteString(descStyle.Render(m.pr.Description))
+		b.WriteString(dividerStyle.Render(divider))
+		b.WriteString("\n\n")
+		b.WriteString(m.mdRenderer.Render(m.pr.Description))
 	}
 
 	return b.String()
