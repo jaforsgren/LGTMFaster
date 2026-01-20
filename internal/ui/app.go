@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/google/uuid"
 	"github.com/johanforsgren/lgtmfaster/internal/domain"
+	"github.com/johanforsgren/lgtmfaster/internal/git"
 	"github.com/johanforsgren/lgtmfaster/internal/logger"
 	"github.com/johanforsgren/lgtmfaster/internal/provider/azuredevops"
 	"github.com/johanforsgren/lgtmfaster/internal/provider/github"
@@ -68,6 +69,8 @@ type Model struct {
 	commentDetailView   *views.CommentDetailViewModel
 	descriptionEditView *views.DescriptionEditViewModel
 	logsView            *views.LogsViewModel
+	repoLinkView        *views.RepoLinkViewModel
+	reposView           *views.ReposViewModel
 	repository        domain.Repository
 	provider          domain.Provider
 	providers         map[string]domain.Provider
@@ -102,6 +105,8 @@ func NewModel(repository domain.Repository) Model {
 		commentDetailView:   views.NewCommentDetailView(),
 		descriptionEditView: views.NewDescriptionEditView(),
 		logsView:            views.NewLogsView(),
+		repoLinkView:        views.NewRepoLinkView(),
+		reposView:           views.NewReposView(),
 		repository:        repository,
 		providers:         make(map[string]domain.Provider),
 		ctx:               context.Background(),
@@ -137,6 +142,12 @@ func (m Model) isInInputMode() bool {
 	if m.descriptionEditView.IsActive() {
 		return true
 	}
+	if m.repoLinkView.IsActive() {
+		return true
+	}
+	if m.reposView.IsActive() {
+		return true
+	}
 	if m.state == ViewPATs && (m.patsView.Mode == views.PATModeAdd || m.patsView.Mode == views.PATModeEdit) {
 		return true
 	}
@@ -165,6 +176,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.descriptionEditView.SetSize(msg.Width, msg.Height)
 		m.commentDetailView.SetSize(msg.Width, msg.Height)
 		m.logsView.SetSize(msg.Width, msg.Height)
+		m.repoLinkView.SetSize(msg.Width, msg.Height)
+		m.reposView.SetSize(msg.Width, msg.Height)
 
 	case tea.KeyMsg:
 		key := msg.String()
@@ -274,6 +287,53 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				default:
 					cmd = m.descriptionEditView.Update(msg)
+					return m, cmd
+				}
+			}
+
+			if m.repoLinkView.IsActive() {
+				switch key {
+				case "enter":
+					return m.handleRepoLinkConfirm()
+				case "tab":
+					m.repoLinkView.SelectSuggestion()
+					return m, nil
+				case "up":
+					m.repoLinkView.PrevSuggestion()
+					return m, nil
+				case "down":
+					m.repoLinkView.NextSuggestion()
+					return m, nil
+				case "esc":
+					m.repoLinkView.Deactivate()
+					return m, nil
+				default:
+					cmd = m.repoLinkView.Update(msg)
+					return m, cmd
+				}
+			}
+
+			if m.reposView.IsActive() {
+				switch key {
+				case "esc", "q":
+					m.reposView.Deactivate()
+					return m, nil
+				case "j", "down":
+					m.reposView.MoveDown()
+					return m, nil
+				case "k", "up":
+					m.reposView.MoveUp()
+					return m, nil
+				case "o":
+					return m.handleReposOpenFolder()
+				case "d":
+					return m.handleReposDeleteLink()
+				case "r":
+					m.reposView.RefreshStatus()
+					m.statusBar.SetMessage("Repository status refreshed", false)
+					return m, nil
+				default:
+					cmd = m.reposView.Update(msg)
 					return m, cmd
 				}
 			}
@@ -627,6 +687,10 @@ func (m Model) View() string {
 		content = m.commentDetailView.View()
 	} else if m.descriptionEditView.IsActive() {
 		content = m.descriptionEditView.View()
+	} else if m.repoLinkView.IsActive() {
+		content = m.repoLinkView.View()
+	} else if m.reposView.IsActive() {
+		content = m.reposView.View()
 	} else {
 		switch m.state {
 		case ViewPATs:
@@ -1329,4 +1393,133 @@ type PRLoadingStartedMsg struct {
 type PRGroupLoadedMsg struct {
 	Group     domain.PRGroup
 	LoadError error
+}
+
+func (m Model) handleRepoLinkConfirm() (tea.Model, tea.Cmd) {
+	if !m.repoLinkView.IsValidRepo() {
+		m.statusBar.SetMessage("Invalid path: not a git repository", true)
+		return m, nil
+	}
+
+	path := m.repoLinkView.GetValidatedPath()
+	repoFullName := m.repoLinkView.GetRepoFullName()
+
+	remoteURL, err := git.GetRemoteURL(path)
+	if err != nil {
+		logger.LogError("GET_REMOTE_URL", path, err)
+	}
+
+	link := domain.RepositoryLink{
+		ID:           uuid.New().String(),
+		RemoteURL:    remoteURL,
+		RepoFullName: repoFullName,
+		LocalPath:    path,
+		LinkedAt:     time.Now(),
+	}
+
+	if err := m.repository.SaveRepositoryLink(link); err != nil {
+		m.statusBar.SetMessage(fmt.Sprintf("Failed to save link: %v", err), true)
+		return m, nil
+	}
+
+	m.repoLinkView.Deactivate()
+	m.statusBar.SetMessage(fmt.Sprintf("Linked %s to %s", repoFullName, path), false)
+	m.updateShortcuts()
+	return m, nil
+}
+
+func (m Model) handleReposOpenFolder() (tea.Model, tea.Cmd) {
+	link := m.reposView.GetSelectedLink()
+	if link == nil {
+		return m, nil
+	}
+
+	if err := git.OpenFolder(link.LocalPath); err != nil {
+		m.statusBar.SetMessage(fmt.Sprintf("Failed to open folder: %v", err), true)
+		return m, nil
+	}
+
+	m.statusBar.SetMessage(fmt.Sprintf("Opened %s", link.LocalPath), false)
+	return m, nil
+}
+
+func (m Model) handleReposDeleteLink() (tea.Model, tea.Cmd) {
+	link := m.reposView.GetSelectedLink()
+	if link == nil {
+		return m, nil
+	}
+
+	if err := m.repository.DeleteRepositoryLink(link.ID); err != nil {
+		m.statusBar.SetMessage(fmt.Sprintf("Failed to delete link: %v", err), true)
+		return m, nil
+	}
+
+	links, _ := m.repository.ListRepositoryLinks()
+	m.reposView.SetLinks(links)
+	m.statusBar.SetMessage(fmt.Sprintf("Unlinked %s", link.RepoFullName), false)
+	return m, nil
+}
+
+func (m Model) handleCheckoutBranch() (tea.Model, tea.Cmd) {
+	pr := m.prInspect.GetPR()
+	if pr == nil {
+		return m, nil
+	}
+
+	link, err := m.repository.GetRepositoryLinkByRepoFullName(pr.Repository.FullName)
+	if err != nil || link == nil {
+		m.statusBar.SetMessage("No local repository linked", true)
+		return m, nil
+	}
+
+	branch := pr.SourceBranch
+	if err := git.CheckoutBranch(link.LocalPath, branch); err != nil {
+		m.statusBar.SetMessage(fmt.Sprintf("Checkout failed: %v", err), true)
+		return m, nil
+	}
+
+	m.statusBar.SetMessage(fmt.Sprintf("Checked out branch %s", branch), false)
+	return m, nil
+}
+
+func (m Model) handlePullChanges() (tea.Model, tea.Cmd) {
+	pr := m.prInspect.GetPR()
+	if pr == nil {
+		return m, nil
+	}
+
+	link, err := m.repository.GetRepositoryLinkByRepoFullName(pr.Repository.FullName)
+	if err != nil || link == nil {
+		m.statusBar.SetMessage("No local repository linked", true)
+		return m, nil
+	}
+
+	if err := git.Pull(link.LocalPath); err != nil {
+		m.statusBar.SetMessage(fmt.Sprintf("Pull failed: %v", err), true)
+		return m, nil
+	}
+
+	m.statusBar.SetMessage("Pulled latest changes", false)
+	return m, nil
+}
+
+func (m Model) handleOpenRepoFolder() (tea.Model, tea.Cmd) {
+	pr := m.prInspect.GetPR()
+	if pr == nil {
+		return m, nil
+	}
+
+	link, err := m.repository.GetRepositoryLinkByRepoFullName(pr.Repository.FullName)
+	if err != nil || link == nil {
+		m.statusBar.SetMessage("No local repository linked", true)
+		return m, nil
+	}
+
+	if err := git.OpenFolder(link.LocalPath); err != nil {
+		m.statusBar.SetMessage(fmt.Sprintf("Failed to open folder: %v", err), true)
+		return m, nil
+	}
+
+	m.statusBar.SetMessage(fmt.Sprintf("Opened %s", link.LocalPath), false)
+	return m, nil
 }

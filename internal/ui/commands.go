@@ -91,6 +91,22 @@ func (cr *CommandRegistry) registerCommands() {
 			AvailableIn: []ViewState{ViewPATs, ViewPRList, ViewPRInspect},
 		},
 		{
+			Name:        "link",
+			Aliases:     []string{"l"},
+			Description: "Link PR to local repository",
+			ShortHelp:   ":link",
+			Handler:     handleLinkCommand,
+			AvailableIn: []ViewState{ViewPRInspect, ViewPRList},
+		},
+		{
+			Name:        "repos",
+			Aliases:     []string{},
+			Description: "Manage linked repositories",
+			ShortHelp:   ":repos",
+			Handler:     handleReposCommand,
+			AvailableIn: []ViewState{ViewPATs, ViewPRList, ViewPRInspect},
+		},
+		{
 			Name:        "help",
 			Aliases:     []string{"h", "?"},
 			Description: "Show help",
@@ -312,6 +328,34 @@ func (cr *CommandRegistry) registerKeyBindings() {
 			ShortHelp:   "ctrl+o",
 			Handler:     handleOpenBrowserKey,
 			AvailableIn: []ViewState{ViewPRList, ViewPRInspect},
+		},
+		{
+			Keys:        []string{"g"},
+			Description: "Checkout branch",
+			ShortHelp:   "g",
+			Handler:     handleCheckoutKey,
+			AvailableIn: []ViewState{ViewPRInspect},
+		},
+		{
+			Keys:        []string{"o"},
+			Description: "Open local repo folder",
+			ShortHelp:   "o",
+			Handler:     handleOpenFolderKey,
+			AvailableIn: []ViewState{ViewPRInspect},
+		},
+		{
+			Keys:        []string{"P"},
+			Description: "Pull latest changes",
+			ShortHelp:   "P",
+			Handler:     handlePullKey,
+			AvailableIn: []ViewState{ViewPRInspect},
+		},
+		{
+			Keys:        []string{"L"},
+			Description: "Link to local repo",
+			ShortHelp:   "L",
+			Handler:     handleLinkKey,
+			AvailableIn: []ViewState{ViewPRInspect},
 		},
 	}
 }
@@ -853,4 +897,90 @@ func openBrowser(url string) error {
 	}
 
 	return cmd.Start()
+}
+
+func handleLinkCommand(m Model, args []string) (Model, tea.Cmd) {
+	var pr *domain.PullRequest
+
+	if m.state == ViewPRInspect {
+		pr = m.prInspect.GetPR()
+	} else if m.state == ViewPRList {
+		pr = m.prListView.GetSelectedPR()
+	}
+
+	if pr == nil {
+		m.statusBar.SetMessage("No PR selected", true)
+		return m, nil
+	}
+
+	if len(args) > 0 {
+		path := strings.Join(args, " ")
+		m.repoLinkView.ActivateWithPath(pr.Repository.FullName, path)
+	} else {
+		existingLink, _ := m.repository.GetRepositoryLinkByRepoFullName(pr.Repository.FullName)
+		if existingLink != nil {
+			m.repoLinkView.ActivateWithPath(pr.Repository.FullName, existingLink.LocalPath)
+		} else {
+			m.repoLinkView.Activate(pr.Repository.FullName)
+		}
+	}
+
+	return m, nil
+}
+
+func handleReposCommand(m Model, args []string) (Model, tea.Cmd) {
+	links, err := m.repository.ListRepositoryLinks()
+	if err != nil {
+		m.statusBar.SetMessage(fmt.Sprintf("Failed to load repos: %v", err), true)
+		return m, nil
+	}
+
+	m.reposView.SetLinks(links)
+	m.reposView.Activate()
+	return m, nil
+}
+
+func handleCheckoutKey(m Model) (Model, tea.Cmd) {
+	if m.state != ViewPRInspect {
+		return m, nil
+	}
+	newModel, cmd := m.handleCheckoutBranch()
+	return newModel.(Model), cmd
+}
+
+func handleOpenFolderKey(m Model) (Model, tea.Cmd) {
+	if m.state != ViewPRInspect {
+		return m, nil
+	}
+	newModel, cmd := m.handleOpenRepoFolder()
+	return newModel.(Model), cmd
+}
+
+func handlePullKey(m Model) (Model, tea.Cmd) {
+	if m.state != ViewPRInspect {
+		return m, nil
+	}
+	newModel, cmd := m.handlePullChanges()
+	return newModel.(Model), cmd
+}
+
+func handleLinkKey(m Model) (Model, tea.Cmd) {
+	if m.state != ViewPRInspect {
+		return m, nil
+	}
+
+	pr := m.prInspect.GetPR()
+	if pr == nil {
+		m.statusBar.SetMessage("No PR selected", true)
+		return m, nil
+	}
+
+	existingLink, _ := m.repository.GetRepositoryLinkByRepoFullName(pr.Repository.FullName)
+	if existingLink != nil {
+		m.repoLinkView.ActivateWithPath(pr.Repository.FullName, existingLink.LocalPath)
+	} else {
+		m.repoLinkView.Activate(pr.Repository.FullName)
+	}
+
+	return m, nil
 }
