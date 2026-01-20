@@ -223,3 +223,218 @@ func TestConfigFilePath(t *testing.T) {
 		t.Errorf("Expected config path %s, got %s", expectedPath, repo.configPath)
 	}
 }
+
+func TestSaveAndListRepositoryLinks(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpDir)
+	defer os.Setenv("HOME", oldHome)
+
+	repo, err := NewLocalRepository()
+	if err != nil {
+		t.Fatalf("Failed to create repository: %v", err)
+	}
+
+	link := domain.RepositoryLink{
+		ID:           "link-1",
+		RemoteURL:    "git@github.com:owner/repo.git",
+		RepoFullName: "owner/repo",
+		LocalPath:    "/home/user/projects/repo",
+	}
+
+	err = repo.SaveRepositoryLink(link)
+	if err != nil {
+		t.Fatalf("Failed to save repository link: %v", err)
+	}
+
+	links, err := repo.ListRepositoryLinks()
+	if err != nil {
+		t.Fatalf("Failed to list repository links: %v", err)
+	}
+
+	if len(links) != 1 {
+		t.Fatalf("Expected 1 link, got %d", len(links))
+	}
+
+	if links[0].RepoFullName != link.RepoFullName {
+		t.Errorf("Expected RepoFullName %s, got %s", link.RepoFullName, links[0].RepoFullName)
+	}
+
+	if links[0].LocalPath != link.LocalPath {
+		t.Errorf("Expected LocalPath %s, got %s", link.LocalPath, links[0].LocalPath)
+	}
+}
+
+func TestGetRepositoryLinkByRepoFullName(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpDir)
+	defer os.Setenv("HOME", oldHome)
+
+	repo, err := NewLocalRepository()
+	if err != nil {
+		t.Fatalf("Failed to create repository: %v", err)
+	}
+
+	link := domain.RepositoryLink{
+		ID:           "link-1",
+		RemoteURL:    "git@github.com:owner/repo.git",
+		RepoFullName: "owner/repo",
+		LocalPath:    "/home/user/projects/repo",
+	}
+
+	err = repo.SaveRepositoryLink(link)
+	if err != nil {
+		t.Fatalf("Failed to save repository link: %v", err)
+	}
+
+	found, err := repo.GetRepositoryLinkByRepoFullName("owner/repo")
+	if err != nil {
+		t.Fatalf("Failed to get link by repo name: %v", err)
+	}
+
+	if found == nil {
+		t.Fatal("Expected to find link, got nil")
+	}
+
+	if found.ID != link.ID {
+		t.Errorf("Expected ID %s, got %s", link.ID, found.ID)
+	}
+
+	notFound, err := repo.GetRepositoryLinkByRepoFullName("other/repo")
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+
+	if notFound != nil {
+		t.Error("Expected nil for non-existent repo, got link")
+	}
+}
+
+func TestUpdateRepositoryLink(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpDir)
+	defer os.Setenv("HOME", oldHome)
+
+	repo, err := NewLocalRepository()
+	if err != nil {
+		t.Fatalf("Failed to create repository: %v", err)
+	}
+
+	link := domain.RepositoryLink{
+		ID:           "link-1",
+		RemoteURL:    "git@github.com:owner/repo.git",
+		RepoFullName: "owner/repo",
+		LocalPath:    "/home/user/old-path",
+	}
+
+	err = repo.SaveRepositoryLink(link)
+	if err != nil {
+		t.Fatalf("Failed to save repository link: %v", err)
+	}
+
+	link.LocalPath = "/home/user/new-path"
+	err = repo.SaveRepositoryLink(link)
+	if err != nil {
+		t.Fatalf("Failed to update repository link: %v", err)
+	}
+
+	links, err := repo.ListRepositoryLinks()
+	if err != nil {
+		t.Fatalf("Failed to list repository links: %v", err)
+	}
+
+	if len(links) != 1 {
+		t.Fatalf("Expected 1 link, got %d", len(links))
+	}
+
+	if links[0].LocalPath != "/home/user/new-path" {
+		t.Errorf("Expected updated LocalPath, got %s", links[0].LocalPath)
+	}
+}
+
+func TestDeleteRepositoryLink(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpDir)
+	defer os.Setenv("HOME", oldHome)
+
+	repo, err := NewLocalRepository()
+	if err != nil {
+		t.Fatalf("Failed to create repository: %v", err)
+	}
+
+	link := domain.RepositoryLink{
+		ID:           "link-1",
+		RemoteURL:    "git@github.com:owner/repo.git",
+		RepoFullName: "owner/repo",
+		LocalPath:    "/home/user/projects/repo",
+	}
+
+	err = repo.SaveRepositoryLink(link)
+	if err != nil {
+		t.Fatalf("Failed to save repository link: %v", err)
+	}
+
+	err = repo.DeleteRepositoryLink("link-1")
+	if err != nil {
+		t.Fatalf("Failed to delete repository link: %v", err)
+	}
+
+	links, err := repo.ListRepositoryLinks()
+	if err != nil {
+		t.Fatalf("Failed to list repository links: %v", err)
+	}
+
+	if len(links) != 0 {
+		t.Errorf("Expected 0 links after deletion, got %d", len(links))
+	}
+
+	err = repo.DeleteRepositoryLink("non-existent")
+	if err == nil {
+		t.Error("Expected error when deleting non-existent link")
+	}
+}
+
+func TestGetRepositoryLink(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpDir)
+	defer os.Setenv("HOME", oldHome)
+
+	repo, err := NewLocalRepository()
+	if err != nil {
+		t.Fatalf("Failed to create repository: %v", err)
+	}
+
+	link := domain.RepositoryLink{
+		ID:           "link-1",
+		RemoteURL:    "git@github.com:owner/repo.git",
+		RepoFullName: "owner/repo",
+		LocalPath:    "/home/user/projects/repo",
+	}
+
+	err = repo.SaveRepositoryLink(link)
+	if err != nil {
+		t.Fatalf("Failed to save repository link: %v", err)
+	}
+
+	found, err := repo.GetRepositoryLink("link-1")
+	if err != nil {
+		t.Fatalf("Failed to get link by ID: %v", err)
+	}
+
+	if found == nil {
+		t.Fatal("Expected to find link, got nil")
+	}
+
+	if found.RepoFullName != link.RepoFullName {
+		t.Errorf("Expected RepoFullName %s, got %s", link.RepoFullName, found.RepoFullName)
+	}
+
+	_, err = repo.GetRepositoryLink("non-existent")
+	if err == nil {
+		t.Error("Expected error for non-existent link")
+	}
+}

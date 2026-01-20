@@ -61,8 +61,8 @@ func NewPRListView() *PRListViewModel {
 	columns := []table.Column{
 		{Title: "", Width: 4},
 		{Title: "", Width: 4},
-		{Title: "", Width: 50},
-		{Title: "", Width: 22},
+		{Title: "", Width: 35},
+		{Title: "", Width: 55},
 		{Title: "", Width: 7},
 		{Title: "", Width: 15},
 		{Title: "", Width: 14},
@@ -108,13 +108,13 @@ func (m *PRListViewModel) updateColumnWidths() {
 	const (
 		categoryWidth = 4
 		approvalWidth = 4
-		repoWidth     = 22
+		repoWidth     = 45
 		numberWidth   = 7
 		authorWidth   = 15
 		ageWidth      = 14
 		rightPadWidth = 4
 		minTitleWidth = 20
-		maxTitleWidth = 100
+		maxTitleWidth = 50
 		padding       = 0
 	)
 
