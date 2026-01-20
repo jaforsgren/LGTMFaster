@@ -147,3 +147,11 @@ type PRGroup struct {
 	IsPrimary bool
 	PRs       []PullRequest
 }
+
+type RepositoryLink struct {
+	ID           string
+	RemoteURL    string
+	RepoFullName string
+	LocalPath    string
+	LinkedAt     time.Time
+}

@@ -77,6 +77,26 @@ func (m *mockRepository) SetActivePAT(id string) error {
 	return nil
 }
 
+func (m *mockRepository) ListRepositoryLinks() ([]domain.RepositoryLink, error) {
+	return nil, nil
+}
+
+func (m *mockRepository) GetRepositoryLink(id string) (*domain.RepositoryLink, error) {
+	return nil, nil
+}
+
+func (m *mockRepository) GetRepositoryLinkByRepoFullName(repoFullName string) (*domain.RepositoryLink, error) {
+	return nil, nil
+}
+
+func (m *mockRepository) SaveRepositoryLink(link domain.RepositoryLink) error {
+	return nil
+}
+
+func (m *mockRepository) DeleteRepositoryLink(id string) error {
+	return nil
+}
+
 type mockProvider struct {
 	submitReviewCalled bool
 	lastReview         domain.Review

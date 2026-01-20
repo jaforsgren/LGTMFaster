@@ -34,4 +34,14 @@ type Repository interface {
 	TogglePATSelection(id string) error
 
 	SetPrimaryPAT(id string) error
+
+	ListRepositoryLinks() ([]RepositoryLink, error)
+
+	GetRepositoryLink(id string) (*RepositoryLink, error)
+
+	GetRepositoryLinkByRepoFullName(repoFullName string) (*RepositoryLink, error)
+
+	SaveRepositoryLink(link RepositoryLink) error
+
+	DeleteRepositoryLink(id string) error
 }

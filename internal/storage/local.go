@@ -431,3 +431,89 @@ func (r *LocalRepository) SetPrimaryPAT(id string) error {
 	logger.Log("Set primary PAT: %s", id)
 	return r.save()
 }
+
+func (r *LocalRepository) ListRepositoryLinks() ([]domain.RepositoryLink, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	logger.Log("Listing repository links: found %d", len(r.config.RepositoryLinks))
+	links := make([]domain.RepositoryLink, len(r.config.RepositoryLinks))
+	copy(links, r.config.RepositoryLinks)
+	return links, nil
+}
+
+func (r *LocalRepository) GetRepositoryLink(id string) (*domain.RepositoryLink, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	for _, link := range r.config.RepositoryLinks {
+		if link.ID == id {
+			return &link, nil
+		}
+	}
+
+	return nil, fmt.Errorf("repository link not found: %s", id)
+}
+
+func (r *LocalRepository) GetRepositoryLinkByRepoFullName(repoFullName string) (*domain.RepositoryLink, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	for _, link := range r.config.RepositoryLinks {
+		if link.RepoFullName == repoFullName {
+			logger.Log("Found repository link for %s -> %s", repoFullName, link.LocalPath)
+			return &link, nil
+		}
+	}
+
+	return nil, nil
+}
+
+func (r *LocalRepository) SaveRepositoryLink(link domain.RepositoryLink) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	found := false
+	for i, l := range r.config.RepositoryLinks {
+		if l.ID == link.ID {
+			r.config.RepositoryLinks[i] = link
+			found = true
+			logger.Log("Updating existing repository link: %s -> %s", link.RepoFullName, link.LocalPath)
+			break
+		}
+	}
+
+	if !found {
+		for i, l := range r.config.RepositoryLinks {
+			if l.RepoFullName == link.RepoFullName {
+				r.config.RepositoryLinks[i] = link
+				found = true
+				logger.Log("Updating repository link by repo name: %s -> %s", link.RepoFullName, link.LocalPath)
+				break
+			}
+		}
+	}
+
+	if !found {
+		r.config.RepositoryLinks = append(r.config.RepositoryLinks, link)
+		logger.Log("Adding new repository link: %s -> %s", link.RepoFullName, link.LocalPath)
+	}
+
+	return r.save()
+}
+
+func (r *LocalRepository) DeleteRepositoryLink(id string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	for i, link := range r.config.RepositoryLinks {
+		if link.ID == id {
+			logger.Log("Deleting repository link: %s -> %s", link.RepoFullName, link.LocalPath)
+			r.config.RepositoryLinks = append(r.config.RepositoryLinks[:i], r.config.RepositoryLinks[i+1:]...)
+			return r.save()
+		}
+	}
+
+	logger.LogError("DELETE_REPO_LINK", id, fmt.Errorf("repository link not found"))
+	return fmt.Errorf("repository link not found: %s", id)
+}
