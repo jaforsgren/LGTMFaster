@@ -25,6 +25,8 @@ type TopBarModel struct {
 	totalPATCount  int
 	currentView    string
 	shortcuts      []string
+	linkedRepoPath string
+	linkedBranch   string
 }
 
 var (
@@ -88,6 +90,20 @@ func (m *TopBarModel) SetView(view string) {
 
 func (m *TopBarModel) SetShortcuts(shortcuts []string) {
 	m.shortcuts = shortcuts
+}
+
+func (m *TopBarModel) SetLinkedRepo(path, branch string) {
+	m.linkedRepoPath = path
+	m.linkedBranch = branch
+}
+
+func (m *TopBarModel) ClearLinkedRepo() {
+	m.linkedRepoPath = ""
+	m.linkedBranch = ""
+}
+
+func (m *TopBarModel) HasLinkedRepo() bool {
+	return m.linkedRepoPath != ""
 }
 
 func (m *TopBarModel) View() string {
@@ -238,6 +254,22 @@ func (m *TopBarModel) buildContextInfo() []string {
 				prEmoji+" "+
 					titleOrangeStyle.Render("PR: ")+
 					valueWhiteStyle.Render(prValue))
+		}
+
+		if m.linkedRepoPath != "" {
+			linkEmoji := "🔗"
+			linkValue := m.linkedRepoPath
+			if len(linkValue) > 35 {
+				linkValue = "..." + linkValue[len(linkValue)-32:]
+			}
+			if m.linkedBranch != "" {
+				branchStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("33")).Bold(true)
+				linkValue = linkValue + " " + branchStyle.Render("["+m.linkedBranch+"]")
+			}
+			lines = append(lines,
+				linkEmoji+" "+
+					titleOrangeStyle.Render("Local: ")+
+					valueWhiteStyle.Render(linkValue))
 		}
 	} else {
 		lines = append(lines,

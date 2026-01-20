@@ -562,6 +562,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.prInspect.SetPR(msg.pr)
 		m.topBar.SetPRStatus(string(msg.pr.Status), msg.pr.Mergeable)
 		m.topBar.SetPRApproval(string(msg.pr.ApprovalStatus))
+		m.updateLinkedRepoInfo(msg.pr)
+		m.updateShortcuts()
 		return m, nil
 
 	case DiffLoadedMsg:
@@ -1323,7 +1325,8 @@ func (m Model) getProviderForPR(pr domain.PullRequest) domain.Provider {
 }
 
 func (m Model) updateShortcuts() {
-	shortcuts := m.commandRegistry.GetContextualShortcuts(m.state)
+	hasLinkedRepo := m.topBar.HasLinkedRepo()
+	shortcuts := m.commandRegistry.GetContextualShortcuts(m.state, hasLinkedRepo)
 	m.topBar.SetShortcuts(shortcuts)
 }
 
@@ -1522,4 +1525,25 @@ func (m Model) handleOpenRepoFolder() (tea.Model, tea.Cmd) {
 
 	m.statusBar.SetMessage(fmt.Sprintf("Opened %s", link.LocalPath), false)
 	return m, nil
+}
+
+func (m Model) updateLinkedRepoInfo(pr *domain.PullRequest) {
+	if pr == nil {
+		m.topBar.ClearLinkedRepo()
+		return
+	}
+
+	link, err := m.repository.GetRepositoryLinkByRepoFullName(pr.Repository.FullName)
+	if err != nil || link == nil {
+		m.topBar.ClearLinkedRepo()
+		return
+	}
+
+	status, err := git.GetRepoStatus(link.LocalPath)
+	if err != nil {
+		m.topBar.SetLinkedRepo(link.LocalPath, "")
+		return
+	}
+
+	m.topBar.SetLinkedRepo(link.LocalPath, status.CurrentBranch)
 }

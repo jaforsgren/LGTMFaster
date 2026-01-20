@@ -26,11 +26,12 @@ type Command struct {
 }
 
 type KeyBinding struct {
-	Keys        []string
-	Description string
-	ShortHelp   string
-	Handler     KeyHandler
-	AvailableIn []ViewState
+	Keys             []string
+	Description      string
+	ShortHelp        string
+	Handler          KeyHandler
+	AvailableIn      []ViewState
+	RequiresLinkedRepo bool
 }
 
 type CommandRegistry struct {
@@ -330,25 +331,28 @@ func (cr *CommandRegistry) registerKeyBindings() {
 			AvailableIn: []ViewState{ViewPRList, ViewPRInspect},
 		},
 		{
-			Keys:        []string{"g"},
-			Description: "Checkout branch",
-			ShortHelp:   "g",
-			Handler:     handleCheckoutKey,
-			AvailableIn: []ViewState{ViewPRInspect},
+			Keys:               []string{"g"},
+			Description:        "Checkout branch",
+			ShortHelp:          "g",
+			Handler:            handleCheckoutKey,
+			AvailableIn:        []ViewState{ViewPRInspect},
+			RequiresLinkedRepo: true,
 		},
 		{
-			Keys:        []string{"o"},
-			Description: "Open local repo folder",
-			ShortHelp:   "o",
-			Handler:     handleOpenFolderKey,
-			AvailableIn: []ViewState{ViewPRInspect},
+			Keys:               []string{"o"},
+			Description:        "Open local repo folder",
+			ShortHelp:          "o",
+			Handler:            handleOpenFolderKey,
+			AvailableIn:        []ViewState{ViewPRInspect},
+			RequiresLinkedRepo: true,
 		},
 		{
-			Keys:        []string{"P"},
-			Description: "Pull latest changes",
-			ShortHelp:   "P",
-			Handler:     handlePullKey,
-			AvailableIn: []ViewState{ViewPRInspect},
+			Keys:               []string{"P"},
+			Description:        "Pull latest changes",
+			ShortHelp:          "P",
+			Handler:            handlePullKey,
+			AvailableIn:        []ViewState{ViewPRInspect},
+			RequiresLinkedRepo: true,
 		},
 		{
 			Keys:        []string{"L"},
@@ -423,12 +427,15 @@ func (cr *CommandRegistry) GenerateHelpText() string {
 	return "Commands: " + strings.Join(parts, " | ")
 }
 
-func (cr *CommandRegistry) GetContextualShortcuts(state ViewState) []string {
+func (cr *CommandRegistry) GetContextualShortcuts(state ViewState, hasLinkedRepo bool) []string {
 	var shortcuts []string
 	seen := make(map[string]bool)
 
 	for _, kb := range cr.keyBindings {
 		if !isInViews(state, kb.AvailableIn) {
+			continue
+		}
+		if kb.RequiresLinkedRepo && !hasLinkedRepo {
 			continue
 		}
 		if kb.Description == "" || kb.ShortHelp == "" {
