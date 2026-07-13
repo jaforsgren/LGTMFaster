@@ -108,21 +108,19 @@ func (m *PRListViewModel) updateColumnWidths() {
 	const (
 		categoryWidth = 4
 		approvalWidth = 4
-		repoWidth     = 45
+		repoWidth     = 40
 		numberWidth   = 7
 		authorWidth   = 15
 		ageWidth      = 14
-		rightPadWidth = 4
+		rightPadWidth = 10
 		minTitleWidth = 20
-		maxTitleWidth = 50
 		padding       = 0
 	)
 
 	fixed := categoryWidth + approvalWidth + repoWidth + numberWidth +
 		authorWidth + ageWidth + rightPadWidth + padding
 
-	available := max(0, m.width-fixed)
-	titleWidth := max(minTitleWidth, min(available, maxTitleWidth))
+	titleWidth := max(minTitleWidth, m.width-fixed)
 
 	columns := []table.Column{
 		{Title: "", Width: categoryWidth},
