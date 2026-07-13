@@ -83,7 +83,7 @@ func (p *Provider) ListPullRequests(ctx context.Context, username string) ([]dom
 				repoName := common.GetString(repo.Name)
 				prs, err := p.client.ListPullRequests(ctx, projectID, repoID)
 				if err != nil {
-					errChan <- err
+					logger.Log("AzureDevOps: Skipping inaccessible repo %s/%s: %v", projectName, repoName, err)
 					continue
 				}
 
