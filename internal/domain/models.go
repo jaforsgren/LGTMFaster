@@ -87,6 +87,13 @@ type PullRequest struct {
 	PATID          string
 }
 
+const DefaultHideOldOtherPRsDays = 30
+
+type Settings struct {
+	HideOldOtherPRs     bool
+	HideOldOtherPRsDays int
+}
+
 type Comment struct {
 	ID        string
 	Author    User

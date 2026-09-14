@@ -8,4 +8,5 @@ type Config struct {
 	SelectedPATs    []string                `json:"selected_pats"`
 	PrimaryPAT      string                  `json:"primary_pat"`
 	RepositoryLinks []domain.RepositoryLink `json:"repository_links,omitempty"`
+	Settings        domain.Settings         `json:"settings"`
 }

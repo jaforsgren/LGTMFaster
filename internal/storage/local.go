@@ -43,6 +43,7 @@ func NewLocalRepository() (*LocalRepository, error) {
 		if !os.IsNotExist(err) {
 			return nil, err
 		}
+		repo.config.Settings.HideOldOtherPRsDays = domain.DefaultHideOldOtherPRsDays
 	}
 
 	return repo, nil
@@ -69,10 +70,22 @@ func (r *LocalRepository) load() error {
 		return err
 	}
 
+	needsSave := false
+
 	if len(r.config.SelectedPATs) == 0 && r.config.ActivePAT != "" {
 		logger.Log("Migrating old config format: ActivePAT=%s -> SelectedPATs", r.config.ActivePAT)
 		r.config.SelectedPATs = []string{r.config.ActivePAT}
 		r.config.PrimaryPAT = r.config.ActivePAT
+		needsSave = true
+	}
+
+	if r.config.Settings.HideOldOtherPRsDays <= 0 {
+		logger.Log("Defaulting HideOldOtherPRsDays to %d", domain.DefaultHideOldOtherPRsDays)
+		r.config.Settings.HideOldOtherPRsDays = domain.DefaultHideOldOtherPRsDays
+		needsSave = true
+	}
+
+	if needsSave {
 		r.mu.Unlock()
 		if err := r.save(); err != nil {
 			r.mu.Lock()
@@ -516,4 +529,40 @@ func (r *LocalRepository) DeleteRepositoryLink(id string) error {
 
 	logger.LogError("DELETE_REPO_LINK", id, fmt.Errorf("repository link not found"))
 	return fmt.Errorf("repository link not found: %s", id)
+}
+
+func (r *LocalRepository) GetSettings() (domain.Settings, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	settings := r.config.Settings
+	if settings.HideOldOtherPRsDays <= 0 {
+		settings.HideOldOtherPRsDays = domain.DefaultHideOldOtherPRsDays
+	}
+	return settings, nil
+}
+
+func (r *LocalRepository) SaveSettings(settings domain.Settings) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if settings.HideOldOtherPRsDays <= 0 {
+		settings.HideOldOtherPRsDays = domain.DefaultHideOldOtherPRsDays
+	}
+
+	r.config.Settings = settings
+	logger.Log("Saved settings: HideOldOtherPRs=%v HideOldOtherPRsDays=%d", settings.HideOldOtherPRs, settings.HideOldOtherPRsDays)
+	return r.save()
+}
+
+func (r *LocalRepository) ConfigPath() string {
+	return r.configPath
+}
+
+func (r *LocalRepository) Reload() error {
+	logger.Log("Reloading config from %s", r.configPath)
+	if err := r.load(); err != nil {
+		return err
+	}
+	return nil
 }

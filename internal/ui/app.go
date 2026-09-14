@@ -91,13 +91,18 @@ func NewModel(repository domain.Repository) Model {
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#7C3AED"))
 
+	prListView := views.NewPRListView()
+	if settings, err := repository.GetSettings(); err == nil {
+		prListView.SetSettings(settings)
+	}
+
 	return Model{
 		state:             ViewPATs,
 		topBar:            components.NewTopBar(),
 		statusBar:         components.NewStatusBar(),
 		commandBar:        components.NewCommandBar(),
 		patsView:          views.NewPATsView(),
-		prListView:        views.NewPRListView(),
+		prListView:        prListView,
 		prInspect:         views.NewPRInspectView(),
 		reviewView:          views.NewReviewView(),
 		mergeView:           views.NewMergeView(),
@@ -652,6 +657,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		return m, nil
 
+	case SettingsEditorFinishedMsg:
+		if msg.err != nil {
+			logger.LogError("SETTINGS_EDITOR", "editor process", msg.err)
+			m.statusBar.SetMessage(fmt.Sprintf("Editor error: %v", msg.err), true)
+			return m, clearStatusAfterDelay(4 * time.Second)
+		}
+
+		if err := m.repository.Reload(); err != nil {
+			logger.LogError("SETTINGS_EDITOR", "reload config", err)
+			m.statusBar.SetMessage(fmt.Sprintf("Failed to reload settings: %v", err), true)
+			return m, clearStatusAfterDelay(4 * time.Second)
+		}
+
+		settings, err := m.repository.GetSettings()
+		if err != nil {
+			logger.LogError("SETTINGS_EDITOR", "get settings", err)
+			m.statusBar.SetMessage(fmt.Sprintf("Failed to load settings: %v", err), true)
+			return m, clearStatusAfterDelay(4 * time.Second)
+		}
+		m.prListView.SetSettings(settings)
+		m.statusBar.SetMessage("Settings reloaded", false)
+		return m, clearStatusAfterDelay(4 * time.Second)
+
 	case ClearStatusMsg:
 		m.statusBar.ClearMessage()
 		return m, nil
@@ -1042,6 +1070,20 @@ func (m *Model) openExternalEditor(content string, source EditorSource) tea.Cmd 
 	})
 }
 
+func (m *Model) openSettingsEditor() tea.Cmd {
+	editor := os.Getenv("EDITOR")
+	if editor == "" {
+		editor = "nvim"
+	}
+
+	logger.Log("UI: Opening settings file %s in %s", m.repository.ConfigPath(), editor)
+
+	c := exec.Command(editor, m.repository.ConfigPath())
+	return tea.ExecProcess(c, func(err error) tea.Msg {
+		return SettingsEditorFinishedMsg{err: err}
+	})
+}
+
 func (m Model) createProvider(pat domain.PAT) (domain.Provider, error) {
 	switch pat.Provider {
 	case domain.ProviderGitHub:
@@ -1386,6 +1428,10 @@ type DescriptionUpdateErrorMsg struct {
 type ClearStatusMsg struct{}
 
 type ExternalEditorFinishedMsg struct {
+	err error
+}
+
+type SettingsEditorFinishedMsg struct {
 	err error
 }
 

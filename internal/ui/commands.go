@@ -108,6 +108,14 @@ func (cr *CommandRegistry) registerCommands() {
 			AvailableIn: []ViewState{ViewPATs, ViewPRList, ViewPRInspect},
 		},
 		{
+			Name:        "settings",
+			Aliases:     []string{"s"},
+			Description: "Edit settings file",
+			ShortHelp:   ":s",
+			Handler:     handleSettingsCommand,
+			AvailableIn: []ViewState{ViewPATs, ViewPRList, ViewPRInspect},
+		},
+		{
 			Name:        "help",
 			Aliases:     []string{"h", "?"},
 			Description: "Show help",
@@ -945,6 +953,10 @@ func handleReposCommand(m Model, args []string) (Model, tea.Cmd) {
 	m.reposView.SetLinks(links)
 	m.reposView.Activate()
 	return m, nil
+}
+
+func handleSettingsCommand(m Model, args []string) (Model, tea.Cmd) {
+	return m, m.openSettingsEditor()
 }
 
 func handleCheckoutKey(m Model) (Model, tea.Cmd) {

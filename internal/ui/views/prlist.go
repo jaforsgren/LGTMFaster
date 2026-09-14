@@ -55,6 +55,7 @@ type PRListViewModel struct {
 	filterInput textinput.Model
 	filtering   bool
 	filterText  string
+	settings    domain.Settings
 }
 
 func NewPRListView() *PRListViewModel {
@@ -135,6 +136,11 @@ func (m *PRListViewModel) updateColumnWidths() {
 	m.table.SetColumns(columns)
 }
 
+func (m *PRListViewModel) SetSettings(settings domain.Settings) {
+	m.settings = settings
+	m.rebuild()
+}
+
 func (m *PRListViewModel) SetPRs(prs []domain.PullRequest) {
 	m.sourceGroups = nil
 	m.sourcePRs = append([]domain.PullRequest(nil), prs...)
@@ -149,7 +155,8 @@ func (m *PRListViewModel) SetPRGroups(groups []domain.PRGroup) {
 
 // source → filter → sort → visible → rows
 func (m *PRListViewModel) rebuild() {
-	filtered := m.filterPRs(m.sourcePRs)
+	filtered := m.filterOldOtherPRs(m.sourcePRs)
+	filtered = m.filterPRs(filtered)
 	sorted := sortPRs(filtered)
 	m.visiblePRs = sorted
 	m.table.SetRows(m.prsToRows(sorted))
@@ -171,6 +178,24 @@ func sortPRs(prs []domain.PullRequest) []domain.PullRequest {
 		}
 		return out[i].UpdatedAt.After(out[j].UpdatedAt)
 	})
+	return out
+}
+
+func (m *PRListViewModel) filterOldOtherPRs(prs []domain.PullRequest) []domain.PullRequest {
+	if !m.settings.HideOldOtherPRs {
+		return prs
+	}
+
+	maxAge := time.Duration(m.settings.HideOldOtherPRsDays) * 24 * time.Hour
+	cutoff := time.Now().Add(-maxAge)
+
+	var out []domain.PullRequest
+	for _, pr := range prs {
+		if pr.Category == domain.PRCategoryOther && pr.CreatedAt.Before(cutoff) {
+			continue
+		}
+		out = append(out, pr)
+	}
 	return out
 }
 

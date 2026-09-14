@@ -3,6 +3,7 @@ package storage
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/johanforsgren/lgtmfaster/internal/domain"
@@ -436,5 +437,103 @@ func TestGetRepositoryLink(t *testing.T) {
 	_, err = repo.GetRepositoryLink("non-existent")
 	if err == nil {
 		t.Error("Expected error for non-existent link")
+	}
+}
+
+func TestGetSettingsDefaultsWhenUnset(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpDir)
+	defer os.Setenv("HOME", oldHome)
+
+	repo, err := NewLocalRepository()
+	if err != nil {
+		t.Fatalf("Failed to create repository: %v", err)
+	}
+
+	settings, err := repo.GetSettings()
+	if err != nil {
+		t.Fatalf("Failed to get settings: %v", err)
+	}
+
+	if settings.HideOldOtherPRs {
+		t.Error("Expected HideOldOtherPRs to default to false")
+	}
+
+	if settings.HideOldOtherPRsDays != domain.DefaultHideOldOtherPRsDays {
+		t.Errorf("Expected default HideOldOtherPRsDays %d, got %d", domain.DefaultHideOldOtherPRsDays, settings.HideOldOtherPRsDays)
+	}
+}
+
+func TestSaveAndLoadSettings(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpDir)
+	defer os.Setenv("HOME", oldHome)
+
+	repo, err := NewLocalRepository()
+	if err != nil {
+		t.Fatalf("Failed to create repository: %v", err)
+	}
+
+	err = repo.SaveSettings(domain.Settings{HideOldOtherPRs: true, HideOldOtherPRsDays: 14})
+	if err != nil {
+		t.Fatalf("Failed to save settings: %v", err)
+	}
+
+	settings, err := repo.GetSettings()
+	if err != nil {
+		t.Fatalf("Failed to get settings: %v", err)
+	}
+
+	if !settings.HideOldOtherPRs {
+		t.Error("Expected HideOldOtherPRs to be true")
+	}
+
+	if settings.HideOldOtherPRsDays != 14 {
+		t.Errorf("Expected HideOldOtherPRsDays 14, got %d", settings.HideOldOtherPRsDays)
+	}
+}
+
+func TestReloadPicksUpExternalConfigChanges(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpDir)
+	defer os.Setenv("HOME", oldHome)
+
+	repo, err := NewLocalRepository()
+	if err != nil {
+		t.Fatalf("Failed to create repository: %v", err)
+	}
+
+	if err := repo.SaveSettings(domain.Settings{HideOldOtherPRs: false, HideOldOtherPRsDays: 30}); err != nil {
+		t.Fatalf("Failed to save settings: %v", err)
+	}
+
+	data, err := os.ReadFile(repo.ConfigPath())
+	if err != nil {
+		t.Fatalf("Failed to read config file: %v", err)
+	}
+
+	edited := strings.Replace(string(data), `"HideOldOtherPRs": false`, `"HideOldOtherPRs": true`, 1)
+	if edited == string(data) {
+		t.Fatal("Expected to find HideOldOtherPRs field in config file")
+	}
+
+	if err := os.WriteFile(repo.ConfigPath(), []byte(edited), 0600); err != nil {
+		t.Fatalf("Failed to write edited config file: %v", err)
+	}
+
+	if err := repo.Reload(); err != nil {
+		t.Fatalf("Failed to reload config: %v", err)
+	}
+
+	settings, err := repo.GetSettings()
+	if err != nil {
+		t.Fatalf("Failed to get settings: %v", err)
+	}
+
+	if !settings.HideOldOtherPRs {
+		t.Error("Expected reloaded HideOldOtherPRs to be true")
 	}
 }

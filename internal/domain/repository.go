@@ -44,4 +44,12 @@ type Repository interface {
 	SaveRepositoryLink(link RepositoryLink) error
 
 	DeleteRepositoryLink(id string) error
+
+	GetSettings() (Settings, error)
+
+	SaveSettings(settings Settings) error
+
+	ConfigPath() string
+
+	Reload() error
 }

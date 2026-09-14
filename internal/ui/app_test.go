@@ -97,6 +97,22 @@ func (m *mockRepository) DeleteRepositoryLink(id string) error {
 	return nil
 }
 
+func (m *mockRepository) GetSettings() (domain.Settings, error) {
+	return domain.Settings{HideOldOtherPRsDays: domain.DefaultHideOldOtherPRsDays}, nil
+}
+
+func (m *mockRepository) SaveSettings(settings domain.Settings) error {
+	return nil
+}
+
+func (m *mockRepository) ConfigPath() string {
+	return ""
+}
+
+func (m *mockRepository) Reload() error {
+	return nil
+}
+
 type mockProvider struct {
 	submitReviewCalled bool
 	lastReview         domain.Review
