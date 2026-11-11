@@ -4,14 +4,18 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/johanforsgren/lgtmfaster/internal/domain"
 	"github.com/johanforsgren/lgtmfaster/internal/ui/views"
 )
 
 type mockRepository struct {
-	pats              map[string]*domain.PAT
-	pipelineFavorites []string
+	pats               map[string]*domain.PAT
+	pipelineFavorites  []string
+	pipelineLastViewed map[string]time.Time
+	settings           domain.Settings
+	session            domain.Session
 }
 
 func (m *mockRepository) ListPATs() ([]domain.PAT, error) {
@@ -113,11 +117,37 @@ func (m *mockRepository) TogglePipelineFavorite(key string) (bool, error) {
 	return true, nil
 }
 
+func (m *mockRepository) ListPipelineLastViewed() (map[string]time.Time, error) {
+	return m.pipelineLastViewed, nil
+}
+
+func (m *mockRepository) MarkPipelineViewed(key string, viewedAt time.Time) error {
+	if m.pipelineLastViewed == nil {
+		m.pipelineLastViewed = make(map[string]time.Time)
+	}
+	m.pipelineLastViewed[key] = viewedAt
+	return nil
+}
+
 func (m *mockRepository) GetSettings() (domain.Settings, error) {
-	return domain.Settings{HideOldOtherPRsDays: domain.DefaultHideOldOtherPRsDays}, nil
+	settings := m.settings
+	if settings.HideOldOtherPRsDays <= 0 {
+		settings.HideOldOtherPRsDays = domain.DefaultHideOldOtherPRsDays
+	}
+	return settings, nil
 }
 
 func (m *mockRepository) SaveSettings(settings domain.Settings) error {
+	m.settings = settings
+	return nil
+}
+
+func (m *mockRepository) GetSession() (domain.Session, error) {
+	return m.session, nil
+}
+
+func (m *mockRepository) SaveSession(session domain.Session) error {
+	m.session = session
 	return nil
 }
 

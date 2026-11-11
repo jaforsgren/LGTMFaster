@@ -63,3 +63,14 @@ func TestFavoriteKey_MethodsMatchConstructors(t *testing.T) {
 		t.Error("run favorite key mismatch")
 	}
 }
+
+func TestPipelineSortMode_OrDefault(t *testing.T) {
+	for _, mode := range PipelineSortModes {
+		if mode.OrDefault() != mode {
+			t.Errorf("expected %s to be kept", mode)
+		}
+	}
+	if PipelineSortMode("").OrDefault() != PipelineSortFavorites || PipelineSortMode("bogus").OrDefault() != PipelineSortFavorites {
+		t.Error("expected unknown modes to default to favorites")
+	}
+}

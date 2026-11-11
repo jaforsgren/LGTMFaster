@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"errors"
+	"strconv"
 	"testing"
 
 	"github.com/johanforsgren/lgtmfaster/internal/domain"
@@ -504,7 +505,7 @@ func TestPipelineShortcutsIncludeNewKeys(t *testing.T) {
 	registry := NewCommandRegistry()
 
 	listShortcuts := registry.GetContextualShortcuts(ViewPipelineList, false)
-	for _, description := range []string{"Fold/unfold", "Fold/unfold all", "Toggle favorite", "Toggle details pane", "Filter", "Open in browser"} {
+	for _, description := range []string{"Fold/unfold", "Fold/unfold all", "Toggle favorite", "Toggle details pane", "Open in browser"} {
 		if !containsShortcut(listShortcuts, description) {
 			t.Errorf("expected %q in pipeline list shortcuts", description)
 		}
@@ -514,6 +515,71 @@ func TestPipelineShortcutsIncludeNewKeys(t *testing.T) {
 	}
 	if !containsShortcut(registry.GetContextualShortcuts(ViewPipelineRun, false), "Toggle favorite") {
 		t.Error("expected favorite shortcut in run view")
+	}
+}
+
+func TestSortKeys_SetAndPersistSortMode(t *testing.T) {
+	m := createPipelineTestModel(&mockPipelineProvider{})
+	repo := m.repository.(*mockRepository)
+	m.state = ViewPipelineList
+
+	for i, mode := range domain.PipelineSortModes {
+		newModel, _, handled := m.commandRegistry.HandleKey(m, strconv.Itoa(i))
+		if !handled {
+			t.Fatalf("expected key %d handled", i)
+		}
+		m = newModel
+		if m.pipelineListView.SortMode() != mode || repo.settings.PipelineSortMode != mode {
+			t.Errorf("key %d: expected mode %s, got view=%s saved=%s", i, mode, m.pipelineListView.SortMode(), repo.settings.PipelineSortMode)
+		}
+	}
+}
+
+func TestSortKeys_IgnoredOutsidePipelineList(t *testing.T) {
+	m := createPipelineTestModel(&mockPipelineProvider{})
+	m.state = ViewPipelineRuns
+
+	m, _ = m.setPipelineSortMode(domain.PipelineSortStatus)
+
+	if m.pipelineListView.SortMode() != domain.PipelineSortFavorites {
+		t.Error("expected sort mode unchanged outside pipeline list")
+	}
+}
+
+func TestOpenPipelineList_AppliesSavedSortMode(t *testing.T) {
+	m := createPipelineTestModel(&mockPipelineProvider{})
+	m.repository.(*mockRepository).settings.PipelineSortMode = domain.PipelineSortLastRun
+	m.pipelineListView.SetPipelines([]domain.Pipeline{testPipeline()})
+
+	m, _ = m.openPipelineList()
+
+	if m.pipelineListView.SortMode() != domain.PipelineSortLastRun {
+		t.Errorf("expected saved sort mode applied, got %s", m.pipelineListView.SortMode())
+	}
+}
+
+func TestEnterPipelineRuns_MarksPipelineViewed(t *testing.T) {
+	m := createPipelineTestModel(&mockPipelineProvider{})
+	repo := m.repository.(*mockRepository)
+
+	m.enterPipelineRuns(testPipeline())
+
+	if _, ok := repo.pipelineLastViewed[testPipeline().FavoriteKey()]; !ok {
+		t.Error("expected pipeline marked as viewed")
+	}
+}
+
+func TestSortShortcut_ShownOnceInTopBar(t *testing.T) {
+	shortcuts := NewCommandRegistry().GetContextualShortcuts(ViewPipelineList, false)
+
+	count := 0
+	for _, shortcut := range shortcuts {
+		if contains(shortcut, "Sort") {
+			count++
+		}
+	}
+	if count != 1 || !containsShortcut(shortcuts, "<0-5>") {
+		t.Errorf("expected a single <0-5> sort hint, got %v", shortcuts)
 	}
 }
 

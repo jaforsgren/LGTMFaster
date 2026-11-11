@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/johanforsgren/lgtmfaster/internal/domain"
@@ -11,7 +12,6 @@ import (
 
 const (
 	pipelineFolderSeparator = `\`
-	pipelineListChromeRows  = 12
 	treeIndent              = "  "
 	expandedMarker          = "▾ "
 	collapsedMarker         = "▸ "
@@ -34,6 +34,8 @@ type PipelineNode struct {
 	Depth         int
 	Status        domain.PipelineStatus
 	PipelineCount int
+	LastRunAt     time.Time
+	LastViewedAt  time.Time
 	Pipeline      *domain.Pipeline
 	Children      []*PipelineNode
 }
@@ -61,11 +63,13 @@ type PipelineListViewModel struct {
 	visibleNodes    []*PipelineNode
 	expanded        map[string]bool
 	favorites       map[string]bool
+	lastViewed      map[string]time.Time
+	sortMode        domain.PipelineSortMode
 	previewRuns     map[string][]domain.PipelineRun
 	previewPending  map[string]bool
 	cursor          listCursor
 	filter          listFilter
-	pane            splitPane
+	split           splitView
 	width           int
 	height          int
 }
@@ -74,6 +78,8 @@ func NewPipelineListView() *PipelineListViewModel {
 	return &PipelineListViewModel{
 		expanded:       make(map[string]bool),
 		favorites:      make(map[string]bool),
+		lastViewed:     make(map[string]time.Time),
+		sortMode:       domain.PipelineSortFavorites,
 		previewRuns:    make(map[string][]domain.PipelineRun),
 		previewPending: make(map[string]bool),
 		cursor:         newListCursor(),
@@ -84,7 +90,7 @@ func NewPipelineListView() *PipelineListViewModel {
 func (m *PipelineListViewModel) SetSize(width, height int) {
 	m.width = width
 	m.height = height
-	m.cursor.SetVisibleRows(height - pipelineListChromeRows)
+	m.cursor.SetVisibleRows(height - listChromeRows)
 }
 
 func (m *PipelineListViewModel) SetPipelines(pipelines []domain.Pipeline) {
@@ -95,6 +101,20 @@ func (m *PipelineListViewModel) SetPipelines(pipelines []domain.Pipeline) {
 func (m *PipelineListViewModel) SetFavorites(favorites map[string]bool) {
 	m.favorites = favorites
 	m.rebuild()
+}
+
+func (m *PipelineListViewModel) SetLastViewed(lastViewed map[string]time.Time) {
+	m.lastViewed = lastViewed
+	m.rebuild()
+}
+
+func (m *PipelineListViewModel) SetSortMode(mode domain.PipelineSortMode) {
+	m.sortMode = mode.OrDefault()
+	m.rebuild()
+}
+
+func (m *PipelineListViewModel) SortMode() domain.PipelineSortMode {
+	return m.sortMode
 }
 
 func (m *PipelineListViewModel) HasPipelines() bool {
@@ -121,12 +141,41 @@ func (m *PipelineListViewModel) GetSelectedPipeline() *domain.Pipeline {
 	return node.Pipeline
 }
 
+// SelectNode unfolds the groups around the node with key, moves the cursor to it and reports
+// whether it exists.
+func (m *PipelineListViewModel) SelectNode(key string) bool {
+	ancestors, found := ancestorKeys(m.roots, key)
+	if !found {
+		return false
+	}
+	for _, ancestor := range ancestors {
+		m.expanded[ancestor] = true
+	}
+	m.rebuildKeepingSelection(key)
+	return true
+}
+
+// ancestorKeys returns the keys of the groups containing the node with key, outermost first.
+func ancestorKeys(nodes []*PipelineNode, key string) ([]string, bool) {
+	for _, node := range nodes {
+		if node.Key == key {
+			return nil, true
+		}
+		if inner, found := ancestorKeys(node.Children, key); found {
+			return append([]string{node.Key}, inner...), true
+		}
+	}
+	return nil, false
+}
+
 func (m *PipelineListViewModel) MoveUp() {
 	m.cursor.MoveUp()
+	m.split.ResetScroll()
 }
 
 func (m *PipelineListViewModel) MoveDown() {
 	m.cursor.MoveDown(len(m.visibleNodes))
+	m.split.ResetScroll()
 }
 
 // ToggleSelected folds/unfolds a group; on a pipeline it folds the parent repository and selects it.
@@ -172,18 +221,34 @@ func (m *PipelineListViewModel) ToggleAll() {
 }
 
 func (m *PipelineListViewModel) TogglePreview() {
-	m.pane.Toggle()
+	m.split.Toggle()
 }
 
 func (m *PipelineListViewModel) IsPreviewOpen() bool {
-	return m.pane.IsOpen()
+	return m.split.IsOpen()
+}
+
+func (m *PipelineListViewModel) FocusNextPane() {
+	m.split.FocusNext(len(m.detailPanes()))
+}
+
+func (m *PipelineListViewModel) FocusPrevPane() {
+	m.split.FocusPrev()
+}
+
+func (m *PipelineListViewModel) IsPaneFocused() bool {
+	return m.split.IsDetailFocused()
+}
+
+func (m *PipelineListViewModel) ScrollPane(delta int) {
+	m.split.ScrollFocused(m.detailPanes(), delta, m.width, m.height)
 }
 
 // NextPreviewRequest returns the selected pipeline when the open pane needs its runs fetched,
 // and marks the request in flight so cursor movement does not refetch it.
 func (m *PipelineListViewModel) NextPreviewRequest() *domain.Pipeline {
 	pipeline := m.GetSelectedPipeline()
-	if !m.pane.IsOpen() || pipeline == nil {
+	if !m.split.IsOpen() || pipeline == nil {
 		return nil
 	}
 	key := pipeline.FavoriteKey()
@@ -248,7 +313,8 @@ func (m *PipelineListViewModel) rebuildKeepingSelection(selectedKey string) {
 		}
 	}
 
-	m.roots = buildPipelineTree(filtered)
+	m.roots = buildPipelineTree(filtered, groupingFor(m.sortMode))
+	m.annotate(m.roots)
 	m.sortTree(m.roots)
 
 	// While filtering every group is unfolded so matches are never hidden inside a folded group.
@@ -274,79 +340,178 @@ func (m *PipelineListViewModel) flatten(nodes []*PipelineNode, showAll bool) {
 	}
 }
 
-func (m *PipelineListViewModel) sortTree(nodes []*PipelineNode) {
-	sort.SliceStable(nodes, func(i, j int) bool {
-		a, b := nodes[i], nodes[j]
-		if m.favorites[a.Key] != m.favorites[b.Key] {
-			return m.favorites[a.Key]
+type pipelineGroupLevel int
+
+const (
+	groupByProject pipelineGroupLevel = iota
+	groupByRepository
+)
+
+func groupingFor(mode domain.PipelineSortMode) []pipelineGroupLevel {
+	switch mode {
+	case domain.PipelineSortFavorites, domain.PipelineSortProject:
+		return []pipelineGroupLevel{groupByProject, groupByRepository}
+	case domain.PipelineSortRepository:
+		return []pipelineGroupLevel{groupByRepository}
+	default:
+		return nil
+	}
+}
+
+func buildPipelineTree(pipelines []domain.Pipeline, levels []pipelineGroupLevel) []*PipelineNode {
+	var roots []*PipelineNode
+	groups := make(map[string]*PipelineNode)
+	isFlat := len(levels) == 0
+
+	for i := range pipelines {
+		pipeline := &pipelines[i]
+		var parent *PipelineNode
+
+		for depth, level := range levels {
+			key, kind, name := groupIdentity(pipeline, level, depth == 0)
+			group, ok := groups[key]
+			if !ok {
+				group = &PipelineNode{Kind: kind, Key: key, Name: name, Depth: depth}
+				if parent != nil {
+					group.ParentKey = parent.Key
+					parent.Children = append(parent.Children, group)
+				} else {
+					roots = append(roots, group)
+				}
+				groups[key] = group
+			}
+			parent = group
 		}
-		return strings.ToLower(a.Name) < strings.ToLower(b.Name)
+
+		name := PipelineDisplayName(*pipeline)
+		if isFlat {
+			name = fmt.Sprintf("%s  (%s/%s)", name, pipeline.Project, pipeline.Repository)
+		}
+		leaf := &PipelineNode{
+			Kind:     PipelineNodePipeline,
+			Key:      pipeline.FavoriteKey(),
+			Name:     name,
+			Depth:    len(levels),
+			Pipeline: pipeline,
+		}
+		if parent != nil {
+			leaf.ParentKey = parent.Key
+			parent.Children = append(parent.Children, leaf)
+		} else {
+			roots = append(roots, leaf)
+		}
+	}
+	return roots
+}
+
+// groupIdentity names a repository by "project/repo" when it is a top-level group, since the
+// project is otherwise not visible.
+func groupIdentity(pipeline *domain.Pipeline, level pipelineGroupLevel, isRoot bool) (string, PipelineNodeKind, string) {
+	if level == groupByProject {
+		return domain.ProjectFavoriteKey(pipeline.PATID, pipeline.Project), PipelineNodeProject, pipeline.Project
+	}
+	name := pipeline.Repository
+	if isRoot {
+		name = pipeline.Project + "/" + pipeline.Repository
+	}
+	return domain.RepositoryFavoriteKey(pipeline.PATID, pipeline.Project, pipeline.Repository), PipelineNodeRepository, name
+}
+
+// annotate fills the sortable/displayed values bottom-up: leaves from their latest run and view
+// history, groups as the aggregate of their children.
+func (m *PipelineListViewModel) annotate(nodes []*PipelineNode) {
+	for _, node := range nodes {
+		node.LastViewedAt = m.lastViewed[node.Key]
+		if !node.IsGroup() {
+			node.Status = domain.PipelineStatusUnknown
+			node.PipelineCount = 1
+			if run := node.Pipeline.LatestRun; run != nil {
+				node.Status = run.Status
+				node.LastRunAt = run.QueuedAt
+			}
+			continue
+		}
+
+		m.annotate(node.Children)
+		node.Status = aggregateStatus(node.Children)
+		for _, child := range node.Children {
+			node.PipelineCount += child.PipelineCount
+			node.LastRunAt = laterOf(node.LastRunAt, child.LastRunAt)
+			node.LastViewedAt = laterOf(node.LastViewedAt, child.LastViewedAt)
+		}
+	}
+}
+
+func laterOf(a, b time.Time) time.Time {
+	if b.After(a) {
+		return b
+	}
+	return a
+}
+
+func (m *PipelineListViewModel) sortTree(nodes []*PipelineNode) {
+	less := m.lessFunc()
+	sort.SliceStable(nodes, func(i, j int) bool {
+		return less(nodes[i], nodes[j])
 	})
 	for _, node := range nodes {
 		m.sortTree(node.Children)
 	}
 }
 
-func buildPipelineTree(pipelines []domain.Pipeline) []*PipelineNode {
-	var roots []*PipelineNode
-	projects := make(map[string]*PipelineNode)
-	repos := make(map[string]*PipelineNode)
-
-	for i := range pipelines {
-		pipeline := &pipelines[i]
-		projectKey := domain.ProjectFavoriteKey(pipeline.PATID, pipeline.Project)
-		project, ok := projects[projectKey]
-		if !ok {
-			project = &PipelineNode{Kind: PipelineNodeProject, Key: projectKey, Name: pipeline.Project}
-			projects[projectKey] = project
-			roots = append(roots, project)
+func (m *PipelineListViewModel) lessFunc() func(a, b *PipelineNode) bool {
+	byName := func(a, b *PipelineNode) bool {
+		return strings.ToLower(a.Name) < strings.ToLower(b.Name)
+	}
+	byLastRun := func(a, b *PipelineNode) bool {
+		if !a.LastRunAt.Equal(b.LastRunAt) {
+			return a.LastRunAt.After(b.LastRunAt)
 		}
-
-		repoKey := domain.RepositoryFavoriteKey(pipeline.PATID, pipeline.Project, pipeline.Repository)
-		repo, ok := repos[repoKey]
-		if !ok {
-			repo = &PipelineNode{Kind: PipelineNodeRepository, Key: repoKey, ParentKey: projectKey, Name: pipeline.Repository, Depth: 1}
-			repos[repoKey] = repo
-			project.Children = append(project.Children, repo)
-		}
-
-		status := domain.PipelineStatusUnknown
-		if pipeline.LatestRun != nil {
-			status = pipeline.LatestRun.Status
-		}
-		repo.Children = append(repo.Children, &PipelineNode{
-			Kind:      PipelineNodePipeline,
-			Key:       pipeline.FavoriteKey(),
-			ParentKey: repoKey,
-			Name:      PipelineDisplayName(*pipeline),
-			Depth:     2,
-			Status:    status,
-			Pipeline:  pipeline,
-		})
-		repo.PipelineCount++
-		project.PipelineCount++
+		return byName(a, b)
 	}
 
-	for _, project := range roots {
-		for _, repo := range project.Children {
-			repo.Status = aggregateStatus(repo.Children)
+	switch m.sortMode {
+	case domain.PipelineSortFavorites:
+		return func(a, b *PipelineNode) bool {
+			if m.favorites[a.Key] != m.favorites[b.Key] {
+				return m.favorites[a.Key]
+			}
+			if !a.LastViewedAt.Equal(b.LastViewedAt) {
+				return a.LastViewedAt.After(b.LastViewedAt)
+			}
+			return byName(a, b)
 		}
-		project.Status = aggregateStatus(project.Children)
+	case domain.PipelineSortLastRun:
+		return byLastRun
+	case domain.PipelineSortStatus:
+		return func(a, b *PipelineNode) bool {
+			if statusRank(a.Status) != statusRank(b.Status) {
+				return statusRank(a.Status) < statusRank(b.Status)
+			}
+			return byLastRun(a, b)
+		}
+	default:
+		return byName
 	}
-	return roots
+}
+
+func statusRank(status domain.PipelineStatus) int {
+	for i, ranked := range groupStatusPriority {
+		if ranked == status {
+			return i
+		}
+	}
+	return len(groupStatusPriority)
 }
 
 func aggregateStatus(children []*PipelineNode) domain.PipelineStatus {
-	present := make(map[domain.PipelineStatus]bool, len(children))
+	best := domain.PipelineStatusUnknown
 	for _, child := range children {
-		present[child.Status] = true
-	}
-	for _, status := range groupStatusPriority {
-		if present[status] {
-			return status
+		if statusRank(child.Status) < statusRank(best) {
+			best = child.Status
 		}
 	}
-	return domain.PipelineStatusUnknown
+	return best
 }
 
 func collectGroupKeys(nodes []*PipelineNode) []string {
@@ -394,8 +559,8 @@ func (m *PipelineListViewModel) columns() []listColumn {
 		ageWidth     = 14
 		minNameWidth = 24
 	)
-	listWidth := m.pane.ListWidth(m.width)
-	if m.pane.IsOpen() {
+	listWidth := m.split.ListWidth(m.width)
+	if m.split.IsOpen() {
 		return []listColumn{
 			{"Name", flexColumnWidth(listWidth, lastRunWidth+1, minNameWidth)},
 			{"Last run", lastRunWidth},
@@ -413,30 +578,21 @@ func (m *PipelineListViewModel) columns() []listColumn {
 func (m *PipelineListViewModel) View() string {
 	var b strings.Builder
 
-	b.WriteString(pipelineTitleStyle.Render("Pipelines"))
+	b.WriteString(renderListTitle(pipelinesTitle))
+	b.WriteString(listMutedStyle.Render("  sorted by " + PipelineSortModeLabel(m.sortMode)))
 	b.WriteString("\n\n")
 
 	if len(m.visibleNodes) == 0 {
 		if m.filter.Text() != "" {
-			b.WriteString(pipelineMutedStyle.Render("No pipelines match the filter."))
+			b.WriteString(listMutedStyle.Render("No pipelines match the filter."))
 		} else {
-			b.WriteString(pipelineMutedStyle.Render("No pipelines loaded."))
+			b.WriteString(listMutedStyle.Render("No pipelines loaded."))
 		}
 		b.WriteString("\n")
 	} else {
-		columns := m.columns()
-		b.WriteString(renderListHeader(columns))
-		b.WriteString("\n")
-
-		start, end := m.cursor.VisibleRange(len(m.visibleNodes))
-		for i := start; i < end; i++ {
-			b.WriteString(m.renderNode(m.visibleNodes[i], columns, i == m.cursor.Index()))
-			b.WriteString("\n")
-		}
-		if len(m.visibleNodes) > end-start {
-			b.WriteString(renderScrollInfo(start, end, len(m.visibleNodes)))
-			b.WriteString("\n")
-		}
+		b.WriteString(renderListRows(m.columns(), len(m.visibleNodes), m.cursor, func(i int) listRow {
+			return m.nodeRow(m.visibleNodes[i])
+		}))
 	}
 
 	if m.filter.IsActive() {
@@ -444,14 +600,10 @@ func (m *PipelineListViewModel) View() string {
 		b.WriteString(m.filter.View())
 	}
 
-	b.WriteString("\n")
-	b.WriteString(pipelineMutedStyle.Render(m.helpText()))
-
-	title, lines := m.previewContent()
-	return m.pane.Render(b.String(), title, lines, m.width, m.cursor.visibleRows)
+	return m.split.Render(b.String(), m.detailPanes(), m.width, m.height)
 }
 
-func (m *PipelineListViewModel) renderNode(node *PipelineNode, columns []listColumn, selected bool) string {
+func (m *PipelineListViewModel) nodeRow(node *PipelineNode) listRow {
 	marker := leafMarker
 	if node.IsGroup() {
 		marker = collapsedMarker
@@ -470,14 +622,21 @@ func (m *PipelineListViewModel) renderNode(node *PipelineNode, columns []listCol
 		age = formatOptionalAge(run.QueuedAt)
 	}
 
-	values := []string{name, lastRun, branch, age}
-	return renderListRow(node.Status, columns, values[:len(columns)], selected)
+	return listRow{
+		icon:   renderPipelineStatusIcon(node.Status),
+		values: []string{name, lastRun, branch, age},
+		style:  listRowStyle,
+	}
 }
 
-func (m *PipelineListViewModel) previewContent() (string, []string) {
+func (m *PipelineListViewModel) detailPanes() []detailPane {
+	return []detailPane{m.detailPane()}
+}
+
+func (m *PipelineListViewModel) detailPane() detailPane {
 	node := m.GetSelectedNode()
 	if node == nil {
-		return "Details", []string{pipelineMutedStyle.Render("Nothing selected.")}
+		return detailPane{title: "Details", lines: []string{listMutedStyle.Render("Nothing selected.")}}
 	}
 
 	switch node.Kind {
@@ -489,25 +648,25 @@ func (m *PipelineListViewModel) previewContent() (string, []string) {
 				lines = append(lines, treeIndent+renderDetailRow(pipeline.Status, pipeline.Name))
 			}
 		}
-		return "Pipelines in " + node.Name, lines
+		return detailPane{title: "Pipelines in " + node.Name, lines: lines}
 	case PipelineNodeRepository:
 		var lines []string
 		for _, pipeline := range node.Children {
 			lines = append(lines, renderDetailRow(pipeline.Status, pipeline.Name+latestRunSuffix(pipeline.Pipeline)))
 		}
-		return "Pipelines in " + node.Name, lines
+		return detailPane{title: "Pipelines in " + node.Name, lines: lines}
 	default:
-		return "Runs of " + node.Name, m.previewRunLines(node.Pipeline)
+		return detailPane{title: "Runs of " + node.Name, lines: m.previewRunLines(node.Pipeline)}
 	}
 }
 
 func (m *PipelineListViewModel) previewRunLines(pipeline *domain.Pipeline) []string {
 	runs, loaded := m.previewRuns[pipeline.FavoriteKey()]
 	if !loaded {
-		return []string{pipelineMutedStyle.Render("Loading runs...")}
+		return []string{listMutedStyle.Render("Loading runs...")}
 	}
 	if len(runs) == 0 {
-		return []string{pipelineMutedStyle.Render("This pipeline has no runs yet.")}
+		return []string{listMutedStyle.Render("This pipeline has no runs yet.")}
 	}
 	lines := make([]string, 0, len(runs))
 	for _, run := range runs {
@@ -524,13 +683,15 @@ func latestRunSuffix(pipeline *domain.Pipeline) string {
 	return fmt.Sprintf("  %s  %s", valueOrPlaceholder(pipeline.LatestRun.Number), formatOptionalAge(pipeline.LatestRun.QueuedAt))
 }
 
-func (m *PipelineListViewModel) helpText() string {
-	if m.filter.IsActive() {
-		return "Type to filter | Enter/Esc: Close"
-	}
-	help := "Enter: Open/Fold | z/Z: Fold | f: Favorite | Tab: Details | ctrl+o: Open | r: Refresh | /: Filter | q: Back"
-	if m.filter.Text() != "" {
-		help = strings.Replace(help, "q: Back", "Esc: Clear filter | q: Back", 1)
-	}
-	return help
+var pipelineSortModeLabels = map[domain.PipelineSortMode]string{
+	domain.PipelineSortFavorites:  "favorites & recently viewed",
+	domain.PipelineSortProject:    "project",
+	domain.PipelineSortRepository: "repository",
+	domain.PipelineSortPipeline:   "pipeline name",
+	domain.PipelineSortLastRun:    "last run",
+	domain.PipelineSortStatus:     "status",
+}
+
+func PipelineSortModeLabel(mode domain.PipelineSortMode) string {
+	return pipelineSortModeLabels[mode.OrDefault()]
 }

@@ -3,6 +3,7 @@ package views
 import (
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/johanforsgren/lgtmfaster/internal/domain"
@@ -186,6 +187,81 @@ func TestPipelineList_FavoritesSortFirstAtEachLevel(t *testing.T) {
 	assertVisible(t, m, "Beta", "api", "deploy", "Alpha", "web", "ci", "api", `infra\ci`)
 	if !strings.Contains(m.View(), favoriteMarker+"Beta") {
 		t.Error("expected favorite marker rendered")
+	}
+}
+
+func sortTestPipelines() []domain.Pipeline {
+	return []domain.Pipeline{
+		{ID: 1, Name: "zeta", Project: "Alpha", Repository: "web", PATID: "pat",
+			LatestRun: &domain.PipelineRun{Status: domain.PipelineStatusSucceeded, QueuedAt: time.Now().Add(-1 * time.Hour)}},
+		{ID: 2, Name: "alpha", Project: "Beta", Repository: "api", PATID: "pat",
+			LatestRun: &domain.PipelineRun{Status: domain.PipelineStatusFailed, QueuedAt: time.Now().Add(-3 * time.Hour)}},
+		{ID: 3, Name: "mid", Project: "Alpha", Repository: "api", PATID: "pat",
+			LatestRun: &domain.PipelineRun{Status: domain.PipelineStatusWaitingForApproval, QueuedAt: time.Now().Add(-2 * time.Hour)}},
+		{ID: 4, Name: "never", Project: "Beta", Repository: "api", PATID: "pat"},
+	}
+}
+
+func TestPipelineList_SortModes(t *testing.T) {
+	tests := []struct {
+		mode     domain.PipelineSortMode
+		expected []string
+	}{
+		{domain.PipelineSortProject, []string{"Alpha", "api", "mid", "web", "zeta", "Beta", "api", "alpha", "never"}},
+		{domain.PipelineSortRepository, []string{"Alpha/api", "mid", "Alpha/web", "zeta", "Beta/api", "alpha", "never"}},
+		{domain.PipelineSortPipeline, []string{"alpha  (Beta/api)", "mid  (Alpha/api)", "never  (Beta/api)", "zeta  (Alpha/web)"}},
+		{domain.PipelineSortLastRun, []string{"zeta  (Alpha/web)", "mid  (Alpha/api)", "alpha  (Beta/api)", "never  (Beta/api)"}},
+		{domain.PipelineSortStatus, []string{"mid  (Alpha/api)", "alpha  (Beta/api)", "zeta  (Alpha/web)", "never  (Beta/api)"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(string(tt.mode), func(t *testing.T) {
+			m := NewPipelineListView()
+			m.SetPipelines(sortTestPipelines())
+			m.SetSortMode(tt.mode)
+			m.ToggleAll()
+
+			assertVisible(t, m, tt.expected...)
+		})
+	}
+}
+
+func TestPipelineList_FavoritesModeOrdersByLastViewedAfterFavorites(t *testing.T) {
+	m := NewPipelineListView()
+	m.SetPipelines(sortTestPipelines())
+	m.SetFavorites(map[string]bool{domain.PipelineFavoriteKey("pat", "Alpha", 1): true})
+	m.SetLastViewed(map[string]time.Time{
+		domain.PipelineFavoriteKey("pat", "Beta", 4):  time.Now(),
+		domain.PipelineFavoriteKey("pat", "Alpha", 3): time.Now().Add(-time.Hour),
+	})
+	m.ToggleAll()
+
+	assertVisible(t, m, "Beta", "api", "never", "alpha", "Alpha", "api", "mid", "web", "zeta")
+}
+
+func TestPipelineList_SetSortModeFallsBackToFavorites(t *testing.T) {
+	m := NewPipelineListView()
+
+	m.SetSortMode("bogus")
+
+	if m.SortMode() != domain.PipelineSortFavorites {
+		t.Errorf("expected favorites fallback, got %s", m.SortMode())
+	}
+	if !strings.Contains(m.View(), "sorted by favorites & recently viewed") {
+		t.Error("expected sort label in title")
+	}
+}
+
+func TestPipelineList_FlatModeFoldKeysAreSafe(t *testing.T) {
+	m := NewPipelineListView()
+	m.SetPipelines(sortTestPipelines())
+	m.SetSortMode(domain.PipelineSortPipeline)
+
+	m.ToggleSelected()
+	m.ToggleAll()
+
+	if len(m.visibleNodes) != 4 {
+		t.Errorf("expected flat list unaffected by folding, got %d nodes", len(m.visibleNodes))
 	}
 }
 

@@ -92,7 +92,7 @@ func NewPATsView() *PATsViewModel {
 func (m *PATsViewModel) SetSize(width, height int) {
 	m.width = width
 	m.height = height
-	m.list.SetSize(width, height-5)
+	m.list.SetSize(width, height)
 }
 
 func (m *PATsViewModel) SetPATs(pats []domain.PAT) {
@@ -253,12 +253,7 @@ func (m *PATsViewModel) View() string {
 }
 
 func (m *PATsViewModel) viewListMode() string {
-	help := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#6B7280")).
-		Italic(true).
-		Render("\nSpace: Toggle selection (✓=selected, ●=primary) | Enter: Load PRs | a: Add | e: Edit | d: Delete | q: Back")
-
-	return m.list.View() + help
+	return m.list.View()
 }
 
 func (m *PATsViewModel) viewFormMode() string {

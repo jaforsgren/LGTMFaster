@@ -92,6 +92,7 @@ const DefaultHideOldOtherPRsDays = 30
 type Settings struct {
 	HideOldOtherPRs     bool
 	HideOldOtherPRsDays int
+	PipelineSortMode    PipelineSortMode
 }
 
 type Comment struct {

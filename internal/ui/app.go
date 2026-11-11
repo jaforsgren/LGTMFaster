@@ -57,15 +57,15 @@ const (
 )
 
 type Model struct {
-	state             ViewState
-	width             int
-	height            int
-	topBar            *components.TopBarModel
-	statusBar         *components.StatusBarModel
-	commandBar        *components.CommandBarModel
-	patsView          *views.PATsViewModel
-	prListView        *views.PRListViewModel
-	prInspect         *views.PRInspectViewModel
+	state               ViewState
+	width               int
+	height              int
+	topBar              *components.TopBarModel
+	statusBar           *components.StatusBarModel
+	commandBar          *components.CommandBarModel
+	patsView            *views.PATsViewModel
+	prListView          *views.PRListViewModel
+	prInspect           *views.PRInspectViewModel
 	reviewView          *views.ReviewViewModel
 	mergeView           *views.MergeViewModel
 	inlineCommentView   *views.InlineCommentViewModel
@@ -79,19 +79,21 @@ type Model struct {
 	pipelineRunView     *views.PipelineRunViewModel
 	stageApprovalView   *views.StageApprovalViewModel
 	pipelineWatchID     int
-	repository        domain.Repository
-	provider          domain.Provider
-	providers         map[string]domain.Provider
-	primaryProvider   domain.Provider
-	primaryPATID      string
-	ctx               context.Context
-	commandRegistry   *CommandRegistry
-	isInitialStartup  bool
-	loadingState      LoadingState
-	spinner           spinner.Model
-	prCache           *PRCache
-	editorTempFile    string
-	editorSource      EditorSource
+	repository          domain.Repository
+	provider            domain.Provider
+	providers           map[string]domain.Provider
+	primaryProvider     domain.Provider
+	primaryPATID        string
+	ctx                 context.Context
+	commandRegistry     *CommandRegistry
+	isInitialStartup    bool
+	loadingState        LoadingState
+	spinner             spinner.Model
+	prCache             *PRCache
+	editorTempFile      string
+	editorSource        EditorSource
+	// resume is the stored session still waiting for its PRs or pipelines to load.
+	resume *domain.Session
 }
 
 func NewModel(repository domain.Repository) Model {
@@ -104,14 +106,14 @@ func NewModel(repository domain.Repository) Model {
 		prListView.SetSettings(settings)
 	}
 
-	return Model{
-		state:             ViewPATs,
-		topBar:            components.NewTopBar(),
-		statusBar:         components.NewStatusBar(),
-		commandBar:        components.NewCommandBar(),
-		patsView:          views.NewPATsView(),
-		prListView:        prListView,
-		prInspect:         views.NewPRInspectView(),
+	m := Model{
+		state:               ViewPATs,
+		topBar:              components.NewTopBar(),
+		statusBar:           components.NewStatusBar(),
+		commandBar:          components.NewCommandBar(),
+		patsView:            views.NewPATsView(),
+		prListView:          prListView,
+		prInspect:           views.NewPRInspectView(),
 		reviewView:          views.NewReviewView(),
 		mergeView:           views.NewMergeView(),
 		inlineCommentView:   views.NewInlineCommentView(),
@@ -124,13 +126,14 @@ func NewModel(repository domain.Repository) Model {
 		pipelineRunsView:    views.NewPipelineRunsView(),
 		pipelineRunView:     views.NewPipelineRunView(),
 		stageApprovalView:   views.NewStageApprovalView(),
-		repository:        repository,
-		providers:         make(map[string]domain.Provider),
-		ctx:               context.Background(),
-		commandRegistry:   NewCommandRegistry(),
-		isInitialStartup:  true,
-		spinner:           s,
+		repository:          repository,
+		providers:           make(map[string]domain.Provider),
+		ctx:                 context.Background(),
+		commandRegistry:     NewCommandRegistry(),
+		isInitialStartup:    true,
+		spinner:             s,
 	}
+	return m.loadSession()
 }
 
 func (m Model) Init() tea.Cmd {
@@ -168,16 +171,10 @@ func (m Model) isInInputMode() bool {
 	if m.stageApprovalView.IsActive() {
 		return true
 	}
-	if m.state == ViewPipelineList && m.pipelineListView.IsFiltering() {
-		return true
-	}
-	if m.state == ViewPipelineRuns && m.pipelineRunsView.IsFiltering() {
+	if m.isFiltering() {
 		return true
 	}
 	if m.state == ViewPATs && (m.patsView.Mode == views.PATModeAdd || m.patsView.Mode == views.PATModeEdit) {
-		return true
-	}
-	if m.state == ViewPRList && m.prListView.IsFiltering() {
 		return true
 	}
 	return false
@@ -194,23 +191,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.topBar.SetWidth(msg.Width)
 		m.statusBar.SetWidth(msg.Width)
 		m.commandBar.SetWidth(msg.Width)
-		m.patsView.SetSize(msg.Width, msg.Height)
-		m.prListView.SetSize(msg.Width, msg.Height)
-		m.prInspect.SetSize(msg.Width, msg.Height)
-		m.reviewView.SetSize(msg.Width, msg.Height)
-		m.inlineCommentView.SetSize(msg.Width, msg.Height)
-		m.descriptionEditView.SetSize(msg.Width, msg.Height)
-		m.commentDetailView.SetSize(msg.Width, msg.Height)
-		m.logsView.SetSize(msg.Width, msg.Height)
-		m.repoLinkView.SetSize(msg.Width, msg.Height)
-		m.reposView.SetSize(msg.Width, msg.Height)
-		m.pipelineListView.SetSize(msg.Width, msg.Height)
-		m.pipelineRunsView.SetSize(msg.Width, msg.Height)
-		m.pipelineRunView.SetSize(msg.Width, msg.Height)
-		m.stageApprovalView.SetSize(msg.Width, msg.Height)
+		m.resizeViews()
 
 	case tea.KeyMsg:
 		key := msg.String()
+
+		// ctrl+c quits from every view, input modes included, as in postOffice.
+		if key == keyInterrupt {
+			return m.quit()
+		}
 
 		if m.isInInputMode() {
 			if m.commandBar.IsActive() {
@@ -220,8 +209,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case "esc":
 					m.commandBar.Deactivate()
 					return m, nil
+				case keyComplete:
+					m.commandBar.AcceptSuggestion()
+					return m, nil
 				default:
 					cmd = m.commandBar.Update(msg)
+					m.commandBar.SetSuggestion(m.commandRegistry.GetAutocompleteSuggestion(m.commandBar.CommandName(), m.state))
 					return m, cmd
 				}
 			}
@@ -471,18 +464,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		m.topBar.SetPATCounts(selectedCount, len(msg.pats))
+		m.topBar.SetAccounts(topBarAccounts(msg.pats))
 
 		if selectedCount > 0 && m.isInitialStartup {
 			m.isInitialStartup = false
 			m.state = ViewPRList
-			m.topBar.SetView("PRs")
+			m.topBar.SetView(components.ViewNamePRList)
 			m.updateShortcuts()
+			if resumed, cmd, ok := m.startResumedView(); ok {
+				logger.Log("UI: Resuming pipeline session with %d selected PAT(s)", selectedCount)
+				return resumed, cmd
+			}
 			logger.Log("UI: Starting in PR list view with %d selected PAT(s)", selectedCount)
 			return m, m.loadPRsStreaming()
 		}
 
 		m.isInitialStartup = false
-		m.topBar.SetView("PATs")
+		m.topBar.SetView(components.ViewNamePATs)
 		m.updateShortcuts()
 		return m, nil
 
@@ -503,7 +501,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			FailedPATs:        []string{},
 		}
 		m.state = ViewPRList
-		m.topBar.SetView("PR List")
+		m.topBar.SetView(components.ViewNamePRList)
 		m.updateShortcuts()
 		m.statusBar.SetMessage(fmt.Sprintf("%s Loading PRs (0/%d PATs)...",
 			m.spinner.View(), msg.TotalPATs), false)
@@ -514,7 +512,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		currentCursor := m.prListView.GetCursorIndex()
 		m.loadingState.LoadedPATs++
 
 		if msg.LoadError != nil {
@@ -527,8 +524,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if len(m.loadingState.AccumulatedGroups) > 0 {
 			m.prListView.SetPRGroups(m.loadingState.AccumulatedGroups)
 		}
-
-		m.prListView.RestoreCursor(currentCursor)
+		var resumeCmd tea.Cmd
+		m, resumeCmd = m.resumePRs(m.loadingState.LoadedPATs >= m.loadingState.TotalPATs)
 
 		totalPRs := 0
 		repoMap := make(map[string]bool)
@@ -554,7 +551,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			progress := fmt.Sprintf("%d/%d", m.loadingState.LoadedPATs, m.loadingState.TotalPATs)
 			m.statusBar.SetMessage(fmt.Sprintf("%s Loading PRs (%s PATs)... %d PRs",
 				m.spinner.View(), progress, totalPRs), false)
-			return m, m.spinner.Tick
+			return m, tea.Batch(m.spinner.Tick, resumeCmd)
 		}
 
 		m.loadingState.IsLoading = false
@@ -576,7 +573,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			finalMsg = fmt.Sprintf("Loaded %d pull requests", totalPRs)
 		}
 		m.statusBar.SetMessage(finalMsg, len(m.loadingState.FailedPATs) > 0)
-		return m, clearStatusAfterDelay(4 * time.Second)
+		return m, tea.Batch(clearStatusAfterDelay(4*time.Second), resumeCmd)
 
 	case PRsLoadedMsg:
 		if msg.groups != nil && len(msg.groups) > 0 {
@@ -615,12 +612,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.topBar.SetStats(len(msg.prs), len(repoMap))
 		m.topBar.SetPRBreakdown(authored, assigned, other)
-		m.topBar.SetView("PR List")
+		m.topBar.SetView(components.ViewNamePRList)
 
 		m.state = ViewPRList
 		m.updateShortcuts()
 		m.statusBar.SetMessage(fmt.Sprintf("Loaded %d pull requests", len(msg.prs)), false)
-		return m, clearStatusAfterDelay(4 * time.Second)
+		var resumeCmd tea.Cmd
+		m, resumeCmd = m.resumePRs(true)
+		return m, tea.Batch(clearStatusAfterDelay(4*time.Second), resumeCmd)
 
 	case PRDetailLoadedMsg:
 		m.prInspect.SetPR(msg.pr)
@@ -736,6 +735,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, clearStatusAfterDelay(4 * time.Second)
 		}
 		m.prListView.SetSettings(settings)
+		m.pipelineListView.SetSortMode(settings.PipelineSortMode)
 		m.statusBar.SetMessage("Settings reloaded", false)
 		return m, clearStatusAfterDelay(4 * time.Second)
 
@@ -762,8 +762,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch m.state {
 	case ViewPATs:
 		cmd = m.patsView.Update(msg)
-	case ViewPRList:
-		cmd = m.prListView.Update(msg)
 	case ViewPRInspect:
 		cmd = m.prInspect.Update(msg)
 	}
@@ -777,52 +775,12 @@ func (m Model) View() string {
 		return "Loading..."
 	}
 
-	var content string
-
-	if m.logsView.IsActive() {
-		content = m.logsView.View()
-	} else if m.reviewView.IsActive() {
-		content = m.reviewView.View()
-	} else if m.mergeView.IsActive() {
-		content = m.mergeView.View()
-	} else if m.inlineCommentView.IsActive() {
-		content = m.inlineCommentView.View()
-	} else if m.commentDetailView.IsActive() {
-		content = m.commentDetailView.View()
-	} else if m.descriptionEditView.IsActive() {
-		content = m.descriptionEditView.View()
-	} else if m.repoLinkView.IsActive() {
-		content = m.repoLinkView.View()
-	} else if m.reposView.IsActive() {
-		content = m.reposView.View()
-	} else if m.stageApprovalView.IsActive() {
-		content = m.stageApprovalView.View()
-	} else {
-		switch m.state {
-		case ViewPATs:
-			content = m.patsView.View()
-		case ViewPRList:
-			content = m.prListView.View()
-		case ViewPRInspect:
-			content = m.prInspect.View()
-		case ViewPipelineList:
-			content = m.pipelineListView.View()
-		case ViewPipelineRuns:
-			content = m.pipelineRunsView.View()
-		case ViewPipelineRun:
-			content = m.pipelineRunView.View()
-		}
-	}
-
-	topBar := m.topBar.View()
-	statusBar := m.statusBar.View()
-	commandBar := m.commandBar.View()
-
-	if commandBar != "" {
-		return topBar + "\n" + content + "\n" + commandBar
-	}
-
-	return topBar + "\n" + content + "\n" + statusBar
+	return lipgloss.JoinVertical(lipgloss.Left,
+		m.topBar.View(),
+		m.renderContent(),
+		m.commandBar.View(),
+		m.statusBar.View(m.helpLine()),
+	)
 }
 
 func (m Model) handleCommand() (tea.Model, tea.Cmd) {
@@ -851,7 +809,7 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 		if pr != nil {
 			m.state = ViewPRInspect
 			m.topBar.SetContext(pr.Repository.FullName, fmt.Sprintf("%d", pr.Number))
-			m.topBar.SetView("PR Inspect")
+			m.topBar.SetView(components.ViewNamePRInspect)
 			m.updateShortcuts()
 			return m, tea.Batch(
 				m.loadPRDetail(*pr),
@@ -964,21 +922,21 @@ func (m Model) navigateBack() (tea.Model, tea.Cmd) {
 		m.topBar.SetContext("", "")
 		m.topBar.SetStats(0, 0)
 		m.topBar.SetPRBreakdown(0, 0, 0)
-		m.topBar.SetView("PATs")
+		m.topBar.SetView(components.ViewNamePATs)
 		m.updateShortcuts()
 		return m, nil
 	case ViewPRInspect:
 		if m.prInspect.GetMode() == views.PRInspectModeDiff {
 			logger.Log("UI: Navigating back from PR Diff to PR Description")
 			m.prInspect.SwitchToDescription()
-			m.topBar.SetView("PR Description")
+			m.topBar.SetView(components.ViewNamePRDescription)
 			m.updateShortcuts()
 			return m, nil
 		}
 		logger.Log("UI: Navigating back from PR Inspect to PR List")
 		m.state = ViewPRList
 		m.topBar.SetContext("", "")
-		m.topBar.SetView("PR List")
+		m.topBar.SetView(components.ViewNamePRList)
 		m.updateShortcuts()
 		return m, nil
 	case ViewPipelineList:
@@ -986,7 +944,7 @@ func (m Model) navigateBack() (tea.Model, tea.Cmd) {
 		m.state = ViewPRList
 		m.pipelineWatchID++
 		m.topBar.SetPipelineContext("", "", "")
-		m.topBar.SetView("PR List")
+		m.topBar.SetView(components.ViewNamePRList)
 		m.updateShortcuts()
 		return m, m.loadPRsWithCache()
 	case ViewPipelineRuns:
@@ -1509,9 +1467,9 @@ type ErrorMsg struct {
 }
 
 type SuccessMsg struct {
-	message             string
-	reloadComments      bool
-	reloadCommentsPR    *domain.PullRequest
+	message          string
+	reloadComments   bool
+	reloadCommentsPR *domain.PullRequest
 }
 
 type MergeSuccessMsg struct {
@@ -1697,4 +1655,17 @@ func (m Model) updateLinkedRepoInfo(pr *domain.PullRequest) {
 	}
 
 	m.topBar.SetLinkedRepo(link.LocalPath, status.CurrentBranch)
+}
+
+func topBarAccounts(pats []domain.PAT) []components.Account {
+	accounts := make([]components.Account, len(pats))
+	for i, pat := range pats {
+		accounts[i] = components.Account{
+			Name:     pat.Name,
+			Provider: string(pat.Provider),
+			Selected: pat.IsSelected,
+			Primary:  pat.IsPrimary,
+		}
+	}
+	return accounts
 }

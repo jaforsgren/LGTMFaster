@@ -4,11 +4,14 @@ import (
 	"fmt"
 	"os/exec"
 	"runtime"
+	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/atotto/clipboard"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/johanforsgren/lgtmfaster/internal/domain"
+	"github.com/johanforsgren/lgtmfaster/internal/ui/components"
 	"github.com/johanforsgren/lgtmfaster/internal/ui/views"
 )
 
@@ -26,17 +29,24 @@ type Command struct {
 }
 
 type KeyBinding struct {
-	Keys             []string
-	Description      string
-	ShortHelp        string
-	Handler          KeyHandler
-	AvailableIn      []ViewState
+	Keys               []string
+	Description        string
+	ShortHelp          string
+	Handler            KeyHandler
+	AvailableIn        []ViewState
 	RequiresLinkedRepo bool
+	// Navigation bindings are listed in the status bar help line instead of the top bar shortcuts.
+	Navigation bool
 }
+
+const helpSeparator = " | "
 
 var allViewStates = []ViewState{ViewPATs, ViewPRList, ViewPRInspect, ViewPipelineList, ViewPipelineRuns, ViewPipelineRun}
 
 var pipelineViewStates = []ViewState{ViewPipelineList, ViewPipelineRuns, ViewPipelineRun}
+
+// splitViewStates are the lists with a details pane beside them.
+var splitViewStates = []ViewState{ViewPRList, ViewPipelineList, ViewPipelineRuns}
 
 type CommandRegistry struct {
 	commands    map[string]*Command
@@ -50,6 +60,7 @@ func NewCommandRegistry() *CommandRegistry {
 	}
 	registry.registerCommands()
 	registry.registerKeyBindings()
+	registry.registerPipelineSortBindings()
 	return registry
 }
 
@@ -148,281 +159,316 @@ func (cr *CommandRegistry) registerCommands() {
 func (cr *CommandRegistry) registerKeyBindings() {
 	cr.keyBindings = []*KeyBinding{
 		{
-			Keys:        []string{"q", "ctrl+c"},
-			Description: "Quit/Back",
-			ShortHelp:   "q",
+			Keys:        []string{keyQuit},
+			Description: "back (quit at the top)",
+			ShortHelp:   keyQuit,
 			Handler:     handleQuitKey,
 			AvailableIn: allViewStates,
+			Navigation:  true,
 		},
 		{
-			Keys:        []string{"enter"},
-			Description: "Select",
-			ShortHelp:   "enter",
+			Keys:        []string{keyEnter},
+			Description: "select",
+			ShortHelp:   keyEnter,
 			Handler:     handleEnterKey,
 			AvailableIn: []ViewState{ViewPATs, ViewPRList, ViewPRInspect, ViewPipelineList, ViewPipelineRuns},
+			Navigation:  true,
 		},
 		{
-			Keys:        []string{" "},
+			Keys:        []string{keySpace},
 			Description: "Toggle selection (multi-select)",
 			ShortHelp:   "space",
 			Handler:     handleSpaceKey,
 			AvailableIn: []ViewState{ViewPATs},
 		},
 		{
-			Keys:        []string{"backspace", "h"},
-			Description: "Back",
-			ShortHelp:   "h",
+			Keys:        []string{keyBackspace, keyBack},
+			Description: "back",
+			ShortHelp:   keyBack,
 			Handler:     handleBackKey,
 			AvailableIn: []ViewState{ViewPRList, ViewPRInspect, ViewPipelineList, ViewPipelineRuns, ViewPipelineRun},
+			Navigation:  true,
 		},
 		{
-			Keys:        []string{"up", "k"},
-			Description: "Navigate up",
-			ShortHelp:   "j/k",
+			Keys:        []string{keyUp, keyUpVim},
+			Description: "navigate",
+			ShortHelp:   keyDownVim + "/" + keyUpVim,
 			Handler:     handleUpKey,
 			AvailableIn: allViewStates,
+			Navigation:  true,
 		},
 		{
-			Keys:        []string{"down", "j"},
-			Description: "Navigate down",
-			ShortHelp:   "",
+			Keys:        []string{keyDown, keyDownVim},
+			Description: "navigate",
+			ShortHelp:   keyDownVim + "/" + keyUpVim,
 			Handler:     handleDownKey,
 			AvailableIn: allViewStates,
+			Navigation:  true,
 		},
 		{
-			Keys:        []string{"a"},
+			Keys:        []string{keyFocusPaneIn},
+			Description: "focus pane",
+			ShortHelp:   "→/←",
+			Handler:     handleFocusPaneInKey,
+			AvailableIn: splitViewStates,
+			Navigation:  true,
+		},
+		{
+			Keys:        []string{keyFocusPaneOut},
+			Description: "focus pane",
+			ShortHelp:   "→/←",
+			Handler:     handleFocusPaneOutKey,
+			AvailableIn: splitViewStates,
+			Navigation:  true,
+		},
+		{
+			Keys:        []string{keyFilter},
+			Description: "filter",
+			ShortHelp:   keyFilter,
+			Handler:     handleFilterKey,
+			AvailableIn: []ViewState{ViewPRList, ViewPipelineList, ViewPipelineRuns},
+			Navigation:  true,
+		},
+		{
+			Keys:        []string{keyEsc},
+			Description: "cancel/back",
+			ShortHelp:   keyEsc,
+			Handler:     handleEscKey,
+			AvailableIn: allViewStates,
+			Navigation:  true,
+		},
+		{
+			Keys:        []string{keyCommand},
+			Description: "command",
+			ShortHelp:   keyCommand,
+			Handler:     handleColonKey,
+			AvailableIn: allViewStates,
+			Navigation:  true,
+		},
+		{
+			Keys:        []string{keyAdd},
 			Description: "Add PAT",
-			ShortHelp:   "a",
+			ShortHelp:   keyAdd,
 			Handler:     handleAddKey,
 			AvailableIn: []ViewState{ViewPATs},
 		},
 		{
-			Keys:        []string{"d"},
+			Keys:        []string{keyDelete},
 			Description: "Delete PAT",
-			ShortHelp:   "d",
+			ShortHelp:   keyDelete,
 			Handler:     handleDeleteKey,
 			AvailableIn: []ViewState{ViewPATs},
 		},
 		{
-			Keys:        []string{"e"},
+			Keys:        []string{keyEdit},
 			Description: "Edit PAT",
-			ShortHelp:   "e",
+			ShortHelp:   keyEdit,
 			Handler:     handleEditKey,
 			AvailableIn: []ViewState{ViewPATs},
 		},
 		{
-			Keys:        []string{"r"},
+			Keys:        []string{keyTogglePane},
+			Description: "Toggle details pane",
+			ShortHelp:   keyTogglePane,
+			Handler:     handleTogglePreviewKey,
+			AvailableIn: splitViewStates,
+		},
+		{
+			Keys:        []string{keyRefresh},
 			Description: "Refresh",
-			ShortHelp:   "r",
+			ShortHelp:   keyRefresh,
 			Handler:     handleRefreshKey,
 			AvailableIn: []ViewState{ViewPRList, ViewPipelineList, ViewPipelineRuns, ViewPipelineRun},
 		},
 		{
-			Keys:        []string{"/"},
-			Description: "Filter",
-			ShortHelp:   "/",
-			Handler:     handleFilterKey,
-			AvailableIn: []ViewState{ViewPRList, ViewPipelineList, ViewPipelineRuns},
-		},
-		{
-			Keys:        []string{"n"},
-			Description: "Next file",
-			ShortHelp:   "n/p",
-			Handler:     handleNextFileKey,
-			AvailableIn: []ViewState{ViewPRInspect},
-		},
-		{
-			Keys:        []string{"p"},
-			Description: "Previous file",
-			ShortHelp:   "",
-			Handler:     handlePrevFileKey,
-			AvailableIn: []ViewState{ViewPRInspect},
-		},
-		{
-			Keys:        []string{"c"},
-			Description: "View comments",
-			ShortHelp:   "c",
-			Handler:     handleViewCommentsKey,
-			AvailableIn: []ViewState{ViewPRInspect},
-		},
-		{
-			Keys:        []string{"a"},
-			Description: "Approve PR",
-			ShortHelp:   "a",
-			Handler:     handleApproveKey,
-			AvailableIn: []ViewState{ViewPRInspect},
-		},
-		{
-			Keys:        []string{"r"},
-			Description: "Request changes",
-			ShortHelp:   "r",
-			Handler:     handleRequestChangesKey,
-			AvailableIn: []ViewState{ViewPRInspect},
-		},
-		{
-			Keys:        []string{"d"},
-			Description: "View diff",
-			ShortHelp:   "d",
-			Handler:     handleViewDiffKey,
-			AvailableIn: []ViewState{ViewPRInspect},
-		},
-		{
-			Keys:        []string{"m"},
-			Description: "Merge PR",
-			ShortHelp:   "m",
-			Handler:     handleMergeKey,
-			AvailableIn: []ViewState{ViewPRInspect},
-		},
-		{
-			Keys:        []string{"i"},
-			Description: "Inline comment on line",
-			ShortHelp:   "i",
-			Handler:     handleInlineCommentKey,
-			AvailableIn: []ViewState{ViewPRInspect},
-		},
-		{
-			Keys:        []string{"f"},
-			Description: "Toggle diff view mode",
-			ShortHelp:   "f",
-			Handler:     handleToggleDiffViewKey,
-			AvailableIn: []ViewState{ViewPRInspect},
-		},
-		{
-			Keys:        []string{"y"},
-			Description: "Yank current file diff",
-			ShortHelp:   "y",
-			Handler:     handleYankCurrentFileKey,
-			AvailableIn: []ViewState{ViewPRInspect},
-		},
-		{
-			Keys:        []string{"Y"},
-			Description: "Yank all files diff",
-			ShortHelp:   "Y",
-			Handler:     handleYankAllFilesKey,
-			AvailableIn: []ViewState{ViewPRInspect},
-		},
-		{
-			Keys:        []string{"e"},
-			Description: "Edit PR description",
-			ShortHelp:   "e",
-			Handler:     handleEditDescriptionKey,
-			AvailableIn: []ViewState{ViewPRInspect},
-		},
-		{
-			Keys:        []string{"left"},
-			Description: "Previous file",
-			ShortHelp:   "",
-			Handler:     handlePrevFileKey,
-			AvailableIn: []ViewState{ViewPRInspect},
-		},
-		{
-			Keys:        []string{"right"},
-			Description: "Next file",
-			ShortHelp:   "",
-			Handler:     handleNextFileKey,
-			AvailableIn: []ViewState{ViewPRInspect},
-		},
-		{
-			Keys:        []string{":"},
-			Description: "Command mode",
-			ShortHelp:   ":",
-			Handler:     handleColonKey,
-			AvailableIn: allViewStates,
-		},
-		{
-			Keys:        []string{"ctrl+s"},
-			Description: "Submit review",
-			ShortHelp:   "ctrl+s",
-			Handler:     handleReviewSubmitKey,
-			AvailableIn: []ViewState{ViewPRInspect},
-		},
-		{
-			Keys:        []string{"esc"},
-			Description: "Cancel/Back",
-			ShortHelp:   "esc",
-			Handler:     handleEscKey,
-			AvailableIn: allViewStates,
-		},
-		{
-			Keys:        []string{"ctrl+o"},
+			Keys:        []string{keyOpenBrowser},
 			Description: "Open in browser",
-			ShortHelp:   "ctrl+o",
+			ShortHelp:   keyOpenBrowser,
 			Handler:     handleOpenBrowserKey,
 			AvailableIn: []ViewState{ViewPRList, ViewPRInspect, ViewPipelineList, ViewPipelineRuns, ViewPipelineRun},
 		},
 		{
-			Keys:               []string{"g"},
+			Keys:        []string{keyNextFile, keyFocusPaneIn},
+			Description: "Next/previous file",
+			ShortHelp:   keyNextFile + "/" + keyPrevFile,
+			Handler:     handleNextFileKey,
+			AvailableIn: []ViewState{ViewPRInspect},
+		},
+		{
+			Keys:        []string{keyPrevFile, keyFocusPaneOut},
+			Description: "Next/previous file",
+			ShortHelp:   keyNextFile + "/" + keyPrevFile,
+			Handler:     handlePrevFileKey,
+			AvailableIn: []ViewState{ViewPRInspect},
+		},
+		{
+			Keys:        []string{keyViewDiff},
+			Description: "View diff",
+			ShortHelp:   keyViewDiff,
+			Handler:     handleViewDiffKey,
+			AvailableIn: []ViewState{ViewPRInspect},
+		},
+		{
+			Keys:        []string{keyComments},
+			Description: "View comments",
+			ShortHelp:   keyComments,
+			Handler:     handleViewCommentsKey,
+			AvailableIn: []ViewState{ViewPRInspect},
+		},
+		{
+			Keys:        []string{keyApprove},
+			Description: "Approve PR",
+			ShortHelp:   keyApprove,
+			Handler:     handleApproveKey,
+			AvailableIn: []ViewState{ViewPRInspect},
+		},
+		{
+			Keys:        []string{keyRequestChange},
+			Description: "Request changes",
+			ShortHelp:   keyRequestChange,
+			Handler:     handleRequestChangesKey,
+			AvailableIn: []ViewState{ViewPRInspect},
+		},
+		{
+			Keys:        []string{keyMerge},
+			Description: "Merge PR",
+			ShortHelp:   keyMerge,
+			Handler:     handleMergeKey,
+			AvailableIn: []ViewState{ViewPRInspect},
+		},
+		{
+			Keys:        []string{keyInlineComment},
+			Description: "Inline comment on line",
+			ShortHelp:   keyInlineComment,
+			Handler:     handleInlineCommentKey,
+			AvailableIn: []ViewState{ViewPRInspect},
+		},
+		{
+			Keys:        []string{keyToggleDiff},
+			Description: "Toggle diff view mode",
+			ShortHelp:   keyToggleDiff,
+			Handler:     handleToggleDiffViewKey,
+			AvailableIn: []ViewState{ViewPRInspect},
+		},
+		{
+			Keys:        []string{keyYankFile},
+			Description: "Yank current file diff",
+			ShortHelp:   keyYankFile,
+			Handler:     handleYankCurrentFileKey,
+			AvailableIn: []ViewState{ViewPRInspect},
+		},
+		{
+			Keys:        []string{keyYankAll},
+			Description: "Yank all files diff",
+			ShortHelp:   keyYankAll,
+			Handler:     handleYankAllFilesKey,
+			AvailableIn: []ViewState{ViewPRInspect},
+		},
+		{
+			Keys:        []string{keyEdit},
+			Description: "Edit PR description",
+			ShortHelp:   keyEdit,
+			Handler:     handleEditDescriptionKey,
+			AvailableIn: []ViewState{ViewPRInspect},
+		},
+		{
+			Keys:        []string{keySubmitReview},
+			Description: "Submit review",
+			ShortHelp:   keySubmitReview,
+			Handler:     handleReviewSubmitKey,
+			AvailableIn: []ViewState{ViewPRInspect},
+		},
+		{
+			Keys:        []string{keyLinkRepo},
+			Description: "Link to local repo",
+			ShortHelp:   keyLinkRepo,
+			Handler:     handleLinkKey,
+			AvailableIn: []ViewState{ViewPRInspect},
+		},
+		{
+			Keys:               []string{keyCheckout},
 			Description:        "Checkout branch",
-			ShortHelp:          "g",
+			ShortHelp:          keyCheckout,
 			Handler:            handleCheckoutKey,
 			AvailableIn:        []ViewState{ViewPRInspect},
 			RequiresLinkedRepo: true,
 		},
 		{
-			Keys:               []string{"o"},
+			Keys:               []string{keyOpenFolder},
 			Description:        "Open local repo folder",
-			ShortHelp:          "o",
+			ShortHelp:          keyOpenFolder,
 			Handler:            handleOpenFolderKey,
 			AvailableIn:        []ViewState{ViewPRInspect},
 			RequiresLinkedRepo: true,
 		},
 		{
-			Keys:               []string{"P"},
+			Keys:               []string{keyPull},
 			Description:        "Pull latest changes",
-			ShortHelp:          "P",
+			ShortHelp:          keyPull,
 			Handler:            handlePullKey,
 			AvailableIn:        []ViewState{ViewPRInspect},
 			RequiresLinkedRepo: true,
 		},
 		{
-			Keys:        []string{"a"},
+			Keys:        []string{keyApprove},
 			Description: "Approve stage",
-			ShortHelp:   "a",
+			ShortHelp:   keyApprove,
 			Handler:     handleApproveStageKey,
 			AvailableIn: []ViewState{ViewPipelineRun},
 		},
 		{
-			Keys:        []string{"x"},
+			Keys:        []string{keyReject},
 			Description: "Reject stage",
-			ShortHelp:   "x",
+			ShortHelp:   keyReject,
 			Handler:     handleRejectStageKey,
 			AvailableIn: []ViewState{ViewPipelineRun},
 		},
 		{
-			Keys:        []string{"z"},
+			Keys:        []string{keyFold},
 			Description: "Fold/unfold",
-			ShortHelp:   "z",
+			ShortHelp:   keyFold,
 			Handler:     handleFoldKey,
 			AvailableIn: []ViewState{ViewPipelineList},
 		},
 		{
-			Keys:        []string{"Z"},
+			Keys:        []string{keyFoldAll},
 			Description: "Fold/unfold all",
-			ShortHelp:   "Z",
+			ShortHelp:   keyFoldAll,
 			Handler:     handleFoldAllKey,
 			AvailableIn: []ViewState{ViewPipelineList},
 		},
 		{
-			Keys:        []string{"f"},
+			Keys:        []string{keyFavorite},
 			Description: "Toggle favorite",
-			ShortHelp:   "f",
+			ShortHelp:   keyFavorite,
 			Handler:     handleFavoriteKey,
 			AvailableIn: pipelineViewStates,
 		},
-		{
-			Keys:        []string{"tab"},
-			Description: "Toggle details pane",
-			ShortHelp:   "tab",
-			Handler:     handleTogglePreviewKey,
-			AvailableIn: []ViewState{ViewPipelineList, ViewPipelineRuns},
-		},
-		{
-			Keys:        []string{"L"},
-			Description: "Link to local repo",
-			ShortHelp:   "L",
-			Handler:     handleLinkKey,
-			AvailableIn: []ViewState{ViewPRInspect},
-		},
+	}
+}
+
+// registerPipelineSortBindings binds the number keys to sort modes. Only the first binding carries
+// a ShortHelp so the top bar shows a single "<0-5> Sort" hint instead of one per mode.
+func (cr *CommandRegistry) registerPipelineSortBindings() {
+	lastIndex := len(domain.PipelineSortModes) - 1
+	for i, mode := range domain.PipelineSortModes {
+		binding := &KeyBinding{
+			Keys:        []string{strconv.Itoa(i)},
+			Description: "Sort " + views.PipelineSortModeLabel(mode),
+			Handler:     sortPipelinesHandler(mode),
+			AvailableIn: []ViewState{ViewPipelineList},
+		}
+		if i == 0 {
+			binding.Description = "Sort (fav/proj/repo/name/run/status)"
+			binding.ShortHelp = fmt.Sprintf("0-%d", lastIndex)
+		}
+		cr.keyBindings = append(cr.keyBindings, binding)
+	}
+}
+
+func sortPipelinesHandler(mode domain.PipelineSortMode) KeyHandler {
+	return func(m Model) (Model, tea.Cmd) {
+		return m.setPipelineSortMode(mode)
 	}
 }
 
@@ -483,34 +529,54 @@ func (cr *CommandRegistry) GenerateHelpText() string {
 		if len(cmd.Aliases) > 0 {
 			nameWithAliases += "/:" + strings.Join(cmd.Aliases, "/:")
 		}
+		if cmd.Description != "" {
+			nameWithAliases += " (" + cmd.Description + ")"
+		}
 		parts = append(parts, nameWithAliases)
 	}
 
+	slices.Sort(parts)
 	return "Commands: " + strings.Join(parts, " | ")
 }
 
+// GetContextualShortcuts lists the view's actions for the top bar.
 func (cr *CommandRegistry) GetContextualShortcuts(state ViewState, hasLinkedRepo bool) []string {
 	var shortcuts []string
+	for _, kb := range cr.visibleBindings(state, hasLinkedRepo, false) {
+		shortcuts = append(shortcuts, fmt.Sprintf("<%s> %s", kb.ShortHelp, kb.Description))
+	}
+	return shortcuts
+}
+
+// NavigationHelp lists the view's navigation keys for the status bar help line.
+func (cr *CommandRegistry) NavigationHelp(state ViewState) string {
+	var hints []string
+	for _, kb := range cr.visibleBindings(state, false, true) {
+		hints = append(hints, kb.ShortHelp+": "+kb.Description)
+	}
+	return strings.Join(hints, helpSeparator)
+}
+
+// visibleBindings returns one binding per hint, in registration order, that is either a
+// navigation binding or an action binding as navigation asks.
+func (cr *CommandRegistry) visibleBindings(state ViewState, hasLinkedRepo, navigation bool) []*KeyBinding {
+	var bindings []*KeyBinding
 	seen := make(map[string]bool)
 
 	for _, kb := range cr.keyBindings {
-		if !isInViews(state, kb.AvailableIn) {
+		if kb.Navigation != navigation || !isInViews(state, kb.AvailableIn) {
 			continue
 		}
 		if kb.RequiresLinkedRepo && !hasLinkedRepo {
 			continue
 		}
-		if kb.Description == "" || kb.ShortHelp == "" {
-			continue
-		}
-		if seen[kb.ShortHelp] {
+		if kb.Description == "" || kb.ShortHelp == "" || seen[kb.ShortHelp] {
 			continue
 		}
 		seen[kb.ShortHelp] = true
-		shortcuts = append(shortcuts, fmt.Sprintf("<%s> %s", kb.ShortHelp, kb.Description))
+		bindings = append(bindings, kb)
 	}
-
-	return shortcuts
+	return bindings
 }
 
 func (cr *CommandRegistry) GetAutocompleteSuggestion(input string, state ViewState) string {
@@ -548,7 +614,7 @@ func isInViews(state ViewState, states []ViewState) bool {
 
 func handlePATsCommand(m Model, args []string) (Model, tea.Cmd) {
 	m.state = ViewPATs
-	m.topBar.SetView("PATs")
+	m.topBar.SetView(components.ViewNamePATs)
 	m.topBar.SetContext("", "")
 	m.topBar.SetStats(0, 0)
 	m.topBar.SetPRBreakdown(0, 0, 0)
@@ -575,17 +641,17 @@ func handleLogsCommand(m Model, args []string) (Model, tea.Cmd) {
 }
 
 func handleQuitCommand(m Model, args []string) (Model, tea.Cmd) {
-	return m, tea.Quit
+	return m.quit()
 }
 
 func handleQuitKey(m Model) (Model, tea.Cmd) {
 	if m.state == ViewPATs {
-		return m, tea.Quit
+		return m.quit()
 	}
 
 	if m.state == ViewPRInspect && m.prInspect.GetMode() == views.PRInspectModeDiff {
 		m.prInspect.SwitchToDescription()
-		m.topBar.SetView("PR Description")
+		m.topBar.SetView(components.ViewNamePRDescription)
 		m.updateShortcuts()
 		return m, nil
 	}
@@ -613,7 +679,7 @@ func handleEnterKey(m Model) (Model, tea.Cmd) {
 			m.state = ViewPRInspect
 			m.prInspect.SwitchToDescription()
 			m.topBar.SetContext(pr.Repository.FullName, fmt.Sprintf("%d", pr.Number))
-			m.topBar.SetView("PR Description")
+			m.topBar.SetView(components.ViewNamePRDescription)
 			m.updateShortcuts()
 			return m, tea.Batch(
 				m.loadPRDetail(*pr),
@@ -651,11 +717,14 @@ func handleBackKey(m Model) (Model, tea.Cmd) {
 
 func handleUpKey(m Model) (Model, tea.Cmd) {
 	var cmd tea.Cmd
+	if m.scrollFocusedPane(-paneScrollStep) {
+		return m, nil
+	}
 	switch m.state {
 	case ViewPATs:
 		cmd = m.patsView.Update(tea.KeyMsg{Type: tea.KeyUp})
 	case ViewPRList:
-		cmd = m.prListView.Update(tea.KeyMsg{Type: tea.KeyUp})
+		m.prListView.MoveUp()
 	case ViewPRInspect:
 		if m.prInspect.GetMode() == views.PRInspectModeDiff {
 			m.prInspect.PrevLine()
@@ -676,11 +745,14 @@ func handleUpKey(m Model) (Model, tea.Cmd) {
 
 func handleDownKey(m Model) (Model, tea.Cmd) {
 	var cmd tea.Cmd
+	if m.scrollFocusedPane(paneScrollStep) {
+		return m, nil
+	}
 	switch m.state {
 	case ViewPATs:
 		cmd = m.patsView.Update(tea.KeyMsg{Type: tea.KeyDown})
 	case ViewPRList:
-		cmd = m.prListView.Update(tea.KeyMsg{Type: tea.KeyDown})
+		m.prListView.MoveDown()
 	case ViewPRInspect:
 		if m.prInspect.GetMode() == views.PRInspectModeDiff {
 			m.prInspect.NextLine()
@@ -755,7 +827,7 @@ func handleFilterKey(m Model) (Model, tea.Cmd) {
 func handleViewDiffKey(m Model) (Model, tea.Cmd) {
 	if m.state == ViewPRInspect {
 		m.prInspect.SwitchToDiff()
-		m.topBar.SetView("PR Diff")
+		m.topBar.SetView(components.ViewNamePRDiff)
 		m.updateShortcuts()
 	}
 	return m, nil
@@ -851,6 +923,9 @@ func handleReviewSubmitKey(m Model) (Model, tea.Cmd) {
 }
 
 func handleEscKey(m Model) (Model, tea.Cmd) {
+	if m.isPaneFocused() {
+		return handleFocusPaneOutKey(m)
+	}
 	if m.state == ViewPATs && (m.patsView.Mode == views.PATModeAdd || m.patsView.Mode == views.PATModeEdit) {
 		m.patsView.ExitEditMode()
 		return m, nil
@@ -929,10 +1004,6 @@ func handleFavoriteKey(m Model) (Model, tea.Cmd) {
 		return m, nil
 	}
 	return m.togglePipelineFavorite()
-}
-
-func handleTogglePreviewKey(m Model) (Model, tea.Cmd) {
-	return m.togglePipelinePreview()
 }
 
 func handleApproveStageKey(m Model) (Model, tea.Cmd) {

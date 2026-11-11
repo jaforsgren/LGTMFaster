@@ -53,6 +53,37 @@ func PipelineRunFavoriteKey(patID, project string, runID int) string {
 	return fmt.Sprintf("%s:%s:%s:%d", favoriteKindRun, patID, project, runID)
 }
 
+type PipelineSortMode string
+
+const (
+	PipelineSortFavorites  PipelineSortMode = "favorites"
+	PipelineSortProject    PipelineSortMode = "project"
+	PipelineSortRepository PipelineSortMode = "repository"
+	PipelineSortPipeline   PipelineSortMode = "pipeline"
+	PipelineSortLastRun    PipelineSortMode = "last_run"
+	PipelineSortStatus     PipelineSortMode = "status"
+)
+
+// PipelineSortModes is ordered by the number key that selects each mode.
+var PipelineSortModes = []PipelineSortMode{
+	PipelineSortFavorites,
+	PipelineSortProject,
+	PipelineSortRepository,
+	PipelineSortPipeline,
+	PipelineSortLastRun,
+	PipelineSortStatus,
+}
+
+// OrDefault maps unset or unknown modes (e.g. hand-edited settings) to the favorites mode.
+func (m PipelineSortMode) OrDefault() PipelineSortMode {
+	for _, mode := range PipelineSortModes {
+		if m == mode {
+			return m
+		}
+	}
+	return PipelineSortFavorites
+}
+
 type ApprovalDecision string
 
 const (

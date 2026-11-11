@@ -20,7 +20,7 @@ type PipelineRunsViewModel struct {
 	previewPending map[string]bool
 	cursor         listCursor
 	filter         listFilter
-	pane           splitPane
+	split          splitView
 	width          int
 	height         int
 }
@@ -38,7 +38,7 @@ func NewPipelineRunsView() *PipelineRunsViewModel {
 func (m *PipelineRunsViewModel) SetSize(width, height int) {
 	m.width = width
 	m.height = height
-	m.cursor.SetVisibleRows(height - pipelineListChromeRows)
+	m.cursor.SetVisibleRows(height - listChromeRows)
 }
 
 func (m *PipelineRunsViewModel) SetPipeline(pipeline domain.Pipeline) {
@@ -59,18 +59,34 @@ func (m *PipelineRunsViewModel) SetFavorites(favorites map[string]bool) {
 }
 
 func (m *PipelineRunsViewModel) TogglePreview() {
-	m.pane.Toggle()
+	m.split.Toggle()
 }
 
 func (m *PipelineRunsViewModel) IsPreviewOpen() bool {
-	return m.pane.IsOpen()
+	return m.split.IsOpen()
+}
+
+func (m *PipelineRunsViewModel) FocusNextPane() {
+	m.split.FocusNext(len(m.detailPanes()))
+}
+
+func (m *PipelineRunsViewModel) FocusPrevPane() {
+	m.split.FocusPrev()
+}
+
+func (m *PipelineRunsViewModel) IsPaneFocused() bool {
+	return m.split.IsDetailFocused()
+}
+
+func (m *PipelineRunsViewModel) ScrollPane(delta int) {
+	m.split.ScrollFocused(m.detailPanes(), delta, m.width, m.height)
 }
 
 // NextPreviewRequest returns the selected run when the open pane needs its stages fetched,
 // and marks the request in flight so cursor movement does not refetch it.
 func (m *PipelineRunsViewModel) NextPreviewRequest() *domain.PipelineRun {
 	run := m.GetSelectedRun()
-	if !m.pane.IsOpen() || run == nil {
+	if !m.split.IsOpen() || run == nil {
 		return nil
 	}
 	key := run.FavoriteKey()
@@ -116,6 +132,17 @@ func (m *PipelineRunsViewModel) selectRun(run *domain.PipelineRun) {
 	}
 }
 
+// SelectRun moves the cursor to the run with key and reports whether it is listed.
+func (m *PipelineRunsViewModel) SelectRun(key string) bool {
+	for i, run := range m.visibleRuns {
+		if run.FavoriteKey() == key {
+			m.cursor.SetIndex(i, len(m.visibleRuns))
+			return true
+		}
+	}
+	return false
+}
+
 func (m *PipelineRunsViewModel) GetSelectedRun() *domain.PipelineRun {
 	idx := m.cursor.Index()
 	if idx < 0 || idx >= len(m.visibleRuns) {
@@ -126,10 +153,12 @@ func (m *PipelineRunsViewModel) GetSelectedRun() *domain.PipelineRun {
 
 func (m *PipelineRunsViewModel) MoveUp() {
 	m.cursor.MoveUp()
+	m.split.ResetScroll()
 }
 
 func (m *PipelineRunsViewModel) MoveDown() {
 	m.cursor.MoveDown(len(m.visibleRuns))
+	m.split.ResetScroll()
 }
 
 func (m *PipelineRunsViewModel) ActivateFilter() {
@@ -184,8 +213,8 @@ func (m *PipelineRunsViewModel) columns() []listColumn {
 		minRunWidth    = 16
 		columnSpacing  = 5
 	)
-	listWidth := m.pane.ListWidth(m.width)
-	if m.pane.IsOpen() {
+	listWidth := m.split.ListWidth(m.width)
+	if m.split.IsOpen() {
 		return []listColumn{
 			{"Run", flexColumnWidth(listWidth, statusWidth+1, minRunWidth)},
 			{"Status", statusWidth},
@@ -205,38 +234,29 @@ func (m *PipelineRunsViewModel) columns() []listColumn {
 func (m *PipelineRunsViewModel) View() string {
 	var b strings.Builder
 
-	title := "Pipeline Runs"
+	pipelineName := "Runs"
 	if m.pipeline != nil {
-		title = "Runs: " + PipelineDisplayName(*m.pipeline)
+		pipelineName = PipelineDisplayName(*m.pipeline)
 	}
-	b.WriteString(pipelineTitleStyle.Render(title))
+	b.WriteString(renderListTitle(pipelinesTitle, pipelineName))
+	b.WriteString(listMutedStyle.Render(autoRefreshingHint))
 	b.WriteString("\n\n")
 
 	switch {
 	case !m.loaded:
-		b.WriteString(pipelineMutedStyle.Render("Loading runs..."))
+		b.WriteString(listMutedStyle.Render("Loading runs..."))
 		b.WriteString("\n")
 	case len(m.visibleRuns) == 0 && m.filter.Text() != "":
-		b.WriteString(pipelineMutedStyle.Render("No runs match the filter."))
+		b.WriteString(listMutedStyle.Render("No runs match the filter."))
 		b.WriteString("\n")
 	case len(m.visibleRuns) == 0:
-		b.WriteString(pipelineMutedStyle.Render("This pipeline has no runs yet."))
+		b.WriteString(listMutedStyle.Render("This pipeline has no runs yet."))
 		b.WriteString("\n")
 	default:
-		columns := m.columns()
-		b.WriteString(renderListHeader(columns))
-		b.WriteString("\n")
-
-		start, end := m.cursor.VisibleRange(len(m.visibleRuns))
-		for i := start; i < end; i++ {
+		b.WriteString(renderListRows(m.columns(), len(m.visibleRuns), m.cursor, func(i int) listRow {
 			run := m.visibleRuns[i]
-			b.WriteString(renderRun(run, columns, m.favorites[run.FavoriteKey()], i == m.cursor.Index()))
-			b.WriteString("\n")
-		}
-		if len(m.visibleRuns) > end-start {
-			b.WriteString(renderScrollInfo(start, end, len(m.visibleRuns)))
-			b.WriteString("\n")
-		}
+			return runRow(run, m.favorites[run.FavoriteKey()])
+		}))
 	}
 
 	if m.filter.IsActive() {
@@ -244,25 +264,25 @@ func (m *PipelineRunsViewModel) View() string {
 		b.WriteString(m.filter.View())
 	}
 
-	b.WriteString("\n")
-	b.WriteString(pipelineMutedStyle.Render(m.helpText()))
-
-	title, lines := m.previewContent()
-	return m.pane.Render(b.String(), title, lines, m.width, m.cursor.visibleRows)
+	return m.split.Render(b.String(), m.detailPanes(), m.width, m.height)
 }
 
-func (m *PipelineRunsViewModel) previewContent() (string, []string) {
+func (m *PipelineRunsViewModel) detailPanes() []detailPane {
+	return []detailPane{m.stagesPane()}
+}
+
+func (m *PipelineRunsViewModel) stagesPane() detailPane {
 	run := m.GetSelectedRun()
 	if run == nil {
-		return "Stages", []string{pipelineMutedStyle.Render("No run selected.")}
+		return detailPane{title: "Stages", lines: []string{listMutedStyle.Render("No run selected.")}}
 	}
 	title := fmt.Sprintf("Stages of %s", valueOrPlaceholder(run.Number))
 	stages, loaded := m.previewStages[run.FavoriteKey()]
 	if !loaded {
-		return title, []string{pipelineMutedStyle.Render("Loading stages...")}
+		return detailPane{title: title, lines: []string{listMutedStyle.Render("Loading stages...")}}
 	}
 	if len(stages) == 0 {
-		return title, []string{pipelineMutedStyle.Render("This run has no stages.")}
+		return detailPane{title: title, lines: []string{listMutedStyle.Render("This run has no stages.")}}
 	}
 	lines := make([]string, 0, len(stages))
 	for _, stage := range stages {
@@ -272,28 +292,20 @@ func (m *PipelineRunsViewModel) previewContent() (string, []string) {
 		}
 		lines = append(lines, line)
 	}
-	return title, lines
+	return detailPane{title: title, lines: lines}
 }
 
-func renderRun(run domain.PipelineRun, columns []listColumn, isFavorite, selected bool) string {
-	values := []string{
-		favoritePrefix(isFavorite) + valueOrPlaceholder(run.Number),
-		PipelineStatusLabel(run.Status),
-		valueOrPlaceholder(run.SourceBranch),
-		valueOrPlaceholder(run.RequestedBy.Username),
-		formatOptionalAge(run.QueuedAt),
-		formatRunDuration(run),
+func runRow(run domain.PipelineRun, isFavorite bool) listRow {
+	return listRow{
+		icon: renderPipelineStatusIcon(run.Status),
+		values: []string{
+			favoritePrefix(isFavorite) + valueOrPlaceholder(run.Number),
+			PipelineStatusLabel(run.Status),
+			valueOrPlaceholder(run.SourceBranch),
+			valueOrPlaceholder(run.RequestedBy.Username),
+			formatOptionalAge(run.QueuedAt),
+			formatRunDuration(run),
+		},
+		style: listRowStyle,
 	}
-	return renderListRow(run.Status, columns, values[:len(columns)], selected)
-}
-
-func (m *PipelineRunsViewModel) helpText() string {
-	if m.filter.IsActive() {
-		return "Type to filter | Enter/Esc: Close"
-	}
-	help := "Enter: Inspect run | f: Favorite | Tab: Details | ctrl+o: Open run | r: Refresh | /: Filter | q: Back | auto-refreshing"
-	if m.filter.Text() != "" {
-		help = strings.Replace(help, "q: Back", "Esc: Clear filter | q: Back", 1)
-	}
-	return help
 }

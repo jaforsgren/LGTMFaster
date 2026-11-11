@@ -81,6 +81,7 @@ func (m Model) openPipelineList() (Model, tea.Cmd) {
 	m.state = ViewPipelineList
 	m.pipelineWatchID++
 	m.applyPipelineFavorites()
+	m.applyPipelinePreferences()
 	m.topBar.SetView(components.ViewNamePipelines)
 	m.topBar.SetPipelineContext("", "", "")
 	m.topBar.SetPipelineCount(m.pipelineListView.PipelineCount())
@@ -201,6 +202,7 @@ func schedulePipelineWatchTick(watchID int) tea.Cmd {
 }
 
 func (m Model) enterPipelineRuns(pipeline domain.Pipeline) (Model, tea.Cmd) {
+	m.markPipelineViewed(pipeline)
 	m.pipelineRunsView.SetPipeline(pipeline)
 	return m.showPipelineRuns()
 }
@@ -254,7 +256,8 @@ func (m Model) handlePipelinesLoaded(msg PipelinesLoadedMsg) (Model, tea.Cmd) {
 	} else {
 		m.statusBar.SetMessage(fmt.Sprintf("Loaded %d pipelines", len(msg.pipelines)), false)
 	}
-	return m, clearStatusAfterDelay(4 * time.Second)
+	m, resumeCmd := m.resumePipelines()
+	return m, tea.Batch(clearStatusAfterDelay(4*time.Second), resumeCmd)
 }
 
 func (m Model) handlePipelineRunsLoaded(msg PipelineRunsLoadedMsg) (Model, tea.Cmd) {
@@ -265,7 +268,7 @@ func (m Model) handlePipelineRunsLoaded(msg PipelineRunsLoadedMsg) (Model, tea.C
 		return m, nil
 	}
 	m.pipelineRunsView.SetRuns(msg.runs)
-	return m, nil
+	return m.resumePipelineRuns()
 }
 
 func (m Model) handlePipelineRunLoaded(msg PipelineRunLoadedMsg) (Model, tea.Cmd) {
@@ -434,6 +437,52 @@ func (m Model) applyPipelineFavorites() {
 	}
 }
 
+func (m Model) applyPipelinePreferences() {
+	if settings, err := m.repository.GetSettings(); err == nil {
+		m.pipelineListView.SetSortMode(settings.PipelineSortMode)
+	} else {
+		logger.LogError("LOAD_PIPELINE_SORT_MODE", "storage", err)
+	}
+
+	if lastViewed, err := m.repository.ListPipelineLastViewed(); err == nil {
+		m.pipelineListView.SetLastViewed(lastViewed)
+	} else {
+		logger.LogError("LOAD_PIPELINE_LAST_VIEWED", "storage", err)
+	}
+}
+
+func (m Model) markPipelineViewed(pipeline domain.Pipeline) {
+	if err := m.repository.MarkPipelineViewed(pipeline.FavoriteKey(), time.Now()); err != nil {
+		logger.LogError("MARK_PIPELINE_VIEWED", pipeline.FavoriteKey(), err)
+		return
+	}
+	if lastViewed, err := m.repository.ListPipelineLastViewed(); err == nil {
+		m.pipelineListView.SetLastViewed(lastViewed)
+	}
+}
+
+func (m Model) setPipelineSortMode(mode domain.PipelineSortMode) (Model, tea.Cmd) {
+	if m.state != ViewPipelineList {
+		return m, nil
+	}
+
+	m.pipelineListView.SetSortMode(mode)
+	label := views.PipelineSortModeLabel(mode)
+
+	settings, err := m.repository.GetSettings()
+	if err == nil {
+		settings.PipelineSortMode = mode
+		err = m.repository.SaveSettings(settings)
+	}
+	if err != nil {
+		m.statusBar.SetMessage(fmt.Sprintf("Sorted by %s (not saved: %v)", label, err), true)
+		return m, clearStatusAfterDelay(4 * time.Second)
+	}
+
+	m.statusBar.SetMessage("Sorted by "+label, false)
+	return m, tea.Batch(m.loadPipelinePreview(), clearStatusAfterDelay(4*time.Second))
+}
+
 // selectedFavoriteTarget returns the favorite key and display name of whatever is selected in the current pipeline view.
 func (m Model) selectedFavoriteTarget() (string, string) {
 	switch m.state {
@@ -488,18 +537,6 @@ func (m Model) loadPipelinePreview() tea.Cmd {
 		}
 	}
 	return nil
-}
-
-func (m Model) togglePipelinePreview() (Model, tea.Cmd) {
-	switch m.state {
-	case ViewPipelineList:
-		m.pipelineListView.TogglePreview()
-	case ViewPipelineRuns:
-		m.pipelineRunsView.TogglePreview()
-	default:
-		return m, nil
-	}
-	return m, m.loadPipelinePreview()
 }
 
 func isPipelineView(state ViewState) bool {

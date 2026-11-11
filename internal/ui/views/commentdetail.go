@@ -28,11 +28,14 @@ func NewCommentDetailView() *CommentDetailViewModel {
 	}
 }
 
+// commentDetailHelpRows is the blank line and help line under the viewport.
+const commentDetailHelpRows = 3
+
 func (m *CommentDetailViewModel) SetSize(width, height int) {
 	m.width = width
 	m.height = height
 	m.viewport.Width = width
-	m.viewport.Height = height - 10
+	m.viewport.Height = max(height-commentDetailHelpRows, minPaneSize)
 }
 
 func (m *CommentDetailViewModel) Activate(comments []domain.Comment, diff *domain.Diff) {

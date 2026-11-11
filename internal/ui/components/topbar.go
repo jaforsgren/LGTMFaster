@@ -5,13 +5,60 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 const (
-	ViewNamePipelines    = "Pipelines"
-	ViewNamePipelineRuns = "Pipeline Runs"
-	ViewNamePipelineRun  = "Pipeline Run"
+	ViewNamePATs          = "PATs"
+	ViewNamePRList        = "PR List"
+	ViewNamePRDescription = "PR Description"
+	ViewNamePRDiff        = "PR Diff"
+	ViewNamePRInspect     = "PR Inspect"
+	ViewNamePipelines     = "Pipelines"
+	ViewNamePipelineRuns  = "Pipeline Runs"
+	ViewNamePipelineRun   = "Pipeline Run"
 )
+
+const (
+	topBarSectionRows = 6 // rows under each section heading
+	topBarTitleRows   = 2 // the title and the blank line under it
+	topBarHeadingRows = 1
+	topBarPaddingRows = 2 // titleStyle's vertical padding
+	topBarPaddingCols = 2 // titleStyle's horizontal padding
+
+	// TopBarHeight is the rendered height; View truncates lines so they never wrap and grow it.
+	TopBarHeight = topBarTitleRows + topBarHeadingRows + topBarSectionRows + topBarPaddingRows
+
+	topBarTitle          = "LGTMFaster"
+	topBarNameMax        = 25
+	topBarPathMax        = 35
+	topBarSeparator      = " │ "
+	topBarShortcutsGap   = 3
+	accountActiveMarker  = "● "
+	accountPassiveMarker = "○ "
+	truncationTail       = "..."
+)
+
+var (
+	titleStyle           = lipgloss.NewStyle().Foreground(lipgloss.Color("6")).Background(lipgloss.Color("#000000")).Padding(1, 1)
+	titleOrangeStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true)
+	labelOrangeStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
+	valueWhiteStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("15"))
+	dimStyle             = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	activeStyle          = lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Bold(true)
+	shortcutBlueStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("33")).Bold(true)
+	descGrayStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("246"))
+	topBarHeadingStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Bold(true)
+	topBarSeparatorStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("238"))
+)
+
+// Account is a PAT as the top bar lists it.
+type Account struct {
+	Name     string
+	Provider string
+	Selected bool
+	Primary  bool
+}
 
 type TopBarModel struct {
 	width          int
@@ -29,6 +76,7 @@ type TopBarModel struct {
 	patProvider    string
 	selectedCount  int
 	totalPATCount  int
+	accounts       []Account
 	currentView    string
 	shortcuts      []string
 	linkedRepoPath string
@@ -38,14 +86,6 @@ type TopBarModel struct {
 	pipelineRun    string
 	pipelineCount  int
 }
-
-var (
-	titleStyle        = lipgloss.NewStyle().Padding(1, 2)
-	titleOrangeStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true)
-	valueWhiteStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("15"))
-	shortcutBlueStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("33")).Bold(true)
-	descGrayStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("246"))
-)
 
 func NewTopBar() *TopBarModel {
 	return &TopBarModel{}
@@ -94,6 +134,10 @@ func (m *TopBarModel) SetPATCounts(selected, total int) {
 	m.totalPATCount = total
 }
 
+func (m *TopBarModel) SetAccounts(accounts []Account) {
+	m.accounts = accounts
+}
+
 func (m *TopBarModel) SetView(view string) {
 	m.currentView = view
 }
@@ -126,256 +170,272 @@ func (m *TopBarModel) HasLinkedRepo() bool {
 	return m.linkedRepoPath != ""
 }
 
-const (
-	topBarRows            = 5
-	topBarContextColWidth = 45
-	topBarColumnMargin    = 4
-	topBarHorizontalPad   = 4
-)
-
+// View lays the context, the accounts and the shortcuts out as headed sections divided by
+// vertical rules.
 func (m *TopBarModel) View() string {
-	titleLine := titleOrangeStyle.Render("LGTMFaster")
-
-	contextLines := m.buildContextInfo()
-	availableWidth := m.width - topBarHorizontalPad - topBarContextColWidth
-	columns := layoutShortcutColumns(m.formattedShortcuts(), topBarRows, availableWidth)
-
-	topSection := []string{titleLine, ""}
-
-	for i := 0; i < topBarRows; i++ {
-		var contextCol string
-		if i < len(contextLines) {
-			contextCol = contextLines[i]
-		}
-
-		line := contextCol + strings.Repeat(" ", max(1, topBarContextColWidth-lipgloss.Width(contextCol)))
-		for c, column := range columns {
-			if i >= len(column.cells) {
-				continue
-			}
-			cell := column.cells[i]
-			line += cell
-			if c < len(columns)-1 {
-				line += strings.Repeat(" ", column.width-lipgloss.Width(cell)+topBarColumnMargin)
-			}
-		}
-
-		topSection = append(topSection, line)
+	sections := [][]string{
+		topBarSection("CONTEXT", m.buildContextInfo()),
+		topBarSection(m.accountsHeading(), m.buildAccountsSection()),
 	}
+	used := topBarPaddingCols
+	for _, section := range sections {
+		used += columnWidth(section) + lipgloss.Width(topBarSeparator)
+	}
+	sections = append(sections, topBarSection("SHORTCUTS", m.buildShortcutsDisplay(m.width-used)))
 
-	content := strings.Join(topSection, "\n")
-	return titleStyle.Width(m.width).Render(content)
+	lines := strings.Split(titleOrangeStyle.Render(topBarTitle)+"\n\n"+joinTopBarSections(sections), "\n")
+	for i := range lines {
+		lines[i] = ansi.Truncate(lines[i], max(m.width-topBarPaddingCols, 0), "")
+	}
+	return titleStyle.Width(m.width).Render(strings.Join(lines, "\n"))
+}
+
+func topBarSection(heading string, lines []string) []string {
+	if len(lines) > topBarSectionRows {
+		lines = lines[:topBarSectionRows]
+	}
+	return append([]string{topBarHeadingStyle.Render(heading)}, lines...)
+}
+
+func columnWidth(lines []string) int {
+	widest := 0
+	for _, line := range lines {
+		widest = max(widest, lipgloss.Width(line))
+	}
+	return widest
+}
+
+// joinTopBarSections pads every section to its widest line and puts a vertical rule between them
+// on every row.
+func joinTopBarSections(sections [][]string) string {
+	// Every row is emitted, even when all sections are short, to keep the height at TopBarHeight.
+	rows := topBarHeadingRows + topBarSectionRows
+
+	separator := topBarSeparatorStyle.Render(topBarSeparator)
+	lines := make([]string, rows)
+	for i := range lines {
+		var cells []string
+		for s, section := range sections {
+			cell := ""
+			if i < len(section) {
+				cell = section[i]
+			}
+			if s < len(sections)-1 {
+				cell += strings.Repeat(" ", columnWidth(section)-lipgloss.Width(cell))
+			}
+			cells = append(cells, cell)
+		}
+		lines[i] = strings.TrimRight(strings.Join(cells, separator), " ")
+	}
+	return strings.Join(lines, "\n")
+}
+
+func truncateName(name string, maxLength int) string {
+	return ansi.Truncate(name, maxLength, truncationTail)
+}
+
+// truncatePathStart keeps the end of a path, which is the part that tells repositories apart.
+func truncatePathStart(path string, maxLength int) string {
+	if ansi.StringWidth(path) <= maxLength {
+		return path
+	}
+	return truncationTail + ansi.TruncateLeft(path, ansi.StringWidth(path)-maxLength+len(truncationTail), "")
+}
+
+func contextLine(emoji, label, value string) string {
+	return emoji + " " + labelOrangeStyle.Render(label+": ") + valueWhiteStyle.Render(value)
+}
+
+func (m *TopBarModel) isPRView() bool {
+	return m.currentView == ViewNamePRDescription || m.currentView == ViewNamePRDiff || m.currentView == ViewNamePRInspect
+}
+
+func (m *TopBarModel) isPipelineView() bool {
+	return m.currentView == ViewNamePipelines || m.currentView == ViewNamePipelineRuns || m.currentView == ViewNamePipelineRun
 }
 
 func (m *TopBarModel) buildContextInfo() []string {
-	var lines []string
-
-	patName := "none"
-	patEmoji := "🔑"
-	if m.activePAT != "" {
-		patName = m.activePAT
-		if m.patProvider != "" {
-			patName = fmt.Sprintf("%s (%s)", patName, m.patProvider)
-		}
-		if m.selectedCount > 1 {
-			patName = fmt.Sprintf("%s + %d more", patName, m.selectedCount-1)
-		}
-		if len(patName) > 35 {
-			patName = patName[:32] + "..."
-		}
-	}
-
-	patLine := patEmoji + " " + titleOrangeStyle.Render("PAT: ") + valueWhiteStyle.Render(patName)
-	if m.totalPATCount > 0 {
-		countInfo := fmt.Sprintf(" [%d/%d]", m.selectedCount, m.totalPATCount)
-		patLine += descGrayStyle.Render(countInfo)
-	}
-	lines = append(lines, patLine)
-
-	isPRView := m.currentView == "PR Description" || m.currentView == "PR Diff" || m.currentView == "PR Inspect"
-	isPipelineView := m.currentView == ViewNamePipelines || m.currentView == ViewNamePipelineRuns || m.currentView == ViewNamePipelineRun
-
-	if isPipelineView {
-		lines = append(lines, m.buildPipelineContextInfo()...)
-	} else if isPRView && m.currentRepo != "" {
-		repoEmoji := "📦"
-		lines = append(lines,
-			repoEmoji+" "+
-				titleOrangeStyle.Render("Repo: ")+
-				valueWhiteStyle.Render(m.currentRepo))
-
-		if m.currentPR != "" {
-			prEmoji := "📋"
-			prValue := fmt.Sprintf("#%s", m.currentPR)
-
-			if m.prStatus != "" {
-				var statusColor lipgloss.Color
-				var statusText string
-				var mergeIcon string
-
-				switch m.prStatus {
-				case "merged":
-					statusColor = lipgloss.Color("10")
-					statusText = "MERGED"
-					mergeIcon = "✓"
-				case "open":
-					statusColor = lipgloss.Color("214")
-					statusText = "OPEN"
-					if m.prMergeable {
-						mergeIcon = "✓"
-					} else {
-						mergeIcon = "✗"
-					}
-				case "closed":
-					statusColor = lipgloss.Color("8")
-					statusText = "CLOSED"
-					mergeIcon = ""
-				}
-
-				statusStyle := lipgloss.NewStyle().Foreground(statusColor).Bold(true)
-				statusBadge := statusStyle.Render(fmt.Sprintf("[%s %s]", statusText, mergeIcon))
-				prValue = fmt.Sprintf("%s %s", prValue, statusBadge)
-			}
-
-			if m.prApproval != "" {
-				var approvalColor lipgloss.Color
-				var approvalText string
-
-				switch m.prApproval {
-				case "approved":
-					approvalColor = lipgloss.Color("10")
-					approvalText = "APPROVED ✓"
-				case "changes_requested":
-					approvalColor = lipgloss.Color("9")
-					approvalText = "CHANGES ✗"
-				case "pending":
-					approvalColor = lipgloss.Color("214")
-					approvalText = "PENDING ◯"
-				}
-
-				if approvalText != "" {
-					approvalStyle := lipgloss.NewStyle().Foreground(approvalColor).Bold(true)
-					approvalBadge := approvalStyle.Render(fmt.Sprintf("[%s]", approvalText))
-					prValue = fmt.Sprintf("%s %s", prValue, approvalBadge)
-				}
-			}
-
-			lines = append(lines,
-				prEmoji+" "+
-					titleOrangeStyle.Render("PR: ")+
-					valueWhiteStyle.Render(prValue))
-		}
-
-		if m.linkedRepoPath != "" {
-			linkEmoji := "🔗"
-			linkValue := m.linkedRepoPath
-			if len(linkValue) > 35 {
-				linkValue = "..." + linkValue[len(linkValue)-32:]
-			}
-			if m.linkedBranch != "" {
-				branchStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("33")).Bold(true)
-				linkValue = linkValue + " " + branchStyle.Render("["+m.linkedBranch+"]")
-			}
-			lines = append(lines,
-				linkEmoji+" "+
-					titleOrangeStyle.Render("Local: ")+
-					valueWhiteStyle.Render(linkValue))
-		}
-	} else {
-		lines = append(lines,
-			"❤️ "+
-				titleOrangeStyle.Render("your: ")+
-				valueWhiteStyle.Render(fmt.Sprintf("%d", m.authoredPRs)))
-
-		lines = append(lines,
-			"👀 "+
-				titleOrangeStyle.Render("assigned: ")+
-				valueWhiteStyle.Render(fmt.Sprintf("%d", m.assignedPRs)))
-
-		lines = append(lines,
-			"⏳ "+
-				titleOrangeStyle.Render("pending: ")+
-				valueWhiteStyle.Render(fmt.Sprintf("%d", m.otherPRs)))
-	}
-
-	viewEmoji := "🎯"
 	viewName := m.currentView
 	if viewName == "" {
-		viewName = "PATs"
+		viewName = ViewNamePATs
 	}
-	lines = append(lines,
-		viewEmoji+" "+
-			titleOrangeStyle.Render("View: ")+
-			valueWhiteStyle.Render(viewName))
+	lines := []string{contextLine("📍", "Mode", viewName)}
 
-	const minContextLines = 5
-	for len(lines) < minContextLines {
-		lines = append(lines, "")
+	switch {
+	case m.isPipelineView():
+		lines = append(lines, m.buildPipelineContextInfo()...)
+	case m.isPRView() && m.currentRepo != "":
+		lines = append(lines, m.buildPRContextInfo()...)
+	case m.currentView != ViewNamePATs:
+		lines = append(lines,
+			contextLine("❤️", "Yours", fmt.Sprintf("%d", m.authoredPRs)),
+			contextLine("👀", "Assigned", fmt.Sprintf("%d", m.assignedPRs)),
+			contextLine("⏳", "Pending", fmt.Sprintf("%d", m.otherPRs)),
+			contextLine("📦", "Repos", fmt.Sprintf("%d", m.repoCount)),
+		)
 	}
-
 	return lines
+}
+
+func (m *TopBarModel) buildPRContextInfo() []string {
+	lines := []string{contextLine("📦", "Repo", m.currentRepo)}
+
+	if m.currentPR != "" {
+		prValue := valueWhiteStyle.Render("#" + m.currentPR)
+		if badge := m.statusBadge(); badge != "" {
+			prValue += " " + badge
+		}
+		if badge := m.approvalBadge(); badge != "" {
+			prValue += " " + badge
+		}
+		lines = append(lines, "📋 "+labelOrangeStyle.Render("PR: ")+prValue)
+	}
+
+	if m.linkedRepoPath != "" {
+		linkValue := valueWhiteStyle.Render(truncatePathStart(m.linkedRepoPath, topBarPathMax))
+		if m.linkedBranch != "" {
+			linkValue += " " + shortcutBlueStyle.Render("["+m.linkedBranch+"]")
+		}
+		lines = append(lines, "🔗 "+labelOrangeStyle.Render("Local: ")+linkValue)
+	}
+	return lines
+}
+
+type badgeAppearance struct {
+	text  string
+	color lipgloss.Color
+}
+
+var prStatusBadges = map[string]badgeAppearance{
+	"merged": {"MERGED ✓", lipgloss.Color("10")},
+	"closed": {"CLOSED", lipgloss.Color("8")},
+}
+
+var prApprovalBadges = map[string]badgeAppearance{
+	"approved":          {"APPROVED ✓", lipgloss.Color("10")},
+	"changes_requested": {"CHANGES ✗", lipgloss.Color("9")},
+	"pending":           {"PENDING ◯", lipgloss.Color("214")},
+}
+
+const prStatusOpen = "open"
+
+func (m *TopBarModel) statusBadge() string {
+	appearance, ok := prStatusBadges[m.prStatus]
+	if m.prStatus == prStatusOpen {
+		mergeIcon := "✗"
+		if m.prMergeable {
+			mergeIcon = "✓"
+		}
+		appearance, ok = badgeAppearance{"OPEN " + mergeIcon, lipgloss.Color("214")}, true
+	}
+	if !ok {
+		return ""
+	}
+	return renderBadge(appearance)
+}
+
+func (m *TopBarModel) approvalBadge() string {
+	appearance, ok := prApprovalBadges[m.prApproval]
+	if !ok {
+		return ""
+	}
+	return renderBadge(appearance)
+}
+
+func renderBadge(appearance badgeAppearance) string {
+	return lipgloss.NewStyle().Foreground(appearance.color).Bold(true).Render("[" + appearance.text + "]")
 }
 
 func (m *TopBarModel) buildPipelineContextInfo() []string {
 	if m.pipelineName == "" {
-		return []string{
-			"🚀 " + titleOrangeStyle.Render("Pipelines: ") + valueWhiteStyle.Render(fmt.Sprintf("%d", m.pipelineCount)),
-		}
+		return []string{contextLine("🚀", "Pipelines", fmt.Sprintf("%d", m.pipelineCount))}
 	}
 
 	lines := []string{
-		"📦 " + titleOrangeStyle.Render("Repo: ") + valueWhiteStyle.Render(m.pipelineRepo),
-		"🚀 " + titleOrangeStyle.Render("Pipeline: ") + valueWhiteStyle.Render(m.pipelineName),
+		contextLine("📦", "Repo", m.pipelineRepo),
+		contextLine("🚀", "Pipeline", m.pipelineName),
 	}
 	if m.pipelineRun != "" {
-		lines = append(lines, "▶️ "+titleOrangeStyle.Render("Run: ")+valueWhiteStyle.Render(m.pipelineRun))
+		lines = append(lines, contextLine("▶️", "Run", m.pipelineRun))
 	}
 	return lines
 }
 
-func (m *TopBarModel) formattedShortcuts() []string {
+func (m *TopBarModel) accountsHeading() string {
+	if m.totalPATCount == 0 {
+		return "ACCOUNTS"
+	}
+	return fmt.Sprintf("ACCOUNTS %d/%d", m.selectedCount, m.totalPATCount)
+}
+
+// buildAccountsSection lists every PAT on its own row, marking the selected ones, with a
+// "+N more" row when they don't all fit.
+func (m *TopBarModel) buildAccountsSection() []string {
+	if len(m.accounts) == 0 {
+		return []string{dimStyle.Render("none configured")}
+	}
+
+	shown := m.accounts
+	if len(m.accounts) > topBarSectionRows {
+		shown = m.accounts[:topBarSectionRows-1]
+	}
+	lines := make([]string, 0, len(shown)+1)
+	for _, account := range shown {
+		lines = append(lines, renderAccount(account))
+	}
+	if len(shown) < len(m.accounts) {
+		lines = append(lines, dimStyle.Render(fmt.Sprintf("+%d more", len(m.accounts)-len(shown))))
+	}
+	return lines
+}
+
+func renderAccount(account Account) string {
+	name := truncateName(account.Name, topBarNameMax)
+	line := valueWhiteStyle.Render(accountPassiveMarker + name)
+	if account.Selected {
+		line = activeStyle.Render(accountActiveMarker + name)
+	}
+	if account.Provider != "" {
+		line += dimStyle.Render(" " + account.Provider)
+	}
+	if account.Primary {
+		line += dimStyle.Render(" (primary)")
+	}
+	return line
+}
+
+// buildShortcutsDisplay flows the view's shortcuts into as many columns of topBarSectionRows as
+// fit in width, dropping the ones that don't fit.
+func (m *TopBarModel) buildShortcutsDisplay(width int) []string {
 	var formatted []string
 	for _, shortcut := range m.shortcuts {
 		parts := strings.SplitN(shortcut, ">", 2)
 		if len(parts) != 2 {
 			continue
 		}
-
 		key := strings.TrimPrefix(parts[0], "<")
-		desc := strings.TrimSpace(parts[1])
-		formatted = append(formatted, shortcutBlueStyle.Render("<"+key+">")+" "+descGrayStyle.Render(desc))
+		formatted = append(formatted, shortcutBlueStyle.Render("<"+key+">")+" "+descGrayStyle.Render(strings.TrimSpace(parts[1])))
 	}
-	return formatted
-}
 
-type shortcutColumn struct {
-	cells []string
-	width int
-}
-
-// layoutShortcutColumns fills columns top to bottom, adding columns until the shortcuts run out
-// or the next column would not fit, so no hint is wrapped into the content below the top bar.
-func layoutShortcutColumns(shortcuts []string, rows, availableWidth int) []shortcutColumn {
-	var columns []shortcutColumn
-	usedWidth := 0
-
-	for start := 0; start < len(shortcuts); start += rows {
-		end := min(start+rows, len(shortcuts))
-		column := shortcutColumn{cells: shortcuts[start:end]}
-		for _, cell := range column.cells {
-			column.width = max(column.width, lipgloss.Width(cell))
+	rows := make([]string, min(len(formatted), topBarSectionRows))
+	used := 0
+	for start := 0; start < len(formatted); start += topBarSectionRows {
+		column := formatted[start:min(start+topBarSectionRows, len(formatted))]
+		columnW := columnWidth(column)
+		gap := 0
+		if start > 0 {
+			gap = topBarShortcutsGap
 		}
-
-		required := column.width
-		if len(columns) > 0 {
-			required += topBarColumnMargin
-		}
-		if len(columns) > 0 && usedWidth+required > availableWidth {
+		if used+gap+columnW > width {
 			break
 		}
-
-		usedWidth += required
-		columns = append(columns, column)
+		for i := range column {
+			if start > 0 {
+				rows[i] += strings.Repeat(" ", used+gap-lipgloss.Width(rows[i]))
+			}
+			rows[i] += column[i]
+		}
+		used += gap + columnW
 	}
-	return columns
+	return rows
 }

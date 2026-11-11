@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/johanforsgren/lgtmfaster/internal/domain"
@@ -26,6 +27,7 @@ func createTestModel() Model {
 		pipelineRunView:   views.NewPipelineRunView(),
 		stageApprovalView: views.NewStageApprovalView(),
 		commandRegistry:   NewCommandRegistry(),
+		repository:        &mockRepository{pats: map[string]*domain.PAT{}},
 	}
 }
 
@@ -371,8 +373,11 @@ func TestKeyBindingsRegistered(t *testing.T) {
 		viewState   ViewState
 	}{
 		{"d", "View diff", ViewPRInspect},
-		{"left", "Previous file", ViewPRInspect},
-		{"right", "Next file", ViewPRInspect},
+		{"left", "Next/previous file", ViewPRInspect},
+		{"right", "Next/previous file", ViewPRInspect},
+		{"tab", "Toggle details pane", ViewPRList},
+		{"right", "focus pane", ViewPRList},
+		{"left", "focus pane", ViewPRList},
 	}
 
 	for _, tc := range testCases {
@@ -788,5 +793,56 @@ func TestReviewView_GetReview_IncludesBody(t *testing.T) {
 
 	if review.Comments == nil {
 		t.Error("expected review comments to not be nil")
+	}
+}
+
+func TestGetContextualShortcuts_ListsActionsNotNavigation(t *testing.T) {
+	registry := NewCommandRegistry()
+
+	shortcuts := registry.GetContextualShortcuts(ViewPRInspect, false)
+
+	for _, description := range []string{"Yank current file diff", "Edit PR description", "Toggle diff view mode", "Open in browser"} {
+		if !containsShortcut(shortcuts, description) {
+			t.Errorf("expected %q in PR inspect shortcuts", description)
+		}
+	}
+	for _, description := range []string{"navigate", "command", "cancel/back"} {
+		if containsShortcut(shortcuts, description) {
+			t.Errorf("expected navigation %q to stay out of the top bar shortcuts", description)
+		}
+	}
+}
+
+func TestNavigationHelp_ListsNavigationOnce(t *testing.T) {
+	registry := NewCommandRegistry()
+
+	help := registry.NavigationHelp(ViewPRList)
+
+	for _, hint := range []string{"j/k: navigate", "enter: select", "/: filter", "→/←: focus pane", ":: command"} {
+		if !strings.Contains(help, hint) {
+			t.Errorf("expected %q in PR list navigation help, got %q", hint, help)
+		}
+	}
+	if strings.Count(help, "j/k") != 1 {
+		t.Errorf("expected j/k to be listed once, got %q", help)
+	}
+	if strings.Contains(help, "Refresh") {
+		t.Errorf("expected actions to stay out of the navigation help, got %q", help)
+	}
+}
+
+func TestSplitListKeysAreTheSameInEveryList(t *testing.T) {
+	registry := NewCommandRegistry()
+
+	for _, state := range splitViewStates {
+		if !containsShortcut(registry.GetContextualShortcuts(state, false), "Toggle details pane") {
+			t.Errorf("expected the details pane toggle in view %v", state)
+		}
+		help := registry.NavigationHelp(state)
+		for _, hint := range []string{"/: filter", "→/←: focus pane", "enter: select"} {
+			if !strings.Contains(help, hint) {
+				t.Errorf("expected %q in view %v, got %q", hint, state, help)
+			}
+		}
 	}
 }

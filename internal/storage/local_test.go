@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/johanforsgren/lgtmfaster/internal/domain"
 )
@@ -569,5 +570,68 @@ func TestTogglePipelineFavoritePersists(t *testing.T) {
 	}
 	if favorites, _ := reloaded.ListPipelineFavorites(); len(favorites) != 0 {
 		t.Errorf("Expected no favorites, got %v", favorites)
+	}
+}
+
+func TestMarkPipelineViewedAndSortModePersist(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpDir)
+	defer os.Setenv("HOME", oldHome)
+
+	repo, err := NewLocalRepository()
+	if err != nil {
+		t.Fatalf("Failed to create repository: %v", err)
+	}
+
+	viewedAt := time.Date(2026, 11, 11, 12, 0, 0, 0, time.UTC)
+	if err := repo.MarkPipelineViewed("pipeline:pat:Proj:1", viewedAt); err != nil {
+		t.Fatalf("Failed to mark viewed: %v", err)
+	}
+	if err := repo.SaveSettings(domain.Settings{PipelineSortMode: domain.PipelineSortStatus}); err != nil {
+		t.Fatalf("Failed to save settings: %v", err)
+	}
+
+	reloaded, err := NewLocalRepository()
+	if err != nil {
+		t.Fatalf("Failed to reload repository: %v", err)
+	}
+
+	lastViewed, _ := reloaded.ListPipelineLastViewed()
+	if !lastViewed["pipeline:pat:Proj:1"].Equal(viewedAt) {
+		t.Errorf("Expected persisted view time, got %v", lastViewed)
+	}
+	settings, _ := reloaded.GetSettings()
+	if settings.PipelineSortMode != domain.PipelineSortStatus {
+		t.Errorf("Expected persisted sort mode, got %s", settings.PipelineSortMode)
+	}
+}
+
+func TestSaveAndLoadSession_SurvivesReload(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	repo, err := NewLocalRepository()
+	if err != nil {
+		t.Fatalf("Failed to create repository: %v", err)
+	}
+	session := domain.Session{
+		View:           domain.SessionViewPRInspect,
+		PRKey:          "pat/owner/repo#42",
+		PRListPaneOpen: true,
+	}
+	if err := repo.SaveSession(session); err != nil {
+		t.Fatalf("Failed to save session: %v", err)
+	}
+
+	reloaded, err := NewLocalRepository()
+	if err != nil {
+		t.Fatalf("Failed to reload repository: %v", err)
+	}
+	got, err := reloaded.GetSession()
+	if err != nil {
+		t.Fatalf("Failed to get session: %v", err)
+	}
+	if got != session {
+		t.Errorf("expected %+v, got %+v", session, got)
 	}
 }

@@ -94,7 +94,7 @@ func (m *StageApprovalViewModel) View() string {
 	b.WriteString("\n\n")
 	b.WriteString(m.input.View())
 	b.WriteString("\n\n")
-	b.WriteString(pipelineMutedStyle.Render("Enter: Submit | Esc: Cancel"))
+	b.WriteString(listMutedStyle.Render("Enter: Submit | Esc: Cancel"))
 
 	boxStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).

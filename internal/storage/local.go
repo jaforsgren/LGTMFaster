@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/johanforsgren/lgtmfaster/internal/domain"
 	"github.com/johanforsgren/lgtmfaster/internal/logger"
@@ -557,6 +558,28 @@ func (r *LocalRepository) TogglePipelineFavorite(key string) (bool, error) {
 	return true, r.save()
 }
 
+func (r *LocalRepository) ListPipelineLastViewed() (map[string]time.Time, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	lastViewed := make(map[string]time.Time, len(r.config.PipelineLastViewed))
+	for key, viewedAt := range r.config.PipelineLastViewed {
+		lastViewed[key] = viewedAt
+	}
+	return lastViewed, nil
+}
+
+func (r *LocalRepository) MarkPipelineViewed(key string, viewedAt time.Time) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.config.PipelineLastViewed == nil {
+		r.config.PipelineLastViewed = make(map[string]time.Time)
+	}
+	r.config.PipelineLastViewed[key] = viewedAt
+	return r.save()
+}
+
 func (r *LocalRepository) GetSettings() (domain.Settings, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -578,6 +601,22 @@ func (r *LocalRepository) SaveSettings(settings domain.Settings) error {
 
 	r.config.Settings = settings
 	logger.Log("Saved settings: HideOldOtherPRs=%v HideOldOtherPRsDays=%d", settings.HideOldOtherPRs, settings.HideOldOtherPRsDays)
+	return r.save()
+}
+
+func (r *LocalRepository) GetSession() (domain.Session, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	return r.config.Session, nil
+}
+
+func (r *LocalRepository) SaveSession(session domain.Session) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.config.Session = session
+	logger.Log("Saved session: view=%s", session.View)
 	return r.save()
 }
 

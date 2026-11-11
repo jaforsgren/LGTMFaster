@@ -64,59 +64,12 @@ func TestSetPR_ResetsModeToDescription(t *testing.T) {
 	}
 }
 
-func TestView_ShowsCorrectHelpTextForDescriptionMode(t *testing.T) {
+func TestView_DescriptionModeHasNoDiffStatus(t *testing.T) {
 	view := NewPRInspectView()
 	view.SetSize(80, 24)
 
-	output := view.View()
-
-	if len(output) == 0 {
-		t.Error("expected View to return non-empty output")
-	}
-
-	expectedHelp := "d: View Diff"
-	if !contains(output, expectedHelp) {
-		t.Errorf("expected help text to contain '%s'", expectedHelp)
-	}
-
-	expectedBrowserHelp := "ctrl+o: Open in Browser"
-	if !contains(output, expectedBrowserHelp) {
-		t.Errorf("expected help text to contain '%s'", expectedBrowserHelp)
-	}
-}
-
-func TestView_ShowsCorrectHelpTextForDiffMode(t *testing.T) {
-	view := NewPRInspectView()
-	view.SetSize(80, 24)
-	view.SwitchToDiff()
-
-	diff := &domain.Diff{
-		Files: []domain.FileDiff{
-			{
-				NewPath: "test.go",
-				Hunks: []domain.DiffHunk{
-					{
-						Header: "@@ -1,1 +1,1 @@",
-						Lines: []domain.DiffLine{
-							{Type: "add", Content: "+test"},
-						},
-					},
-				},
-			},
-		},
-	}
-	view.SetDiff(diff)
-
-	output := view.View()
-
-	expectedHelp := "Files: n/p"
-	if !contains(output, expectedHelp) {
-		t.Errorf("expected help text to contain '%s'", expectedHelp)
-	}
-
-	expectedBrowserHelp := "ctrl+o: Browser"
-	if !contains(output, expectedBrowserHelp) {
-		t.Errorf("expected help text to contain '%s'", expectedBrowserHelp)
+	if contains(view.View(), "Diff view:") {
+		t.Error("expected no diff status in description mode")
 	}
 }
 
@@ -625,79 +578,30 @@ func TestContentLinesTracking(t *testing.T) {
 	}
 }
 
-func TestHelpText_ShowsToggleViewInfo(t *testing.T) {
+func TestStatusLine_FollowsDiffViewMode(t *testing.T) {
 	view := NewPRInspectView()
 	view.SetSize(80, 24)
-
-	diff := &domain.Diff{
+	view.SetDiff(&domain.Diff{
 		Files: []domain.FileDiff{
 			{
 				NewPath: "test.go",
 				Hunks: []domain.DiffHunk{
 					{
 						Header: "@@ -1,1 +1,1 @@",
-						Lines: []domain.DiffLine{
-							{Type: "add", Content: "+test"},
-						},
+						Lines:  []domain.DiffLine{{Type: "add", Content: "+test"}},
 					},
 				},
 			},
 		},
-	}
-
-	view.SetDiff(diff)
+	})
 	view.SwitchToDiff()
 
-	output := view.View()
-	if !contains(output, "f: Toggle view") {
-		t.Error("expected help text to show toggle view shortcut")
-	}
-	if !contains(output, "(full)") {
-		t.Error("expected help text to show current view mode (full)")
+	if output := view.View(); !contains(output, "Diff view: full") {
+		t.Error("expected status line to show the full view mode")
 	}
 
 	view.ToggleDiffViewMode()
-	output = view.View()
-	if !contains(output, "(compact)") {
-		t.Error("expected help text to show current view mode (compact)")
-	}
-}
-
-func TestHelpText_ShowsYankShortcuts(t *testing.T) {
-	view := NewPRInspectView()
-	view.SetSize(80, 24)
-
-	diff := &domain.Diff{
-		Files: []domain.FileDiff{
-			{
-				NewPath: "test.go",
-				Hunks: []domain.DiffHunk{
-					{
-						Header: "@@ -1,1 +1,1 @@",
-						Lines: []domain.DiffLine{
-							{Type: "add", Content: "+test"},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	view.SetDiff(diff)
-	view.SwitchToDiff()
-
-	output := view.View()
-	if !contains(output, "y/Y: Yank") {
-		t.Error("expected help text to show yank shortcuts")
-	}
-}
-
-func TestHelpText_ShowsEditDescriptionInDescriptionMode(t *testing.T) {
-	view := NewPRInspectView()
-	view.SetSize(80, 24)
-
-	output := view.View()
-	if !contains(output, "e: Edit Description") {
-		t.Error("expected help text to show edit description shortcut in description mode")
+	if output := view.View(); !contains(output, "Diff view: compact") {
+		t.Error("expected status line to show the compact view mode")
 	}
 }

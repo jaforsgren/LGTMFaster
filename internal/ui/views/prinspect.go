@@ -59,7 +59,7 @@ func (m *PRInspectViewModel) SetSize(width, height int) {
 	m.width = width
 	m.height = height
 	m.viewport.Width = width
-	m.viewport.Height = height - 10
+	m.viewport.Height = max(height-prInspectStatusRows, minPaneSize)
 	m.mdRenderer.SetWidth(width)
 }
 
@@ -303,32 +303,32 @@ func (m *PRInspectViewModel) Update(msg tea.Msg) tea.Cmd {
 	return cmd
 }
 
+const (
+	prInspectStatusRows = 2
+	diffViewModeFull    = "full"
+	diffViewModeCompact = "compact"
+)
+
+var prInspectStatusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+
 func (m *PRInspectViewModel) View() string {
-	content := m.viewport.View()
+	return m.viewport.View() + "\n\n" + prInspectStatusStyle.Render(m.statusLine())
+}
 
-	var helpText string
-	switch m.mode {
-	case PRInspectModeDescription:
-		helpText = "\nd: View Diff | e: Edit Description | c: View Comments | ctrl+o: Open in Browser | q: Back"
-	case PRInspectModeDiff:
-		pendingCount := m.GetPendingCommentCount()
-		countInfo := ""
-		if pendingCount > 0 {
-			countInfo = fmt.Sprintf(" [%d pending]", pendingCount)
-		}
-		viewModeText := "full"
-		if m.diffViewMode == DiffViewModeCompact {
-			viewModeText = "compact"
-		}
-		helpText = fmt.Sprintf("\nFiles: n/p | Lines: j/k | f: Toggle view (%s) | y/Y: Yank | i: Comment%s | a: Approve | r: Request | ctrl+o: Browser | q: Back", viewModeText, countInfo)
+// statusLine reports the diff state the key hints in the top bar cannot show.
+func (m *PRInspectViewModel) statusLine() string {
+	if m.mode != PRInspectModeDiff {
+		return ""
 	}
-
-	help := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#6B7280")).
-		Italic(true).
-		Render(helpText)
-
-	return content + "\n" + help
+	viewMode := diffViewModeFull
+	if m.diffViewMode == DiffViewModeCompact {
+		viewMode = diffViewModeCompact
+	}
+	status := "Diff view: " + viewMode
+	if pending := m.GetPendingCommentCount(); pending > 0 {
+		status += fmt.Sprintf(" | %d pending comments", pending)
+	}
+	return status
 }
 
 func (m *PRInspectViewModel) updateViewport() {

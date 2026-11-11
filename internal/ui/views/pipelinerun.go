@@ -9,17 +9,17 @@ import (
 )
 
 const (
-	pipelineRunChromeRows = 18
+	runDetailRows         = 6
+	stagesHeadingRows     = 2
+	pipelineRunChromeRows = listTitleRows + runDetailRows + stagesHeadingRows + listScrollInfoRows
 	stageStatusWidth      = 22
 	runDetailLabelWidth   = 14
 	approvalHint          = "approval required: a approve / x reject"
+	autoRefreshingHint    = "  auto-refreshing"
+	pipelinesTitle        = "Pipelines"
 )
 
-var (
-	pipelineRunLabelStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true)
-	pipelineRunValueStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("15"))
-	approvalHintStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#F59E0B")).Bold(true)
-)
+var approvalHintStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#F59E0B")).Bold(true)
 
 type PipelineRunViewModel struct {
 	run          *domain.PipelineRun
@@ -113,7 +113,7 @@ func (m *PipelineRunViewModel) MoveDown() {
 
 func (m *PipelineRunViewModel) View() string {
 	if m.run == nil {
-		return pipelineMutedStyle.Render("No run selected.")
+		return RenderMainWindow(listMutedStyle.Render("No run selected."), m.width, m.height)
 	}
 
 	var b strings.Builder
@@ -122,7 +122,10 @@ func (m *PipelineRunViewModel) View() string {
 	if m.isFavorite {
 		b.WriteString(favoriteStyle.Render(favoriteMarker))
 	}
-	b.WriteString(pipelineTitleStyle.Render(fmt.Sprintf("Run %s", valueOrPlaceholder(run.Number))))
+	b.WriteString(renderListTitle(pipelinesTitle, valueOrPlaceholder(run.PipelineName), fmt.Sprintf("Run %s", valueOrPlaceholder(run.Number))))
+	if !run.Status.IsFinished() {
+		b.WriteString(listMutedStyle.Render(autoRefreshingHint))
+	}
 	b.WriteString("\n\n")
 
 	details := []struct {
@@ -137,21 +140,21 @@ func (m *PipelineRunViewModel) View() string {
 		{"Duration", formatRunDuration(*run)},
 	}
 	for _, detail := range details {
-		b.WriteString(pipelineRunLabelStyle.Render(padToWidth(detail.label+":", runDetailLabelWidth)))
-		b.WriteString(pipelineRunValueStyle.Render(detail.value))
+		b.WriteString(renderDetailLabel(detail.label, runDetailLabelWidth))
+		b.WriteString(detailValueStyle.Render(detail.value))
 		b.WriteString("\n")
 	}
 
 	b.WriteString("\n")
-	b.WriteString(pipelineTitleStyle.Render("Stages"))
+	b.WriteString(listTitleStyle.Render("Stages"))
 	b.WriteString("\n")
 
 	switch {
 	case !m.stagesLoaded:
-		b.WriteString(pipelineMutedStyle.Render("Loading stages..."))
+		b.WriteString(listMutedStyle.Render("Loading stages..."))
 		b.WriteString("\n")
 	case len(m.stages) == 0:
-		b.WriteString(pipelineMutedStyle.Render("This run has no stages."))
+		b.WriteString(listMutedStyle.Render("This run has no stages."))
 		b.WriteString("\n")
 	default:
 		start, end := m.cursor.VisibleRange(len(m.stages))
@@ -165,9 +168,7 @@ func (m *PipelineRunViewModel) View() string {
 		}
 	}
 
-	b.WriteString("\n")
-	b.WriteString(pipelineMutedStyle.Render(m.helpText()))
-	return b.String()
+	return RenderMainWindow(b.String(), m.width, m.height)
 }
 
 func (m *PipelineRunViewModel) renderStage(stage domain.PipelineStage, selected bool) string {
@@ -175,10 +176,10 @@ func (m *PipelineRunViewModel) renderStage(stage domain.PipelineStage, selected 
 	nameWidth := flexColumnWidth(m.width, stageStatusWidth+len(approvalHint)+2, minStageNameWidth)
 
 	marker := unselectedRowMarker
-	nameStyle := pipelineRowStyle
+	nameStyle := listRowStyle
 	if selected {
 		marker = selectedRowMarker
-		nameStyle = pipelineSelectedRowStyle
+		nameStyle = listSelectedRowStyle
 	}
 
 	line := nameStyle.Render(marker) +
@@ -190,12 +191,4 @@ func (m *PipelineRunViewModel) renderStage(stage domain.PipelineStage, selected 
 		line += " " + approvalHintStyle.Render(approvalHint)
 	}
 	return line
-}
-
-func (m *PipelineRunViewModel) helpText() string {
-	help := "j/k: Select stage | a: Approve | x: Reject | f: Favorite | ctrl+o: Open run | r: Refresh | q: Back"
-	if m.run != nil && !m.run.Status.IsFinished() {
-		help += " | auto-refreshing"
-	}
-	return help
 }

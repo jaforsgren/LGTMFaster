@@ -1,5 +1,7 @@
 package domain
 
+import "time"
+
 type PAT struct {
 	ID           string
 	Name         string
@@ -50,9 +52,17 @@ type Repository interface {
 	// TogglePipelineFavorite returns whether the key is a favorite after the toggle.
 	TogglePipelineFavorite(key string) (bool, error)
 
+	ListPipelineLastViewed() (map[string]time.Time, error)
+
+	MarkPipelineViewed(key string, viewedAt time.Time) error
+
 	GetSettings() (Settings, error)
 
 	SaveSettings(settings Settings) error
+
+	GetSession() (Session, error)
+
+	SaveSession(session Session) error
 
 	ConfigPath() string
 
