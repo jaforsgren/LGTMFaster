@@ -745,6 +745,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case PipelineRunsLoadedMsg:
 		return m.handlePipelineRunsLoaded(msg)
 
+	case PipelineRunsFailedMsg:
+		return m.handlePipelineRunsFailed(msg)
+
 	case PipelineRunLoadedMsg:
 		return m.handlePipelineRunLoaded(msg)
 

@@ -16,6 +16,17 @@ const (
 	expandedMarker          = "▾ "
 	collapsedMarker         = "▸ "
 	leafMarker              = "  "
+	// favoriteSectionPrefix keeps the IDs of the favorites section's copies apart from the main
+	// tree's, so folding or selecting one copy leaves the other alone.
+	favoriteSectionPrefix = "favorites:"
+	runIDSeparator        = "/"
+	maxExpandedRuns       = 10
+	loadingRunsText       = "Loading runs..."
+	noRunsText            = "This pipeline has no runs yet."
+	noFavoritesText       = "No favorites yet. Press f on a pipeline, repository or project to add one."
+	favoritesOnlyHint     = "  favorites only"
+	// pipelineListChromeRows leaves room for the divider between the favorites and the rest.
+	pipelineListChromeRows = listChromeRows + listDividerRows
 )
 
 type PipelineNodeKind int
@@ -24,12 +35,16 @@ const (
 	PipelineNodeProject PipelineNodeKind = iota
 	PipelineNodeRepository
 	PipelineNodePipeline
+	PipelineNodeRun
+	PipelineNodePlaceholder
 )
 
 type PipelineNode struct {
-	Kind          PipelineNodeKind
+	Kind PipelineNodeKind
+	// Key is the domain key used for favorites and view history; ID is unique per visible row.
 	Key           string
-	ParentKey     string
+	ID            string
+	ParentID      string
 	Name          string
 	Depth         int
 	Status        domain.PipelineStatus
@@ -37,11 +52,17 @@ type PipelineNode struct {
 	LastRunAt     time.Time
 	LastViewedAt  time.Time
 	Pipeline      *domain.Pipeline
+	Run           *domain.PipelineRun
 	Children      []*PipelineNode
 }
 
 func (n *PipelineNode) IsGroup() bool {
-	return n.Kind != PipelineNodePipeline
+	return n.Kind == PipelineNodeProject || n.Kind == PipelineNodeRepository
+}
+
+// IsExpandable reports whether the node folds: groups over their children, pipelines over runs.
+func (n *PipelineNode) IsExpandable() bool {
+	return n.IsGroup() || n.Kind == PipelineNodePipeline
 }
 
 // groupStatusPriority decides which child status a folded group surfaces: anything needing
@@ -60,18 +81,22 @@ var groupStatusPriority = []domain.PipelineStatus{
 type PipelineListViewModel struct {
 	sourcePipelines []domain.Pipeline
 	roots           []*PipelineNode
+	favoriteRoots   []*PipelineNode
 	visibleNodes    []*PipelineNode
-	expanded        map[string]bool
-	favorites       map[string]bool
-	lastViewed      map[string]time.Time
-	sortMode        domain.PipelineSortMode
-	previewRuns     map[string][]domain.PipelineRun
-	previewPending  map[string]bool
-	cursor          listCursor
-	filter          listFilter
-	split           splitView
-	width           int
-	height          int
+	// mainSectionStart is the index of the first main-tree row, which has the divider above it.
+	mainSectionStart int
+	favoritesOnly    bool
+	expanded         map[string]bool
+	favorites        map[string]bool
+	lastViewed       map[string]time.Time
+	sortMode         domain.PipelineSortMode
+	previewRuns      map[string][]domain.PipelineRun
+	previewPending   map[string]bool
+	cursor           listCursor
+	filter           listFilter
+	split            splitView
+	width            int
+	height           int
 }
 
 func NewPipelineListView() *PipelineListViewModel {
@@ -90,7 +115,7 @@ func NewPipelineListView() *PipelineListViewModel {
 func (m *PipelineListViewModel) SetSize(width, height int) {
 	m.width = width
 	m.height = height
-	m.cursor.SetVisibleRows(height - listChromeRows)
+	m.cursor.SetVisibleRows(height - pipelineListChromeRows)
 }
 
 func (m *PipelineListViewModel) SetPipelines(pipelines []domain.Pipeline) {
@@ -133,12 +158,30 @@ func (m *PipelineListViewModel) GetSelectedNode() *PipelineNode {
 	return m.visibleNodes[idx]
 }
 
+// GetSelectedPipeline is the selected pipeline, or the pipeline of the selected run.
 func (m *PipelineListViewModel) GetSelectedPipeline() *domain.Pipeline {
 	node := m.GetSelectedNode()
 	if node == nil {
 		return nil
 	}
 	return node.Pipeline
+}
+
+func (m *PipelineListViewModel) GetSelectedRun() *domain.PipelineRun {
+	node := m.GetSelectedNode()
+	if node == nil {
+		return nil
+	}
+	return node.Run
+}
+
+func (m *PipelineListViewModel) ToggleFavoritesOnly() {
+	m.favoritesOnly = !m.favoritesOnly
+	m.rebuild()
+}
+
+func (m *PipelineListViewModel) IsFavoritesOnly() bool {
+	return m.favoritesOnly
 }
 
 // SelectNode unfolds the groups around the node with key, moves the cursor to it and reports
@@ -162,7 +205,7 @@ func ancestorKeys(nodes []*PipelineNode, key string) ([]string, bool) {
 			return nil, true
 		}
 		if inner, found := ancestorKeys(node.Children, key); found {
-			return append([]string{node.Key}, inner...), true
+			return append([]string{node.ID}, inner...), true
 		}
 	}
 	return nil, false
@@ -178,29 +221,30 @@ func (m *PipelineListViewModel) MoveDown() {
 	m.split.ResetScroll()
 }
 
-// ToggleSelected folds/unfolds a group; on a pipeline it folds the parent repository and selects it.
+// ToggleSelected folds/unfolds a group or a pipeline's runs; on a run it folds the pipeline and
+// selects it.
 func (m *PipelineListViewModel) ToggleSelected() {
 	node := m.GetSelectedNode()
 	if node == nil {
 		return
 	}
-	if node.IsGroup() {
-		m.expanded[node.Key] = !m.expanded[node.Key]
-		m.rebuildKeepingSelection(node.Key)
+	if node.IsExpandable() {
+		m.expanded[node.ID] = !m.expanded[node.ID]
+		m.rebuildKeepingSelection(node.ID)
 		return
 	}
-	m.expanded[node.ParentKey] = false
-	m.rebuildKeepingSelection(node.ParentKey)
+	m.expanded[node.ParentID] = false
+	m.rebuildKeepingSelection(node.ParentID)
 }
 
 // ToggleAll expands every group unless all are already expanded, in which case it folds them all.
 func (m *PipelineListViewModel) ToggleAll() {
 	var selectedKey string
 	if node := m.GetSelectedNode(); node != nil {
-		selectedKey = node.Key
+		selectedKey = node.ID
 	}
 
-	groupKeys := collectGroupKeys(m.roots)
+	groupKeys := collectGroupIDs(append(m.favoriteRoots, m.roots...))
 	allExpanded := true
 	for _, key := range groupKeys {
 		if !m.expanded[key] {
@@ -215,7 +259,7 @@ func (m *PipelineListViewModel) ToggleAll() {
 			m.expanded[key] = true
 		}
 	} else if node := m.GetSelectedNode(); node != nil {
-		selectedKey = rootKeyOf(node, m.roots)
+		selectedKey = rootIDOf(node, append(m.favoriteRoots, m.roots...))
 	}
 	m.rebuildKeepingSelection(selectedKey)
 }
@@ -244,24 +288,42 @@ func (m *PipelineListViewModel) ScrollPane(delta int) {
 	m.split.ScrollFocused(m.detailPanes(), delta, m.width, m.height)
 }
 
-// NextPreviewRequest returns the selected pipeline when the open pane needs its runs fetched,
-// and marks the request in flight so cursor movement does not refetch it.
-func (m *PipelineListViewModel) NextPreviewRequest() *domain.Pipeline {
-	pipeline := m.GetSelectedPipeline()
-	if !m.split.IsOpen() || pipeline == nil {
-		return nil
+// PendingRunRequests returns the pipelines whose runs are shown but not fetched: the selected one
+// while the details pane is open, and every unfolded one. They are marked in flight so cursor
+// movement does not refetch them.
+func (m *PipelineListViewModel) PendingRunRequests() []domain.Pipeline {
+	var wanted []*domain.Pipeline
+	if pipeline := m.GetSelectedPipeline(); m.split.IsOpen() && pipeline != nil {
+		wanted = append(wanted, pipeline)
 	}
-	key := pipeline.FavoriteKey()
-	if _, loaded := m.previewRuns[key]; loaded || m.previewPending[key] {
-		return nil
+	for _, node := range m.visibleNodes {
+		if node.Kind == PipelineNodePipeline && m.expanded[node.ID] {
+			wanted = append(wanted, node.Pipeline)
+		}
 	}
-	m.previewPending[key] = true
-	return pipeline
+
+	var requests []domain.Pipeline
+	for _, pipeline := range wanted {
+		key := pipeline.FavoriteKey()
+		if _, loaded := m.previewRuns[key]; loaded || m.previewPending[key] {
+			continue
+		}
+		m.previewPending[key] = true
+		requests = append(requests, *pipeline)
+	}
+	return requests
 }
 
 func (m *PipelineListViewModel) SetPreviewRuns(pipelineKey string, runs []domain.PipelineRun) {
 	delete(m.previewPending, pipelineKey)
 	m.previewRuns[pipelineKey] = runs
+	m.rebuild()
+}
+
+// PreviewRunsFailed forgets the in-flight request, so the runs are fetched again next time they
+// are shown instead of loading forever.
+func (m *PipelineListViewModel) PreviewRunsFailed(pipelineKey string) {
+	delete(m.previewPending, pipelineKey)
 }
 
 func (m *PipelineListViewModel) ResetPreview() {
@@ -298,14 +360,14 @@ func (m *PipelineListViewModel) UpdateFilter(msg tea.Msg) tea.Cmd {
 }
 
 func (m *PipelineListViewModel) rebuild() {
-	var selectedKey string
+	var selectedID string
 	if node := m.GetSelectedNode(); node != nil {
-		selectedKey = node.Key
+		selectedID = node.ID
 	}
-	m.rebuildKeepingSelection(selectedKey)
+	m.rebuildKeepingSelection(selectedID)
 }
 
-func (m *PipelineListViewModel) rebuildKeepingSelection(selectedKey string) {
+func (m *PipelineListViewModel) rebuildKeepingSelection(selectedID string) {
 	var filtered []domain.Pipeline
 	for _, pipeline := range m.sourcePipelines {
 		if m.filter.Matches(pipeline.Project, pipeline.Repository, PipelineDisplayName(pipeline)) {
@@ -316,14 +378,20 @@ func (m *PipelineListViewModel) rebuildKeepingSelection(selectedKey string) {
 	m.roots = buildPipelineTree(filtered, groupingFor(m.sortMode))
 	m.annotate(m.roots)
 	m.sortTree(m.roots)
+	m.favoriteRoots = m.favoriteSection(m.roots)
+	m.sortTree(m.favoriteRoots)
 
 	// While filtering every group is unfolded so matches are never hidden inside a folded group.
 	showAll := m.filter.Text() != ""
 	m.visibleNodes = m.visibleNodes[:0]
-	m.flatten(m.roots, showAll)
+	m.flatten(m.favoriteRoots, showAll)
+	m.mainSectionStart = len(m.visibleNodes)
+	if !m.favoritesOnly {
+		m.flatten(m.roots, showAll)
+	}
 
 	for i, node := range m.visibleNodes {
-		if node.Key == selectedKey {
+		if node.ID == selectedID {
 			m.cursor.SetIndex(i, len(m.visibleNodes))
 			return
 		}
@@ -334,10 +402,106 @@ func (m *PipelineListViewModel) rebuildKeepingSelection(selectedKey string) {
 func (m *PipelineListViewModel) flatten(nodes []*PipelineNode, showAll bool) {
 	for _, node := range nodes {
 		m.visibleNodes = append(m.visibleNodes, node)
-		if node.IsGroup() && (showAll || m.expanded[node.Key]) {
+		switch {
+		case node.IsGroup() && (showAll || m.expanded[node.ID]):
 			m.flatten(node.Children, showAll)
+		case node.Kind == PipelineNodePipeline && m.expanded[node.ID]:
+			m.visibleNodes = append(m.visibleNodes, m.runNodes(node)...)
 		}
 	}
+}
+
+// runNodes are the rows under an unfolded pipeline: its latest runs, or a row saying why there
+// are none to show yet.
+func (m *PipelineListViewModel) runNodes(pipelineNode *PipelineNode) []*PipelineNode {
+	child := func(id, key, name string) *PipelineNode {
+		return &PipelineNode{
+			ID:       pipelineNode.ID + runIDSeparator + id,
+			Key:      key,
+			ParentID: pipelineNode.ID,
+			Name:     name,
+			Depth:    pipelineNode.Depth + 1,
+			Pipeline: pipelineNode.Pipeline,
+			Kind:     PipelineNodePlaceholder,
+		}
+	}
+
+	runs, loaded := m.previewRuns[pipelineNode.Key]
+	if !loaded {
+		return []*PipelineNode{child(loadingRunsText, "", loadingRunsText)}
+	}
+	if len(runs) == 0 {
+		return []*PipelineNode{child(noRunsText, "", noRunsText)}
+	}
+
+	nodes := make([]*PipelineNode, 0, min(len(runs), maxExpandedRuns))
+	for i := range runs[:min(len(runs), maxExpandedRuns)] {
+		run := &runs[i]
+		node := child(run.FavoriteKey(), run.FavoriteKey(), valueOrPlaceholder(run.Number))
+		node.Kind = PipelineNodeRun
+		node.Status = run.Status
+		node.Run = run
+		nodes = append(nodes, node)
+	}
+	return nodes
+}
+
+// favoriteSection copies every favorite node, with its subtree, to the top level of the favorites
+// section. The copies keep the annotations of the main tree.
+func (m *PipelineListViewModel) favoriteSection(roots []*PipelineNode) []*PipelineNode {
+	var section []*PipelineNode
+	var collect func(nodes []*PipelineNode)
+	collect = func(nodes []*PipelineNode) {
+		for _, node := range nodes {
+			if m.favorites[node.Key] {
+				section = append(section, copyToFavoriteSection(node, "", 0))
+			}
+			collect(node.Children)
+		}
+	}
+	collect(roots)
+	return section
+}
+
+// favoriteSectionName names a node at the top of the favorites section, where the groups that
+// would otherwise say which project and repository it belongs to are not shown.
+func favoriteSectionName(node *PipelineNode) string {
+	switch node.Kind {
+	case PipelineNodePipeline:
+		return fmt.Sprintf("%s  (%s/%s)", PipelineDisplayName(*node.Pipeline), node.Pipeline.Project, node.Pipeline.Repository)
+	case PipelineNodeRepository:
+		if pipeline := firstPipeline(node); pipeline != nil {
+			return pipeline.Project + "/" + pipeline.Repository
+		}
+	}
+	return node.Name
+}
+
+func firstPipeline(node *PipelineNode) *domain.Pipeline {
+	if node.Pipeline != nil {
+		return node.Pipeline
+	}
+	for _, child := range node.Children {
+		if pipeline := firstPipeline(child); pipeline != nil {
+			return pipeline
+		}
+	}
+	return nil
+}
+
+func copyToFavoriteSection(node *PipelineNode, parentID string, depth int) *PipelineNode {
+	clone := *node
+	clone.ID = favoriteSectionPrefix + node.ID
+	clone.ParentID = parentID
+	clone.Depth = depth
+	if depth == 0 {
+		clone.Name = favoriteSectionName(node)
+	}
+	clone.Children = make([]*PipelineNode, len(node.Children))
+	for i, child := range node.Children {
+		clone.Children[i] = copyToFavoriteSection(child, clone.ID, depth+1)
+	}
+	return &clone
 }
 
 type pipelineGroupLevel int
@@ -371,9 +535,9 @@ func buildPipelineTree(pipelines []domain.Pipeline, levels []pipelineGroupLevel)
 			key, kind, name := groupIdentity(pipeline, level, depth == 0)
 			group, ok := groups[key]
 			if !ok {
-				group = &PipelineNode{Kind: kind, Key: key, Name: name, Depth: depth}
+				group = &PipelineNode{Kind: kind, Key: key, ID: key, Name: name, Depth: depth}
 				if parent != nil {
-					group.ParentKey = parent.Key
+					group.ParentID = parent.ID
 					parent.Children = append(parent.Children, group)
 				} else {
 					roots = append(roots, group)
@@ -390,12 +554,13 @@ func buildPipelineTree(pipelines []domain.Pipeline, levels []pipelineGroupLevel)
 		leaf := &PipelineNode{
 			Kind:     PipelineNodePipeline,
 			Key:      pipeline.FavoriteKey(),
+			ID:       pipeline.FavoriteKey(),
 			Name:     name,
 			Depth:    len(levels),
 			Pipeline: pipeline,
 		}
 		if parent != nil {
-			leaf.ParentKey = parent.Key
+			leaf.ParentID = parent.ID
 			parent.Children = append(parent.Children, leaf)
 		} else {
 			roots = append(roots, leaf)
@@ -514,29 +679,34 @@ func aggregateStatus(children []*PipelineNode) domain.PipelineStatus {
 	return best
 }
 
-func collectGroupKeys(nodes []*PipelineNode) []string {
-	var keys []string
+func collectGroupIDs(nodes []*PipelineNode) []string {
+	var ids []string
 	for _, node := range nodes {
 		if node.IsGroup() {
-			keys = append(keys, node.Key)
-			keys = append(keys, collectGroupKeys(node.Children)...)
+			ids = append(ids, node.ID)
+			ids = append(ids, collectGroupIDs(node.Children)...)
 		}
 	}
-	return keys
+	return ids
 }
 
-func rootKeyOf(node *PipelineNode, roots []*PipelineNode) string {
+// rootIDOf finds the top-level row a node sits under; run rows are found through their pipeline.
+func rootIDOf(node *PipelineNode, roots []*PipelineNode) string {
+	id := node.ID
+	if node.ParentID != "" && !node.IsExpandable() {
+		id = node.ParentID
+	}
 	for _, root := range roots {
-		if root.Key == node.Key || containsKey(root.Children, node.Key) {
-			return root.Key
+		if root.ID == id || containsID(root.Children, id) {
+			return root.ID
 		}
 	}
-	return node.Key
+	return id
 }
 
-func containsKey(nodes []*PipelineNode, key string) bool {
+func containsID(nodes []*PipelineNode, id string) bool {
 	for _, node := range nodes {
-		if node.Key == key || containsKey(node.Children, key) {
+		if node.ID == id || containsID(node.Children, id) {
 			return true
 		}
 	}
@@ -580,10 +750,15 @@ func (m *PipelineListViewModel) View() string {
 
 	b.WriteString(renderListTitle(pipelinesTitle))
 	b.WriteString(listMutedStyle.Render("  sorted by " + PipelineSortModeLabel(m.sortMode)))
+	if m.favoritesOnly {
+		b.WriteString(listMutedStyle.Render(favoritesOnlyHint))
+	}
 	b.WriteString("\n\n")
 
 	if len(m.visibleNodes) == 0 {
-		if m.filter.Text() != "" {
+		if m.favoritesOnly && m.filter.Text() == "" {
+			b.WriteString(listMutedStyle.Render(noFavoritesText))
+		} else if m.filter.Text() != "" {
 			b.WriteString(listMutedStyle.Render("No pipelines match the filter."))
 		} else {
 			b.WriteString(listMutedStyle.Render("No pipelines loaded."))
@@ -591,7 +766,9 @@ func (m *PipelineListViewModel) View() string {
 		b.WriteString("\n")
 	} else {
 		b.WriteString(renderListRows(m.columns(), len(m.visibleNodes), m.cursor, func(i int) listRow {
-			return m.nodeRow(m.visibleNodes[i])
+			row := m.nodeRow(m.visibleNodes[i])
+			row.dividerAbove = i == m.mainSectionStart && i > 0
+			return row
 		}))
 	}
 
@@ -605,21 +782,35 @@ func (m *PipelineListViewModel) View() string {
 
 func (m *PipelineListViewModel) nodeRow(node *PipelineNode) listRow {
 	marker := leafMarker
-	if node.IsGroup() {
+	if node.IsExpandable() {
 		marker = collapsedMarker
-		if m.expanded[node.Key] || m.filter.Text() != "" {
+		if m.expanded[node.ID] || (node.IsGroup() && m.filter.Text() != "") {
 			marker = expandedMarker
 		}
 	}
 
-	name := strings.Repeat(treeIndent, node.Depth) + marker + favoritePrefix(m.favorites[node.Key]) + node.Name
+	indent := strings.Repeat(treeIndent, node.Depth)
+	if node.Kind == PipelineNodePlaceholder {
+		return listRow{
+			icon:   renderListIcon("", ""),
+			values: []string{indent + leafMarker + node.Name, "", "", ""},
+			style:  listMutedStyle,
+		}
+	}
+
+	name := indent + marker + favoritePrefix(m.favorites[node.Key]) + node.Name
 	lastRun, branch, age := emptyCellPlaceholder, emptyCellPlaceholder, emptyCellPlaceholder
-	if node.IsGroup() {
+	switch {
+	case node.IsGroup():
 		name = fmt.Sprintf("%s (%d)", name, node.PipelineCount)
-	} else if run := node.Pipeline.LatestRun; run != nil {
-		lastRun = valueOrPlaceholder(run.Number)
-		branch = valueOrPlaceholder(run.SourceBranch)
-		age = formatOptionalAge(run.QueuedAt)
+	case node.Run != nil:
+		lastRun = PipelineStatusLabel(node.Run.Status)
+		branch = valueOrPlaceholder(node.Run.SourceBranch)
+		age = formatOptionalAge(node.Run.QueuedAt)
+	case node.Pipeline.LatestRun != nil:
+		lastRun = valueOrPlaceholder(node.Pipeline.LatestRun.Number)
+		branch = valueOrPlaceholder(node.Pipeline.LatestRun.SourceBranch)
+		age = formatOptionalAge(node.Pipeline.LatestRun.QueuedAt)
 	}
 
 	return listRow{
@@ -655,8 +846,10 @@ func (m *PipelineListViewModel) detailPane() detailPane {
 			lines = append(lines, renderDetailRow(pipeline.Status, pipeline.Name+latestRunSuffix(pipeline.Pipeline)))
 		}
 		return detailPane{title: "Pipelines in " + node.Name, lines: lines}
+	case PipelineNodeRun:
+		return detailPane{title: "Run " + node.Name, lines: runDetailLines(*node.Run)}
 	default:
-		return detailPane{title: "Runs of " + node.Name, lines: m.previewRunLines(node.Pipeline)}
+		return detailPane{title: "Runs of " + PipelineDisplayName(*node.Pipeline), lines: m.previewRunLines(node.Pipeline)}
 	}
 }
 
@@ -672,6 +865,24 @@ func (m *PipelineListViewModel) previewRunLines(pipeline *domain.Pipeline) []str
 	for _, run := range runs {
 		lines = append(lines, renderDetailRow(run.Status, fmt.Sprintf("%s  %s  %s",
 			valueOrPlaceholder(run.Number), valueOrPlaceholder(run.SourceBranch), formatOptionalAge(run.QueuedAt))))
+	}
+	return lines
+}
+
+func runDetailLines(run domain.PipelineRun) []string {
+	details := []struct {
+		label string
+		value string
+	}{
+		{"Status", renderPipelineStatusLabel(run.Status, stageStatusWidth)},
+		{"Branch", valueOrPlaceholder(run.SourceBranch)},
+		{"Requested by", valueOrPlaceholder(run.RequestedBy.Username)},
+		{"Queued", formatOptionalAge(run.QueuedAt)},
+		{"Duration", formatRunDuration(run)},
+	}
+	lines := make([]string, 0, len(details))
+	for _, detail := range details {
+		lines = append(lines, renderDetailLabel(detail.label, runDetailLabelWidth)+detailValueStyle.Render(detail.value))
 	}
 	return lines
 }

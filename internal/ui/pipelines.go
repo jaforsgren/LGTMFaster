@@ -27,6 +27,13 @@ type PipelineRunsLoadedMsg struct {
 	runs     []domain.PipelineRun
 }
 
+// PipelineRunsFailedMsg names the pipeline whose runs could not be fetched, so its in-flight
+// request is forgotten and the list stops showing it as loading.
+type PipelineRunsFailedMsg struct {
+	pipelineKey string
+	err         error
+}
+
 type PipelineRunLoadedMsg struct {
 	run    domain.PipelineRun
 	stages []domain.PipelineStage
@@ -146,7 +153,7 @@ func (m Model) loadPipelineRuns(pipeline domain.Pipeline) tea.Cmd {
 
 		runs, err := provider.ListPipelineRuns(ctx, pipeline.Identifier())
 		if err != nil {
-			return ErrorMsg{err: fmt.Errorf("failed to load runs for %s: %w", pipeline.Name, err)}
+			return PipelineRunsFailedMsg{pipelineKey: pipeline.FavoriteKey(), err: fmt.Errorf("failed to load runs for %s: %w", pipeline.Name, err)}
 		}
 		for i := range runs {
 			tagPipelineRun(&runs[i], pipeline.PATID, pipeline.ProviderType)
@@ -269,6 +276,12 @@ func (m Model) handlePipelineRunsLoaded(msg PipelineRunsLoadedMsg) (Model, tea.C
 	}
 	m.pipelineRunsView.SetRuns(msg.runs)
 	return m.resumePipelineRuns()
+}
+
+func (m Model) handlePipelineRunsFailed(msg PipelineRunsFailedMsg) (Model, tea.Cmd) {
+	m.pipelineListView.PreviewRunsFailed(msg.pipelineKey)
+	m.statusBar.SetMessage(msg.err.Error(), true)
+	return m, nil
 }
 
 func (m Model) handlePipelineRunLoaded(msg PipelineRunLoadedMsg) (Model, tea.Cmd) {
@@ -397,6 +410,9 @@ func (m Model) handleStageApprovalSubmitted(msg StageApprovalSubmittedMsg) (Mode
 func (m Model) pipelineBrowserTarget() (string, string) {
 	switch m.state {
 	case ViewPipelineList:
+		if run := m.pipelineListView.GetSelectedRun(); run != nil {
+			return run.URL, "run"
+		}
 		if pipeline := m.pipelineListView.GetSelectedPipeline(); pipeline != nil {
 			return pipeline.URL, "pipeline"
 		}
@@ -528,15 +544,27 @@ func (m Model) togglePipelineFavorite() (Model, tea.Cmd) {
 func (m Model) loadPipelinePreview() tea.Cmd {
 	switch m.state {
 	case ViewPipelineList:
-		if pipeline := m.pipelineListView.NextPreviewRequest(); pipeline != nil {
-			return m.loadPipelineRuns(*pipeline)
+		var cmds []tea.Cmd
+		for _, pipeline := range m.pipelineListView.PendingRunRequests() {
+			cmds = append(cmds, m.loadPipelineRuns(pipeline))
 		}
+		return tea.Batch(cmds...)
 	case ViewPipelineRuns:
 		if run := m.pipelineRunsView.NextPreviewRequest(); run != nil {
 			return m.loadPipelineRun(*run)
 		}
 	}
 	return nil
+}
+
+func (m Model) toggleFavoritesOnly() (Model, tea.Cmd) {
+	m.pipelineListView.ToggleFavoritesOnly()
+	if m.pipelineListView.IsFavoritesOnly() {
+		m.statusBar.SetMessage("Showing favorites only", false)
+	} else {
+		m.statusBar.SetMessage("Showing all pipelines", false)
+	}
+	return m, tea.Batch(m.loadPipelinePreview(), clearStatusAfterDelay(4*time.Second))
 }
 
 func isPipelineView(state ViewState) bool {

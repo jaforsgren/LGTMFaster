@@ -128,20 +128,11 @@ func (m *PipelineRunViewModel) View() string {
 	}
 	b.WriteString("\n\n")
 
-	details := []struct {
-		label string
-		value string
-	}{
-		{"Pipeline", valueOrPlaceholder(run.PipelineName)},
-		{"Status", renderPipelineStatusLabel(run.Status, stageStatusWidth)},
-		{"Branch", valueOrPlaceholder(run.SourceBranch)},
-		{"Requested by", valueOrPlaceholder(run.RequestedBy.Username)},
-		{"Queued", formatOptionalAge(run.QueuedAt)},
-		{"Duration", formatRunDuration(*run)},
-	}
-	for _, detail := range details {
-		b.WriteString(renderDetailLabel(detail.label, runDetailLabelWidth))
-		b.WriteString(detailValueStyle.Render(detail.value))
+	b.WriteString(renderDetailLabel("Pipeline", runDetailLabelWidth))
+	b.WriteString(detailValueStyle.Render(valueOrPlaceholder(run.PipelineName)))
+	b.WriteString("\n")
+	for _, line := range runDetailLines(*run) {
+		b.WriteString(line)
 		b.WriteString("\n")
 	}
 

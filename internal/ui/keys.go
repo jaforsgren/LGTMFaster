@@ -21,6 +21,7 @@ const (
 	keyFocusPaneIn   = "right"
 	keyFocusPaneOut  = "left"
 	keyFavorite      = "f"
+	keyFavoritesOnly = "F"
 	keyFold          = "z"
 	keyFoldAll       = "Z"
 	keyAdd           = "a"

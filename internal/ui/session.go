@@ -118,7 +118,7 @@ func (m Model) resumePRs(loadingDone bool) (Model, tea.Cmd) {
 // resumePipelines selects the session's pipeline and, for the runs and run views, opens it.
 func (m Model) resumePipelines() (Model, tea.Cmd) {
 	if m.resume == nil || !m.resume.IsPipelineView() {
-		return m, nil
+		return m, m.loadPipelinePreview()
 	}
 	if !m.pipelineListView.SelectNode(m.resume.PipelineKey) {
 		m.resume = nil
@@ -137,7 +137,7 @@ func (m Model) resumePipelines() (Model, tea.Cmd) {
 // open.
 func (m Model) resumePipelineRuns() (Model, tea.Cmd) {
 	if m.resume == nil || m.state != ViewPipelineRuns {
-		return m, nil
+		return m, m.loadPipelinePreview()
 	}
 
 	found := m.pipelineRunsView.SelectRun(m.resume.RunKey)

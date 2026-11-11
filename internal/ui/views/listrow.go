@@ -19,6 +19,8 @@ const (
 	listHeaderRows       = 1
 	listScrollInfoRows   = 1
 	listFilterRows       = 2
+	listDividerRows      = 1
+	listDividerGlyph     = "─"
 	// listChromeRows is every row of a list view that is not a list row.
 	listChromeRows = listTitleRows + listHeaderRows + listScrollInfoRows + listFilterRows
 )
@@ -29,6 +31,7 @@ var (
 	listRowStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("7"))
 	listMutedStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 	listTitleStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("4"))
+	listDividerStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("238"))
 	detailLabelStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true)
 	detailValueStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("15"))
 )
@@ -38,11 +41,13 @@ type listColumn struct {
 	width int
 }
 
-// listRow is one rendered line of a list: a coloured icon, then a cell per column in style.
+// listRow is one rendered line of a list: a coloured icon, then a cell per column in style. A
+// dividerAbove row is separated from the rows before it by a discreet rule.
 type listRow struct {
-	icon   string
-	values []string
-	style  lipgloss.Style
+	icon         string
+	values       []string
+	style        lipgloss.Style
+	dividerAbove bool
 }
 
 // renderListTitle renders the view's location as a breadcrumb, like "/ Pipelines / deploy".
@@ -93,6 +98,10 @@ func renderListRows(columns []listColumn, count int, cursor listCursor, rowAt fu
 	for i := start; i < end; i++ {
 		row := rowAt(i)
 		row.values = row.values[:len(columns)]
+		if row.dividerAbove && i > start {
+			b.WriteString(listDividerStyle.Render(strings.Repeat(listDividerGlyph, listRowWidth(columns))))
+			b.WriteString("\n")
+		}
 		b.WriteString(renderListRow(row, columns, i == cursor.Index()))
 		b.WriteString("\n")
 	}
@@ -101,6 +110,14 @@ func renderListRows(columns []listColumn, count int, cursor listCursor, rowAt fu
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+func listRowWidth(columns []listColumn) int {
+	width := len(unselectedRowMarker) + listIconColumnWidth + len(columns)
+	for _, column := range columns {
+		width += column.width
+	}
+	return width
 }
 
 func renderScrollInfo(start, end, count int) string {

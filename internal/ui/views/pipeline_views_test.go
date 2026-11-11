@@ -138,7 +138,7 @@ func TestPipelineList_StartsWithProjectsFolded(t *testing.T) {
 	}
 }
 
-func TestPipelineList_ToggleSelectedUnfoldsAndFoldsParent(t *testing.T) {
+func TestPipelineList_ToggleSelectedUnfoldsGroupsAndPipelineRuns(t *testing.T) {
 	m := newTestPipelineList()
 
 	m.ToggleSelected()
@@ -154,9 +154,13 @@ func TestPipelineList_ToggleSelectedUnfoldsAndFoldsParent(t *testing.T) {
 	}
 
 	m.ToggleSelected()
-	assertVisible(t, m, "Alpha", "api", "web", "Beta")
-	if m.GetSelectedNode().Name != "api" {
-		t.Errorf("expected folding a pipeline to select its repo, got %s", m.GetSelectedNode().Name)
+	assertVisible(t, m, "Alpha", "api", `infra\ci`, loadingRunsText, "web", "Beta")
+
+	m.MoveDown()
+	m.ToggleSelected()
+	assertVisible(t, m, "Alpha", "api", `infra\ci`, "web", "Beta")
+	if m.GetSelectedPipeline() == nil || m.GetSelectedPipeline().ID != 2 {
+		t.Errorf("expected folding from a run row to select its pipeline, got %+v", m.GetSelectedNode())
 	}
 }
 
@@ -184,7 +188,9 @@ func TestPipelineList_FavoritesSortFirstAtEachLevel(t *testing.T) {
 	})
 	m.ToggleAll()
 
-	assertVisible(t, m, "Beta", "api", "deploy", "Alpha", "web", "ci", "api", `infra\ci`)
+	assertVisible(t, m,
+		"Alpha/web", "ci", "Beta", "api", "deploy",
+		"Beta", "api", "deploy", "Alpha", "web", "ci", "api", `infra\ci`)
 	if !strings.Contains(m.View(), favoriteMarker+"Beta") {
 		t.Error("expected favorite marker rendered")
 	}
@@ -236,7 +242,7 @@ func TestPipelineList_FavoritesModeOrdersByLastViewedAfterFavorites(t *testing.T
 	})
 	m.ToggleAll()
 
-	assertVisible(t, m, "Beta", "api", "never", "alpha", "Alpha", "api", "mid", "web", "zeta")
+	assertVisible(t, m, "zeta  (Alpha/web)", "Beta", "api", "never", "alpha", "Alpha", "api", "mid", "web", "zeta")
 }
 
 func TestPipelineList_SetSortModeFallsBackToFavorites(t *testing.T) {
@@ -335,16 +341,17 @@ func TestPipelineList_PreviewRequestsRunsOncePerPipeline(t *testing.T) {
 	m.MoveDown()
 	m.MoveDown()
 
-	if m.NextPreviewRequest() != nil {
-		t.Fatal("expected no preview request while pane is closed")
+	if requests := m.PendingRunRequests(); len(requests) != 0 {
+		t.Fatalf("expected no preview request while pane is closed, got %+v", requests)
 	}
 
 	m.TogglePreview()
-	pipeline := m.NextPreviewRequest()
-	if pipeline == nil || pipeline.ID != 2 {
-		t.Fatalf("expected preview request for pipeline 2, got %+v", pipeline)
+	requests := m.PendingRunRequests()
+	if len(requests) != 1 || requests[0].ID != 2 {
+		t.Fatalf("expected preview request for pipeline 2, got %+v", requests)
 	}
-	if m.NextPreviewRequest() != nil {
+	pipeline := requests[0]
+	if len(m.PendingRunRequests()) != 0 {
 		t.Error("expected in-flight request not to be repeated")
 	}
 
@@ -354,7 +361,7 @@ func TestPipelineList_PreviewRequestsRunsOncePerPipeline(t *testing.T) {
 	}
 
 	m.ResetPreview()
-	if m.NextPreviewRequest() == nil {
+	if len(m.PendingRunRequests()) == 0 {
 		t.Error("expected reset to allow refetching")
 	}
 }
@@ -363,8 +370,8 @@ func TestPipelineList_PreviewForGroupsListsPipelines(t *testing.T) {
 	m := newTestPipelineList()
 	m.TogglePreview()
 
-	if m.NextPreviewRequest() != nil {
-		t.Error("expected no fetch for a project preview")
+	if requests := m.PendingRunRequests(); len(requests) != 0 {
+		t.Errorf("expected no fetch for a project preview, got %+v", requests)
 	}
 	view := m.View()
 	for _, expected := range []string{"Pipelines in Alpha", `infra\ci`, "web (1)"} {
@@ -588,5 +595,103 @@ func TestStageApproval_DeactivateClearsComment(t *testing.T) {
 
 	if m.GetApproval().Comment != "" {
 		t.Error("expected comment cleared between activations")
+	}
+}
+
+func TestPipelineList_FavoritesSectionIsDividedFromTheRest(t *testing.T) {
+	m := newTestPipelineList()
+	m.SetFavorites(map[string]bool{domain.PipelineFavoriteKey("pat", "Beta", 3): true})
+
+	assertVisible(t, m, "deploy  (Beta/api)", "Alpha", "Beta")
+	if !hasListDivider(m.View()) {
+		t.Error("expected a divider between the favorites and the rest")
+	}
+
+	m.SetFavorites(map[string]bool{})
+	if hasListDivider(m.View()) {
+		t.Error("expected no divider without favorites")
+	}
+}
+
+// hasListDivider looks for a divider row inside the frame, whose own border is drawn with the
+// same glyph.
+func hasListDivider(view string) bool {
+	for line := range strings.SplitSeq(view, "\n") {
+		inner := strings.TrimSpace(strings.Trim(strings.TrimSpace(line), "│"))
+		if strings.HasPrefix(inner, strings.Repeat(listDividerGlyph, 10)) {
+			return true
+		}
+	}
+	return false
+}
+
+func TestPipelineList_FavoriteCopiesFoldIndependently(t *testing.T) {
+	m := newTestPipelineList()
+	m.SetFavorites(map[string]bool{domain.ProjectFavoriteKey("pat", "Alpha"): true})
+	if m.GetSelectedNode().ID != domain.ProjectFavoriteKey("pat", "Alpha") {
+		t.Fatalf("expected the selection to stay on the main tree's Alpha, got %s", m.GetSelectedNode().ID)
+	}
+
+	m.ToggleSelected()
+
+	assertVisible(t, m, "Alpha", "Alpha", "api", "web", "Beta")
+}
+
+func TestPipelineList_FavoritesOnlyHidesTheRest(t *testing.T) {
+	m := newTestPipelineList()
+	m.SetFavorites(map[string]bool{domain.PipelineFavoriteKey("pat", "Beta", 3): true})
+
+	m.ToggleFavoritesOnly()
+	assertVisible(t, m, "deploy  (Beta/api)")
+	if !strings.Contains(m.View(), favoritesOnlyHint) {
+		t.Error("expected the title to say only favorites are shown")
+	}
+
+	m.SetFavorites(map[string]bool{})
+	if !strings.Contains(m.View(), noFavoritesText) {
+		t.Error("expected a hint when there are no favorites")
+	}
+
+	m.ToggleFavoritesOnly()
+	assertVisible(t, m, "Alpha", "Beta")
+}
+
+func TestPipelineList_UnfoldedPipelineRequestsAndShowsItsRuns(t *testing.T) {
+	m := NewPipelineListView()
+	m.SetSize(viewTestWidth, viewTestHeight)
+	m.SetSortMode(domain.PipelineSortPipeline)
+	pipeline := domain.Pipeline{ID: 1, Name: "ci", Project: "Alpha", Repository: "web", PATID: "pat"}
+	m.SetPipelines([]domain.Pipeline{pipeline})
+
+	m.ToggleSelected()
+	requests := m.PendingRunRequests()
+	if len(requests) != 1 || requests[0].ID != pipeline.ID {
+		t.Fatalf("expected the unfolded pipeline's runs to be requested, got %+v", requests)
+	}
+
+	m.SetPreviewRuns(pipeline.FavoriteKey(), []domain.PipelineRun{
+		{ID: 10, Number: "run-10", PipelineID: 1, Project: "Alpha", PATID: "pat", Status: domain.PipelineStatusFailed},
+	})
+	assertVisible(t, m, "ci  (Alpha/web)", "run-10")
+
+	m.MoveDown()
+	if run := m.GetSelectedRun(); run == nil || run.ID != 10 {
+		t.Fatalf("expected the run row to be selectable, got %+v", m.GetSelectedNode())
+	}
+	if !strings.Contains(m.View(), "failed") {
+		t.Error("expected the run's status in its row")
+	}
+}
+
+func TestPipelineList_FailedRunsRequestIsRetried(t *testing.T) {
+	m := newTestPipelineList()
+	m.SetSortMode(domain.PipelineSortPipeline)
+	m.TogglePreview()
+	pipeline := m.PendingRunRequests()[0]
+
+	m.PreviewRunsFailed(pipeline.FavoriteKey())
+
+	if requests := m.PendingRunRequests(); len(requests) != 1 {
+		t.Errorf("expected the failed request to be retried, got %+v", requests)
 	}
 }

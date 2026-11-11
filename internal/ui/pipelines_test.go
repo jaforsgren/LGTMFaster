@@ -477,8 +477,8 @@ func TestTogglePreviewKey_LoadsRunsForSelectedPipeline(t *testing.T) {
 	}
 
 	m, _ = m.handlePipelineRunsLoaded(cmd().(PipelineRunsLoadedMsg))
-	if m.pipelineListView.NextPreviewRequest() != nil {
-		t.Error("expected preview runs cached after load")
+	if requests := m.pipelineListView.PendingRunRequests(); len(requests) != 0 {
+		t.Errorf("expected preview runs cached after load, got %+v", requests)
 	}
 }
 
@@ -590,4 +590,73 @@ func containsShortcut(shortcuts []string, description string) bool {
 		}
 	}
 	return false
+}
+
+func TestRefreshWithDetailsPaneOpen_RequestsRunsAgain(t *testing.T) {
+	pipeline := testPipeline()
+	run := testRun(domain.PipelineStatusSucceeded)
+	provider := &mockPipelineProvider{pipelines: []domain.Pipeline{pipeline}, runs: []domain.PipelineRun{run}}
+	m := createPipelineTestModel(provider)
+	m.state = ViewPipelineList
+	m.pipelineListView.SetSortMode(domain.PipelineSortPipeline)
+	m.pipelineListView.SetPipelines([]domain.Pipeline{pipeline})
+	m, cmd := handleTogglePreviewKey(m)
+	m, _ = m.handlePipelineRunsLoaded(cmd().(PipelineRunsLoadedMsg))
+
+	m, cmd = handleRefreshKey(m)
+	m, _ = m.handlePipelinesLoaded(cmd().(PipelinesLoadedMsg))
+
+	// The reload must already have asked for the runs again, so none are left to request.
+	if requests := m.pipelineListView.PendingRunRequests(); len(requests) != 0 {
+		t.Fatalf("expected the refreshed list to fetch the selected pipeline's runs again, still pending %+v", requests)
+	}
+}
+
+func TestEnterOnRunRow_OpensTheRun(t *testing.T) {
+	pipeline := testPipeline()
+	run := testRun(domain.PipelineStatusSucceeded)
+	m := createPipelineTestModel(&mockPipelineProvider{run: &run})
+	m.state = ViewPipelineList
+	m.pipelineListView.SetSortMode(domain.PipelineSortPipeline)
+	m.pipelineListView.SetPipelines([]domain.Pipeline{pipeline})
+	m, _ = handleFoldKey(m)
+	m.pipelineListView.SetPreviewRuns(pipeline.FavoriteKey(), []domain.PipelineRun{run})
+	m, _ = handleDownKey(m)
+
+	m, _ = handleEnterKey(m)
+
+	if m.state != ViewPipelineRun || m.pipelineRunView.GetRun().ID != run.ID {
+		t.Errorf("expected run %d to open, got state %v", run.ID, m.state)
+	}
+}
+
+func TestFavoritesOnlyKey_TogglesTheListFilter(t *testing.T) {
+	m := createPipelineTestModel(&mockPipelineProvider{})
+	m.state = ViewPipelineList
+
+	newModel, _, handled := m.commandRegistry.HandleKey(m, keyFavoritesOnly)
+
+	if !handled || !newModel.pipelineListView.IsFavoritesOnly() {
+		t.Error("expected F to show favorites only")
+	}
+}
+
+func TestRunsFailure_StopsLoadingAndReportsTheError(t *testing.T) {
+	pipeline := testPipeline()
+	m := createPipelineTestModel(&mockPipelineProvider{})
+	m.state = ViewPipelineList
+	m.pipelineListView.SetSortMode(domain.PipelineSortPipeline)
+	m.pipelineListView.SetPipelines([]domain.Pipeline{pipeline})
+	m.pipelineListView.TogglePreview()
+	m.pipelineListView.PendingRunRequests()
+
+	updated, _ := m.Update(PipelineRunsFailedMsg{pipelineKey: pipeline.FavoriteKey(), err: errors.New("boom")})
+	m = updated.(Model)
+
+	if m.statusBar.Message() != "boom" {
+		t.Errorf("expected the error in the status bar, got %q", m.statusBar.Message())
+	}
+	if len(m.pipelineListView.PendingRunRequests()) != 1 {
+		t.Error("expected the runs to be requested again")
+	}
 }

@@ -431,6 +431,13 @@ func (cr *CommandRegistry) registerKeyBindings() {
 			AvailableIn: []ViewState{ViewPipelineList},
 		},
 		{
+			Keys:        []string{keyFavoritesOnly},
+			Description: "Favorites only",
+			ShortHelp:   keyFavoritesOnly,
+			Handler:     handleFavoritesOnlyKey,
+			AvailableIn: []ViewState{ViewPipelineList},
+		},
+		{
 			Keys:        []string{keyFoldAll},
 			Description: "Fold/unfold all",
 			ShortHelp:   keyFoldAll,
@@ -693,6 +700,9 @@ func handleEnterKey(m Model) (Model, tea.Cmd) {
 		}
 		return m, nil
 	case ViewPipelineList:
+		if run := m.pipelineListView.GetSelectedRun(); run != nil {
+			return m.enterPipelineRun(*run)
+		}
 		if pipeline := m.pipelineListView.GetSelectedPipeline(); pipeline != nil {
 			return m.enterPipelineRuns(*pipeline)
 		}
@@ -997,6 +1007,10 @@ func handleFoldAllKey(m Model) (Model, tea.Cmd) {
 	}
 	m.pipelineListView.ToggleAll()
 	return m, m.loadPipelinePreview()
+}
+
+func handleFavoritesOnlyKey(m Model) (Model, tea.Cmd) {
+	return m.toggleFavoritesOnly()
 }
 
 func handleFavoriteKey(m Model) (Model, tea.Cmd) {
