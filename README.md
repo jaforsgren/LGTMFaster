@@ -1,105 +1,185 @@
 # LGTMFaster
 
-Fast, keyboard-driven TUI for reviewing pull requests from GitHub and Azure DevOps.
+Fast, keyboard-driven TUI for reviewing pull requests and following pipelines on Azure DevOps and GitHub.
 
 ## Features
 
-- **Multi-Provider Support**: GitHub and Azure DevOps (GitHub fully implemented)
-- **Personal Access Token Management**: Store and switch between multiple PATs
-- **Smart PR Categorization**: Automatically categorizes PRs as authored, assigned, or other
-- **Keyboard-First Navigation**: Vim-style commands and keyboard shortcuts
-- **PR Inspection**: View diffs, comments, and PR metadata
-- **Review Actions**: Approve, request changes, or comment on PRs
-- **k9s-Style Top Bar**: Real-time stats showing PR count and repo count
+- **Pull requests across accounts**: list, filter and inspect PRs from several PATs at once, categorised as yours, assigned to you, or other
+- **Reviews**: read diffs (full or changed lines only), comment on lines, approve, request changes, merge, edit the description
+- **Create pull requests**: `:pr` suggests the branches you pushed recently and opens a form with target branch, title, draft flag and description
+- **Comments**: every comment with the code it is about; votes shown as "approved", "rejected", …; export them all as markdown
+- **Pipelines** (Azure DevOps): every pipeline of every project in one foldable list with favorites, runs, stages and approvals, with optional auto-refresh
+- **Local repositories**: link a repo to a folder, then check out a PR's branch or pull from the TUI
+- **Session resume**: reopens the view, PR, pipeline or run you were on when you quit
 
-## Building
+### Provider support
+
+| | Azure DevOps | GitHub |
+|---|---|---|
+| List, inspect and review PRs | ✓ | ✓ |
+| Inline comments | ✓ | ✓ |
+| Merge, edit description | ✓ | ✓ |
+| Create PRs | ✓ | implemented, not yet verified |
+| Pipelines | ✓ | – |
+
+## Install
 
 ```bash
-go build -o lgtmfaster ./cmd/lgtmfaster
+make build      # builds ./lgtmfaster with version info
+make install    # installs to $GOPATH/bin
 ```
 
-## Running
+Or with Go directly: `go build -o lgtmfaster ./cmd/lgtmfaster`.
 
 ```bash
-./lgtmfaster
+./lgtmfaster                          # run
+./lgtmfaster --debug /tmp/lgtm.log    # also write the log to a file
 ```
 
-## First-Time Setup
+## First-time setup
 
-1. Launch the application
-2. Press `:` to open the command bar
-3. Type `pats` or `p` to manage Personal Access Tokens
-4. Press `a` to add a new PAT
-5. Fill in:
-   - Name: A friendly name for this PAT
-   - Token: Your GitHub Personal Access Token
-   - Provider: `github` or `azuredevops`
-   - Username: Your GitHub username
-6. Press `Enter` to save
-7. Select the PAT and press `Enter` to activate it
+1. Start the app; it opens on the PAT list.
+2. Press `a` to add a PAT and fill in the name, token, provider (`github` or `azuredevops`), your username and, for Azure DevOps, the organization.
+3. Press `space` to select the PATs to use (several can be selected; one is primary) and `enter` to load their pull requests.
 
-**Note**: You can edit existing PATs by selecting them and pressing `e`
+On later starts the selected PATs load straight away, in the view you were on when you quit.
+
+## The screen
+
+```
+ LGTMFaster
+ CONTEXT                   │ ACCOUNTS 1/2               │ SHORTCUTS
+ 📍 Mode: PR Diff          │ ● work-ado (primary)       │ <c> View comments   <i> Inline comment on line
+ 📦 Repo: proj/payments    │ ○ personal-github          │ <a> Approve PR      <f> Toggle diff view mode
+ 📋 PR: #1287 [OPEN ✓]     │                            │ …
+╭──────────────────────────────────────────────────────────────────────────────╮
+│  / Pull Requests                                                             │
+│  …                                                                           │
+╰──────────────────────────────────────────────────────────────────────────────╯
+ :command bar
+ status message
+ j/k: navigate | enter: select | /: filter | :: command …
+```
+
+- **Top bar**: where you are, the accounts in use, and the actions of the current view.
+- **Command bar**: `:` opens it; `tab` completes command names (and branches after `:pr `).
+- **Status bar**: messages, and the navigation keys of the current view.
 
 ## Commands
 
-**Vim-style Commands** (press `:` to activate):
-- `:pats` or `:p` - Manage Personal Access Tokens
-- `:pr` - List pull requests
-- `:logs` - View session logs (scrollable, color-coded)
-- `:q` - Quit
+| Command | Aliases | |
+|---|---|---|
+| `:pats` | `:p`, `:pat` | Manage PATs |
+| `:pr` | `:prs`, `:pulls` | List pull requests |
+| `:pr <repository>:<branch>` | | Create a pull request from a branch |
+| `:pipelines` | `:pl`, `:pipes` | Pipelines (Azure DevOps) |
+| `:merge` | `:m` | Merge the inspected PR |
+| `:link [path]` | `:l` | Link the PR's repository to a local folder |
+| `:repos` | | Manage linked repositories |
+| `:settings` | `:s` | Edit the config file in `$EDITOR` |
+| `:logs` | `:log` | Session log |
+| `:help` | `:h`, `:?` | List the commands |
+| `:quit` | `:q`, `:exit` | Quit |
 
-**Navigation**:
-- `j/k` or arrow keys - Navigate up/down in lists
-- `Enter` - Select item or drill down
-- `Esc` or `q` - Go back to previous view
-- `/` - Filter/search (in PR list)
+## Keys
 
-**PAT Management View**:
-- `a` - Add new PAT
-- `e` - Edit selected PAT
-- `d` - Delete selected PAT
-- `Enter` - Activate selected PAT
+Keys mean the same thing in every list.
 
-**PR List View**:
-- `r` - Refresh PR list
-- `Enter` - Inspect selected PR
+| Key | |
+|---|---|
+| `j`/`k`, `↑`/`↓` | Move |
+| `enter` | Open / select |
+| `/` | Filter (`esc` clears it) |
+| `tab` | Toggle the details pane next to the list |
+| `→` / `←` | Focus the details pane (then `j`/`k` scroll it) / back to the list |
+| `r` | Refresh |
+| `ctrl+o` | Open in the browser |
+| `h`, `backspace`, `esc` | Back |
+| `q` | Back; quits from the PAT list |
+| `ctrl+c` | Quit from anywhere |
 
-**PR Inspection View**:
-- `n/p` - Next/Previous file in diff
-- `c` - Toggle comments visibility
-- `a` - Approve PR
-- `r` - Request changes
-- `Enter` - Add comment
+### Pull request list
 
-**Legend**:
-- ✎ - Authored by you
-- → - Assigned to you
-- ○ - Other PRs you have access to
+The details pane (`tab`) shows the PR's info and description. Rows are marked `✎` yours, `→` assigned to you, `○` other; `✓`/`✗`/`◯` is the review state.
+
+### Inspecting a pull request
+
+| Key | |
+|---|---|
+| `d` | Diff (`q` goes back to the description) |
+| `n`/`p`, `→`/`←` | Next / previous file |
+| `f` | Toggle full file / changed lines only |
+| `y` / `Y` | Copy the file's diff / all diffs |
+| `i` | Comment on the line under the cursor |
+| `enter` | Write a review comment, posting the queued comments without voting |
+| `a` / `r` | Approve / request changes, posting the queued comments too |
+| `ctrl+s` | Submit the review |
+| `c` | Comments view; `ctrl+o` there opens all comments as markdown |
+| `e` | Edit the description (`ctrl+g` opens `$EDITOR`) |
+| `m` | Merge |
+| `L` | Link the repository to a local folder |
+| `g` / `P` / `o` | Check out the branch / pull / open the folder (linked repositories) |
+
+Inline comments show the file, line and surrounding code while you write them. They are queued (💭 in the diff) and posted with the review.
+
+### Creating a pull request
+
+Type `:pr ` (with a space): the status bar lists the branches you pushed in the last hour that have no open PR yet, and `tab` cycles through them. `enter` opens the form:
+
+| Key | |
+|---|---|
+| `tab` / `shift+tab` | Next / previous field |
+| `↑`/`↓`, `enter` | Pick the target branch (type to filter) |
+| `space` | Toggle draft |
+| `ctrl+g` | Write the description in `$EDITOR` |
+| `ctrl+s` | Create the PR and open it |
+| `esc` | Cancel |
+
+### Pipelines (Azure DevOps)
+
+| Key | |
+|---|---|
+| `enter` | Unfold a group, open a pipeline's runs, or open a run |
+| `z` / `Z` | Fold the group / unfold a pipeline's latest runs; fold or unfold everything |
+| `f` | Favorite the pipeline, repository, project or run |
+| `F` | Show favorites only |
+| `0`–`5` | Sort: favorites & recently viewed, project, repository, name, last run, status |
+| `R` | Toggle auto-refresh (shown in the top bar) |
+| `a` / `x` | Approve / reject the selected stage (run view) |
+
+Favorites are listed in their own section at the top of the list.
 
 ## Configuration
 
-Configuration is stored in `~/.lgtmfaster/config.json`
+Everything is stored in `~/.lgtmfaster/config.json`: PATs, linked repositories, pipeline favorites, the last session and these settings (edit them with `:settings`):
 
-## Project Structure
+| Setting | Default | |
+|---|---|---|
+| `HideOldOtherPRs` | `false` | Hide other people's PRs older than `HideOldOtherPRsDays` |
+| `HideOldOtherPRsDays` | `30` | |
+| `PipelineSortMode` | `favorites` | Last used pipeline sort |
+| `PipelineAutoRefreshEnabled` | `false` | Auto-refresh the pipeline views |
+| `PipelineAutoRefreshSeconds` | `15` | How often |
+| `RecentBranchMinutes` | `60` | How far back `:pr` looks for pushed branches |
+
+## Development
+
+```bash
+make test    # tests with the race detector and coverage
+make lint    # golangci-lint
+make fmt
+```
 
 ```
-lgtmfaster/
-├── cmd/lgtmfaster/          # Application entry point
-├── internal/
-│   ├── domain/              # Core domain models and interfaces
-│   ├── provider/            # GitHub and Azure DevOps implementations
-│   ├── storage/             # Local PAT storage
-│   └── ui/                  # Bubble Tea TUI components
-│       ├── components/      # Reusable UI components
-│       └── views/           # Application views
+cmd/lgtmfaster/      entry point
+internal/
+├── domain/          models and the Provider / Repository interfaces
+├── provider/        Azure DevOps and GitHub implementations (+ shared diff and identifier parsing)
+├── storage/         config.json persistence
+├── git/             local repository operations
+└── ui/              Bubble Tea app: command registry, layout, session
+    ├── components/  top bar, command bar, status bar
+    └── views/       lists, split panes, PR inspect, forms
 ```
 
-## Architecture
-
-The application follows clean architecture principles:
-- **Domain Layer**: Defines core models and provider interfaces
-- **Provider Layer**: Implements GitHub/Azure DevOps API clients
-- **Storage Layer**: Handles local persistence of PATs
-- **UI Layer**: Bubble Tea components and views
-
-All provider-specific logic is abstracted behind the `Provider` interface, making it easy to add new providers.
+Provider-specific logic stays behind the `domain.Provider` interface; pipelines are the optional `domain.PipelineProvider`. See `CLAUDE.md` for the architecture notes.
