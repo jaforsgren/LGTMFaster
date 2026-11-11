@@ -34,6 +34,9 @@ const (
 
 const prCacheTTL = 30 * time.Second
 
+// pendingCommentMessage says how inline comments get posted: they wait for the review.
+const pendingCommentMessage = "Comment queued (%d pending). Post with enter (comment only), a (approve) or r (request changes), then ctrl+s"
+
 type LoadingState struct {
 	IsLoading         bool
 	TotalPATs         int
@@ -266,7 +269,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					comment := m.inlineCommentView.GetComment()
 					if comment != "" {
 						m.prInspect.AddPendingComment(comment)
-						m.statusBar.SetMessage("Inline comment added. Submit review to post.", false)
+						m.statusBar.SetMessage(fmt.Sprintf(pendingCommentMessage, m.prInspect.GetPendingCommentCount()), false)
 					}
 					m.inlineCommentView.Deactivate()
 					return m, nil

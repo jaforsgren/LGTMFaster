@@ -197,23 +197,24 @@ func (p *Provider) GetComments(ctx context.Context, identifier domain.PRIdentifi
 		}
 
 		for _, comment := range *thread.Comments {
+			isSystem := comment.CommentType != nil && *comment.CommentType == git.CommentTypeValues.System
+			body := common.GetString(comment.Content)
+			if isSystem {
+				body = describeVote(body)
+			}
 			domainComment := domain.Comment{
 				ID:        fmt.Sprintf("%d", *comment.Id),
-				Body:      common.GetString(comment.Content),
+				Body:      body,
 				CreatedAt: comment.PublishedDate.Time,
 				UpdatedAt: comment.LastUpdatedDate.Time,
+				IsSystem:  isSystem,
 			}
 
 			if comment.Author != nil {
 				domainComment.Author = convertIdentity(comment.Author)
 			}
 
-			if thread.ThreadContext != nil && thread.ThreadContext.FilePath != nil {
-				domainComment.FilePath = common.GetString(thread.ThreadContext.FilePath)
-				if thread.ThreadContext.RightFileStart != nil && thread.ThreadContext.RightFileStart.Line != nil {
-					domainComment.Line = *thread.ThreadContext.RightFileStart.Line
-				}
-			}
+			domainComment.FilePath, domainComment.Line, domainComment.Side = commentPosition(thread.ThreadContext)
 
 			comments = append(comments, domainComment)
 		}
@@ -228,7 +229,7 @@ func (p *Provider) AddComment(ctx context.Context, identifier domain.PRIdentifie
 		return err
 	}
 
-	return p.client.CreateCommentThread(ctx, projectID, repoID, identifier.Number, body, filePath, line)
+	return p.client.CreateCommentThread(ctx, projectID, repoID, identifier.Number, body, filePath, line, domain.CommentSideRight)
 }
 
 func (p *Provider) SubmitReview(ctx context.Context, review domain.Review) error {
@@ -253,7 +254,7 @@ func (p *Provider) SubmitReview(ctx context.Context, review domain.Review) error
 	}
 	for i, comment := range review.Comments {
 		logger.Log("AzureDevOps: Creating comment %d/%d on %s:%d", i+1, len(review.Comments), comment.FilePath, comment.Line)
-		if err := p.client.CreateCommentThread(ctx, projectID, repoID, prNumber, comment.Body, comment.FilePath, comment.Line); err != nil {
+		if err := p.client.CreateCommentThread(ctx, projectID, repoID, prNumber, comment.Body, comment.FilePath, comment.Line, comment.Side); err != nil {
 			logger.LogError("AZDO_CREATE_COMMENT", fmt.Sprintf("%s#%d", repository, prNumber), err)
 			if createdComments > 0 {
 				return fmt.Errorf("%w: failed to create comment %d/%d (created %d comments before failure): %v",
@@ -286,7 +287,7 @@ func (p *Provider) SubmitReview(ctx context.Context, review domain.Review) error
 
 	if review.Body != "" {
 		logger.Log("AzureDevOps: Creating review body comment")
-		if err := p.client.CreateCommentThread(ctx, projectID, repoID, prNumber, review.Body, "", 0); err != nil {
+		if err := p.client.CreateCommentThread(ctx, projectID, repoID, prNumber, review.Body, "", 0, ""); err != nil {
 			logger.LogError("AZDO_CREATE_REVIEW_BODY", fmt.Sprintf("%s#%d", repository, prNumber), err)
 			if createdComments > 0 || review.Action != domain.ReviewActionComment {
 				return fmt.Errorf("%w: failed to create review body comment (created %d inline comments): %v",

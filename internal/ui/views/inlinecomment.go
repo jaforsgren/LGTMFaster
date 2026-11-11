@@ -8,12 +8,14 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+const inlineCommentBoxInset = 4
+
 type InlineCommentViewModel struct {
 	textarea textarea.Model
 	width    int
 	height   int
 	active   bool
-	lineInfo string
+	target   CommentTarget
 }
 
 func NewInlineCommentView() *InlineCommentViewModel {
@@ -35,9 +37,10 @@ func (m *InlineCommentViewModel) SetSize(width, height int) {
 	m.textarea.SetHeight(8)
 }
 
-func (m *InlineCommentViewModel) Activate(lineInfo string) {
+// Activate opens the box for a comment on target, showing the code around it.
+func (m *InlineCommentViewModel) Activate(target CommentTarget) {
 	m.active = true
-	m.lineInfo = lineInfo
+	m.target = target
 	m.textarea.Focus()
 	m.textarea.SetValue("")
 }
@@ -82,12 +85,11 @@ func (m *InlineCommentViewModel) View() string {
 		Bold(true).
 		Padding(1, 0)
 
-	title := "Add Inline Comment"
-	if m.lineInfo != "" {
-		title += " - " + m.lineInfo
-	}
-
-	b.WriteString(titleStyle.Render(title))
+	b.WriteString(titleStyle.Render("Add Inline Comment"))
+	b.WriteString("\n")
+	b.WriteString(detailValueStyle.Render(m.target.Describe()))
+	b.WriteString("\n\n")
+	b.WriteString(renderCodeSnippet(m.target.snippet, m.width-inlineCommentBoxInset*2))
 	b.WriteString("\n\n")
 	b.WriteString(m.textarea.View())
 	b.WriteString("\n\n")
@@ -103,7 +105,7 @@ func (m *InlineCommentViewModel) View() string {
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("#7C3AED")).
 		Padding(1, 2).
-		Width(m.width - 4)
+		Width(m.width - inlineCommentBoxInset)
 
 	return boxStyle.Render(b.String())
 }

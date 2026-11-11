@@ -184,3 +184,36 @@ func TestCommentDetailView_ShowsCodeContext(t *testing.T) {
 		t.Error("expected output to contain code context")
 	}
 }
+
+func TestCommentDetail_ShowsTheCodeAroundInlineComments(t *testing.T) {
+	view := NewCommentDetailView()
+	view.SetSize(120, 60)
+	diff := &domain.Diff{Files: []domain.FileDiff{testCommentFile()}}
+
+	view.Activate([]domain.Comment{
+		{Author: domain.User{Username: "reviewer"}, Body: "Better name", FilePath: "src/main.go", Line: 2, Side: domain.CommentSideRight},
+		{Author: domain.User{Username: "reviewer"}, Body: "Keep this?", FilePath: "src/main.go", Line: 2, Side: domain.CommentSideLeft},
+	}, diff)
+	output := view.View()
+
+	for _, expected := range []string{"on line 2", "(deleted line)", "package main", "+func renamed() {}", "-func old() {}", "Better name", "Keep this?"} {
+		if !strings.Contains(output, expected) {
+			t.Errorf("expected %q in the comment view", expected)
+		}
+	}
+}
+
+func TestCommentDetail_ShowsVotesAsOneLiners(t *testing.T) {
+	view := NewCommentDetailView()
+	view.SetSize(120, 40)
+
+	view.Activate([]domain.Comment{{Body: "Johan approved", IsSystem: true}}, nil)
+	output := view.View()
+
+	if !strings.Contains(output, systemCommentMarker+"Johan approved") {
+		t.Errorf("expected the vote as a one-liner, got %q", output)
+	}
+	if strings.Contains(output, "╭") {
+		t.Error("expected a vote not to be boxed like a comment")
+	}
+}

@@ -127,6 +127,14 @@ func (s Settings) PipelineAutoRefreshInterval() time.Duration {
 	return time.Duration(s.WithDefaults().PipelineAutoRefreshSeconds) * time.Second
 }
 
+// CommentSide says which version of a file an inline comment's line number refers to.
+const (
+	CommentSideLeft  = "LEFT"
+	CommentSideRight = "RIGHT"
+)
+
+// Comment is a pull request comment. FilePath is relative to the repository root without a leading
+// slash, like the paths in a Diff, and Line counts in the file version Side names.
 type Comment struct {
 	ID        string
 	Author    User
@@ -136,6 +144,8 @@ type Comment struct {
 	FilePath  string
 	Line      int
 	Side      string
+	// IsSystem marks comments the provider wrote itself, such as vote changes.
+	IsSystem bool
 }
 
 type DiffLine struct {

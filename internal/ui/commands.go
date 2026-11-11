@@ -1056,13 +1056,8 @@ func handleRejectStageKey(m Model) (Model, tea.Cmd) {
 
 func handleInlineCommentKey(m Model) (Model, tea.Cmd) {
 	if m.state == ViewPRInspect && m.prInspect.GetMode() == views.PRInspectModeDiff {
-		lineInfo := m.prInspect.GetCurrentLineInfo()
-		if lineInfo != nil {
-			lineDesc := fmt.Sprintf("Line %d", lineInfo.NewLine)
-			if lineInfo.Type == "delete" {
-				lineDesc = fmt.Sprintf("Line %d (deleted)", lineInfo.OldLine)
-			}
-			m.inlineCommentView.Activate(lineDesc)
+		if target, ok := m.prInspect.CurrentCommentTarget(); ok {
+			m.inlineCommentView.Activate(target)
 		}
 	}
 	return m, nil

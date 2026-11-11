@@ -531,7 +531,9 @@ func (c *Client) GetPullRequestThreads(ctx context.Context, projectID string, re
 	return threads, nil
 }
 
-func (c *Client) CreateCommentThread(ctx context.Context, projectID string, repoID string, pullRequestID int, body string, filePath string, line int) error {
+// CreateCommentThread posts a comment, on a line of a file when filePath and line are given. side
+// picks the file version the line counts in: the old one for deleted lines.
+func (c *Client) CreateCommentThread(ctx context.Context, projectID string, repoID string, pullRequestID int, body string, filePath string, line int, side string) error {
 	thread := git.GitPullRequestCommentThread{
 		Comments: &[]git.Comment{
 			{
@@ -542,17 +544,7 @@ func (c *Client) CreateCommentThread(ctx context.Context, projectID string, repo
 	}
 
 	if filePath != "" && line > 0 {
-		thread.ThreadContext = &git.CommentThreadContext{
-			FilePath: &filePath,
-			RightFileStart: &git.CommentPosition{
-				Line:   &line,
-				Offset: intPtr(1),
-			},
-			RightFileEnd: &git.CommentPosition{
-				Line:   &line,
-				Offset: intPtr(1),
-			},
-		}
+		thread.ThreadContext = commentThreadContext(filePath, line, side)
 	}
 
 	_, err := c.gitClient.CreateThread(ctx, git.CreateThreadArgs{

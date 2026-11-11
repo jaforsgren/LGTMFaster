@@ -2,12 +2,18 @@ package views
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/johanforsgren/lgtmfaster/internal/domain"
+)
+
+const (
+	commentBoxInset     = 4
+	systemCommentMarker = "● "
 )
 
 type CommentDetailViewModel struct {
@@ -134,11 +140,17 @@ func (m *CommentDetailViewModel) updateViewport() {
 		b.WriteString("\n\n")
 
 		commentsByFile := make(map[string][]domain.Comment)
+		var filePaths []string
 		for _, comment := range inlineComments {
+			if _, seen := commentsByFile[comment.FilePath]; !seen {
+				filePaths = append(filePaths, comment.FilePath)
+			}
 			commentsByFile[comment.FilePath] = append(commentsByFile[comment.FilePath], comment)
 		}
+		sort.Strings(filePaths)
 
-		for filePath, fileComments := range commentsByFile {
+		for _, filePath := range filePaths {
+			fileComments := commentsByFile[filePath]
 			fileHeaderStyle := lipgloss.NewStyle().
 				Foreground(lipgloss.Color("#3B82F6")).
 				Bold(true).
@@ -173,65 +185,38 @@ func (m *CommentDetailViewModel) renderComment(b *strings.Builder, comment domai
 		Foreground(lipgloss.Color("#10B981")).
 		Padding(0, 2)
 
-	codeStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#4B5563"))
+	if comment.IsSystem {
+		b.WriteString(metaStyle.Render(fmt.Sprintf("%s%s · %s", systemCommentMarker, comment.Body, FormatAge(comment.CreatedAt))))
+		b.WriteString("\n")
+		return
+	}
 
 	boxStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("#374151")).
 		Padding(1, 2).
-		Width(m.width - 4)
+		Width(m.width - commentBoxInset)
 
 	var content strings.Builder
 
 	header := authorStyle.Render(comment.Author.Username)
 	if comment.Line > 0 {
-		header += metaStyle.Render(fmt.Sprintf(" on line %d", comment.Line))
+		lineDescription := fmt.Sprintf(" on line %d", comment.Line)
+		if comment.Side == domain.CommentSideLeft {
+			lineDescription += " (deleted line)"
+		}
+		header += metaStyle.Render(lineDescription)
 	}
+	header += metaStyle.Render(" · " + FormatAge(comment.CreatedAt))
 	content.WriteString(header)
 	content.WriteString("\n\n")
 
-	if comment.Line > 0 && m.diff != nil {
-		codeContext := m.getCodeContext(comment)
-		if codeContext != "" {
-			content.WriteString(codeStyle.Render(codeContext))
-			content.WriteString("\n\n")
-		}
+	if snippet, found := snippetForComment(m.diff, comment); found {
+		content.WriteString(renderCodeSnippet(snippet, m.width-commentBoxInset*2))
+		content.WriteString("\n\n")
 	}
 
 	content.WriteString(commentStyle.Render(comment.Body))
 
 	b.WriteString(boxStyle.Render(content.String()))
-}
-
-func (m *CommentDetailViewModel) getCodeContext(comment domain.Comment) string {
-	if m.diff == nil {
-		return ""
-	}
-
-	for _, file := range m.diff.Files {
-		filePath := file.NewPath
-		if filePath == "" {
-			filePath = file.OldPath
-		}
-
-		if filePath != comment.FilePath {
-			continue
-		}
-
-		for _, hunk := range file.Hunks {
-			for _, line := range hunk.Lines {
-				lineNum := line.NewLine
-				if comment.Side == "LEFT" || line.Type == "delete" {
-					lineNum = line.OldLine
-				}
-
-				if lineNum == comment.Line {
-					return line.Content
-				}
-			}
-		}
-	}
-
-	return ""
 }

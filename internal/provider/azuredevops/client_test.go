@@ -2,6 +2,7 @@ package azuredevops
 
 import (
 	"context"
+	"github.com/johanforsgren/lgtmfaster/internal/domain"
 	"io"
 	"strings"
 	"testing"
@@ -22,6 +23,8 @@ type mockGitClient struct {
 	createdPR        *git.GitPullRequest
 	lastCreateArgs   *git.CreatePullRequestArgs
 	lastPushesArgs   *git.GetPushesArgs
+	threads          *[]git.GitPullRequestCommentThread
+	createdThreads   []git.GitPullRequestCommentThread
 }
 
 func (m *mockGitClient) GetRepositories(ctx context.Context, args git.GetRepositoriesArgs) (*[]git.GitRepository, error) {
@@ -69,11 +72,12 @@ func (m *mockGitClient) GetBlobContent(ctx context.Context, args git.GetBlobCont
 }
 
 func (m *mockGitClient) GetThreads(ctx context.Context, args git.GetThreadsArgs) (*[]git.GitPullRequestCommentThread, error) {
-	return nil, nil
+	return m.threads, nil
 }
 
 func (m *mockGitClient) CreateThread(ctx context.Context, args git.CreateThreadArgs) (*git.GitPullRequestCommentThread, error) {
-	return nil, nil
+	m.createdThreads = append(m.createdThreads, *args.CommentThread)
+	return args.CommentThread, nil
 }
 
 func (m *mockGitClient) CreatePullRequestReviewer(ctx context.Context, args git.CreatePullRequestReviewerArgs) (*git.IdentityRefWithVote, error) {
@@ -575,9 +579,35 @@ func TestCreateCommentThread_InlineComment(t *testing.T) {
 		gitClient: mockClient,
 	}
 
-	err := client.CreateCommentThread(context.Background(), "project1", "repo1", 42, "This is a comment", "/src/file.go", 10)
+	err := client.CreateCommentThread(context.Background(), "project1", "repo1", 42, "This is a comment", "src/file.go", 10, domain.CommentSideRight)
 	if err != nil {
-		t.Errorf("Expected no error, got: %v", err)
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+
+	context := mockClient.createdThreads[0].ThreadContext
+	if *context.FilePath != "/src/file.go" {
+		t.Errorf("expected the path from the repository root with a leading slash, got %q", *context.FilePath)
+	}
+	if context.RightFileStart == nil || *context.RightFileStart.Line != 10 || context.LeftFileStart != nil {
+		t.Errorf("expected the comment on line 10 of the new file, got %+v", context)
+	}
+}
+
+func TestCreateCommentThread_DeletedLineGoesOnTheOldFile(t *testing.T) {
+	mockClient := &mockGitClient{}
+	client := &Client{gitClient: mockClient}
+
+	err := client.CreateCommentThread(context.Background(), "project1", "repo1", 42, "Why remove this?", "/src/file.go", 7, domain.CommentSideLeft)
+	if err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+
+	context := mockClient.createdThreads[0].ThreadContext
+	if *context.FilePath != "/src/file.go" {
+		t.Errorf("expected a single leading slash, got %q", *context.FilePath)
+	}
+	if context.LeftFileStart == nil || *context.LeftFileStart.Line != 7 || context.RightFileStart != nil {
+		t.Errorf("expected the comment on line 7 of the old file, got %+v", context)
 	}
 }
 
@@ -588,8 +618,11 @@ func TestCreateCommentThread_ReviewBodyComment(t *testing.T) {
 		gitClient: mockClient,
 	}
 
-	err := client.CreateCommentThread(context.Background(), "project1", "repo1", 42, "LGTM! Great work.", "", 0)
+	err := client.CreateCommentThread(context.Background(), "project1", "repo1", 42, "LGTM! Great work.", "", 0, "")
 	if err != nil {
-		t.Errorf("Expected no error, got: %v", err)
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+	if mockClient.createdThreads[0].ThreadContext != nil {
+		t.Error("expected a review body comment not to be anchored to a line")
 	}
 }

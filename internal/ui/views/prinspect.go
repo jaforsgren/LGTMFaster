@@ -255,34 +255,26 @@ func (m *PRInspectViewModel) GetCurrentLineInfo() *domain.DiffLine {
 	return nil
 }
 
-func (m *PRInspectViewModel) AddPendingComment(body string) {
+// CurrentCommentTarget is the diff line under the cursor, which an inline comment would go on.
+func (m *PRInspectViewModel) CurrentCommentTarget() (CommentTarget, bool) {
 	if m.diff == nil || len(m.diff.Files) == 0 {
+		return CommentTarget{}, false
+	}
+	return commentTargetAt(m.diff.Files[m.currentFile], m.currentLineIdx)
+}
+
+// AddPendingComment queues a comment on the line under the cursor, to be posted with the review.
+func (m *PRInspectViewModel) AddPendingComment(body string) {
+	target, ok := m.CurrentCommentTarget()
+	if !ok {
 		return
 	}
-
-	lineInfo := m.GetCurrentLineInfo()
-	if lineInfo == nil {
-		return
-	}
-
-	file := m.diff.Files[m.currentFile]
-	filePath := getFilePath(file)
-
-	lineNumber := lineInfo.NewLine
-	side := "RIGHT"
-	if lineInfo.Type == "delete" {
-		lineNumber = lineInfo.OldLine
-		side = "LEFT"
-	}
-
-	comment := domain.Comment{
+	m.pendingComments = append(m.pendingComments, domain.Comment{
 		Body:     body,
-		FilePath: filePath,
-		Line:     lineNumber,
-		Side:     side,
-	}
-
-	m.pendingComments = append(m.pendingComments, comment)
+		FilePath: target.FilePath,
+		Line:     target.Line,
+		Side:     target.Side,
+	})
 }
 
 func (m *PRInspectViewModel) GetPendingComments() []domain.Comment {
@@ -507,41 +499,20 @@ func (m *PRInspectViewModel) renderDiffLine(line domain.DiffLine, lineIdx int) s
 }
 
 func (m *PRInspectViewModel) hasPendingCommentOnLine(line domain.DiffLine) bool {
-	if m.diff == nil || len(m.diff.Files) == 0 {
-		return false
-	}
-
-	file := m.diff.Files[m.currentFile]
-	filePath := getFilePath(file)
-
-	lineNumber := line.NewLine
-	if line.Type == "delete" {
-		lineNumber = line.OldLine
-	}
-
-	for _, comment := range m.pendingComments {
-		if comment.FilePath == filePath && comment.Line == lineNumber {
-			return true
-		}
-	}
-	return false
+	return m.hasCommentOnLine(m.pendingComments, line)
 }
 
 func (m *PRInspectViewModel) hasSubmittedCommentOnLine(line domain.DiffLine) bool {
+	return m.hasCommentOnLine(m.comments, line)
+}
+
+func (m *PRInspectViewModel) hasCommentOnLine(comments []domain.Comment, line domain.DiffLine) bool {
 	if m.diff == nil || len(m.diff.Files) == 0 {
 		return false
 	}
-
-	file := m.diff.Files[m.currentFile]
-	filePath := getFilePath(file)
-
-	lineNumber := line.NewLine
-	if line.Type == "delete" {
-		lineNumber = line.OldLine
-	}
-
-	for _, comment := range m.comments {
-		if comment.FilePath == filePath && comment.Line == lineNumber {
+	filePath := getFilePath(m.diff.Files[m.currentFile])
+	for _, comment := range comments {
+		if comment.FilePath == filePath && commentIsOnLine(comment, line) {
 			return true
 		}
 	}
