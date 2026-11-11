@@ -7,6 +7,7 @@ type Config struct {
 	ActivePAT       string                  `json:"active_pat"`
 	SelectedPATs    []string                `json:"selected_pats"`
 	PrimaryPAT      string                  `json:"primary_pat"`
-	RepositoryLinks []domain.RepositoryLink `json:"repository_links,omitempty"`
-	Settings        domain.Settings         `json:"settings"`
+	RepositoryLinks   []domain.RepositoryLink `json:"repository_links,omitempty"`
+	PipelineFavorites []string                `json:"pipeline_favorites,omitempty"`
+	Settings          domain.Settings         `json:"settings"`
 }

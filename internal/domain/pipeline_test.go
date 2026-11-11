@@ -33,3 +33,33 @@ func TestPipelineStage_AwaitsApproval(t *testing.T) {
 		t.Error("expected stage with approval ID to await approval")
 	}
 }
+
+func TestFavoriteKeys_AreDistinctPerKindAndPAT(t *testing.T) {
+	keys := []string{
+		ProjectFavoriteKey("pat-a", "Proj"),
+		ProjectFavoriteKey("pat-b", "Proj"),
+		RepositoryFavoriteKey("pat-a", "Proj", "api"),
+		PipelineFavoriteKey("pat-a", "Proj", 1),
+		PipelineRunFavoriteKey("pat-a", "Proj", 1),
+	}
+
+	seen := make(map[string]bool)
+	for _, key := range keys {
+		if seen[key] {
+			t.Errorf("duplicate favorite key %s", key)
+		}
+		seen[key] = true
+	}
+}
+
+func TestFavoriteKey_MethodsMatchConstructors(t *testing.T) {
+	pipeline := Pipeline{ID: 3, Project: "Proj", PATID: "pat"}
+	run := PipelineRun{ID: 9, Project: "Proj", PATID: "pat"}
+
+	if pipeline.FavoriteKey() != PipelineFavoriteKey("pat", "Proj", 3) {
+		t.Error("pipeline favorite key mismatch")
+	}
+	if run.FavoriteKey() != PipelineRunFavoriteKey("pat", "Proj", 9) {
+		t.Error("run favorite key mismatch")
+	}
+}

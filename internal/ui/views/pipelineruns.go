@@ -1,6 +1,8 @@
 package views
 
 import (
+	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -9,20 +11,27 @@ import (
 )
 
 type PipelineRunsViewModel struct {
-	pipeline    *domain.Pipeline
-	sourceRuns  []domain.PipelineRun
-	visibleRuns []domain.PipelineRun
-	loaded      bool
-	cursor      listCursor
-	filter      listFilter
-	width       int
-	height      int
+	pipeline       *domain.Pipeline
+	sourceRuns     []domain.PipelineRun
+	visibleRuns    []domain.PipelineRun
+	loaded         bool
+	favorites      map[string]bool
+	previewStages  map[string][]domain.PipelineStage
+	previewPending map[string]bool
+	cursor         listCursor
+	filter         listFilter
+	pane           splitPane
+	width          int
+	height         int
 }
 
 func NewPipelineRunsView() *PipelineRunsViewModel {
 	return &PipelineRunsViewModel{
-		cursor: newListCursor(),
-		filter: newListFilter("Filter by run, branch, or requester..."),
+		favorites:      make(map[string]bool),
+		previewStages:  make(map[string][]domain.PipelineStage),
+		previewPending: make(map[string]bool),
+		cursor:         newListCursor(),
+		filter:         newListFilter("Filter by run, branch, or requester..."),
 	}
 }
 
@@ -39,6 +48,47 @@ func (m *PipelineRunsViewModel) SetPipeline(pipeline domain.Pipeline) {
 	m.loaded = false
 	m.filter.Clear()
 	m.cursor.Reset()
+	m.ResetPreview()
+}
+
+func (m *PipelineRunsViewModel) SetFavorites(favorites map[string]bool) {
+	selected := m.GetSelectedRun()
+	m.favorites = favorites
+	m.rebuild()
+	m.selectRun(selected)
+}
+
+func (m *PipelineRunsViewModel) TogglePreview() {
+	m.pane.Toggle()
+}
+
+func (m *PipelineRunsViewModel) IsPreviewOpen() bool {
+	return m.pane.IsOpen()
+}
+
+// NextPreviewRequest returns the selected run when the open pane needs its stages fetched,
+// and marks the request in flight so cursor movement does not refetch it.
+func (m *PipelineRunsViewModel) NextPreviewRequest() *domain.PipelineRun {
+	run := m.GetSelectedRun()
+	if !m.pane.IsOpen() || run == nil {
+		return nil
+	}
+	key := run.FavoriteKey()
+	if _, loaded := m.previewStages[key]; loaded || m.previewPending[key] {
+		return nil
+	}
+	m.previewPending[key] = true
+	return run
+}
+
+func (m *PipelineRunsViewModel) SetPreviewStages(runKey string, stages []domain.PipelineStage) {
+	delete(m.previewPending, runKey)
+	m.previewStages[runKey] = stages
+}
+
+func (m *PipelineRunsViewModel) ResetPreview() {
+	m.previewStages = make(map[string][]domain.PipelineStage)
+	m.previewPending = make(map[string]bool)
 }
 
 func (m *PipelineRunsViewModel) GetPipeline() *domain.Pipeline {
@@ -51,11 +101,15 @@ func (m *PipelineRunsViewModel) SetRuns(runs []domain.PipelineRun) {
 	m.sourceRuns = append([]domain.PipelineRun(nil), runs...)
 	m.loaded = true
 	m.rebuild()
-	if selected == nil {
+	m.selectRun(selected)
+}
+
+func (m *PipelineRunsViewModel) selectRun(run *domain.PipelineRun) {
+	if run == nil {
 		return
 	}
-	for i, run := range m.visibleRuns {
-		if run.ID == selected.ID {
+	for i, visible := range m.visibleRuns {
+		if visible.ID == run.ID {
 			m.cursor.SetIndex(i, len(m.visibleRuns))
 			return
 		}
@@ -113,6 +167,9 @@ func (m *PipelineRunsViewModel) rebuild() {
 			filtered = append(filtered, run)
 		}
 	}
+	sort.SliceStable(filtered, func(i, j int) bool {
+		return m.favorites[filtered[i].FavoriteKey()] && !m.favorites[filtered[j].FavoriteKey()]
+	})
 	m.visibleRuns = filtered
 	m.cursor.Clamp(len(m.visibleRuns))
 }
@@ -127,9 +184,16 @@ func (m *PipelineRunsViewModel) columns() []listColumn {
 		minRunWidth    = 16
 		columnSpacing  = 5
 	)
+	listWidth := m.pane.ListWidth(m.width)
+	if m.pane.IsOpen() {
+		return []listColumn{
+			{"Run", flexColumnWidth(listWidth, statusWidth+1, minRunWidth)},
+			{"Status", statusWidth},
+		}
+	}
 	fixed := statusWidth + branchWidth + requesterWidth + queuedWidth + durationWidth + columnSpacing
 	return []listColumn{
-		{"Run", flexColumnWidth(m.width, fixed, minRunWidth)},
+		{"Run", flexColumnWidth(listWidth, fixed, minRunWidth)},
 		{"Status", statusWidth},
 		{"Branch", branchWidth},
 		{"Requested by", requesterWidth},
@@ -165,7 +229,8 @@ func (m *PipelineRunsViewModel) View() string {
 
 		start, end := m.cursor.VisibleRange(len(m.visibleRuns))
 		for i := start; i < end; i++ {
-			b.WriteString(renderRun(m.visibleRuns[i], columns, i == m.cursor.Index()))
+			run := m.visibleRuns[i]
+			b.WriteString(renderRun(run, columns, m.favorites[run.FavoriteKey()], i == m.cursor.Index()))
 			b.WriteString("\n")
 		}
 		if len(m.visibleRuns) > end-start {
@@ -181,26 +246,52 @@ func (m *PipelineRunsViewModel) View() string {
 
 	b.WriteString("\n")
 	b.WriteString(pipelineMutedStyle.Render(m.helpText()))
-	return b.String()
+
+	title, lines := m.previewContent()
+	return m.pane.Render(b.String(), title, lines, m.width, m.cursor.visibleRows)
 }
 
-func renderRun(run domain.PipelineRun, columns []listColumn, selected bool) string {
+func (m *PipelineRunsViewModel) previewContent() (string, []string) {
+	run := m.GetSelectedRun()
+	if run == nil {
+		return "Stages", []string{pipelineMutedStyle.Render("No run selected.")}
+	}
+	title := fmt.Sprintf("Stages of %s", valueOrPlaceholder(run.Number))
+	stages, loaded := m.previewStages[run.FavoriteKey()]
+	if !loaded {
+		return title, []string{pipelineMutedStyle.Render("Loading stages...")}
+	}
+	if len(stages) == 0 {
+		return title, []string{pipelineMutedStyle.Render("This run has no stages.")}
+	}
+	lines := make([]string, 0, len(stages))
+	for _, stage := range stages {
+		line := renderDetailRow(stage.Status, stage.Name+"  "+PipelineStatusLabel(stage.Status))
+		if stage.AwaitsApproval() {
+			line += " " + approvalHintStyle.Render("needs approval")
+		}
+		lines = append(lines, line)
+	}
+	return title, lines
+}
+
+func renderRun(run domain.PipelineRun, columns []listColumn, isFavorite, selected bool) string {
 	values := []string{
-		valueOrPlaceholder(run.Number),
+		favoritePrefix(isFavorite) + valueOrPlaceholder(run.Number),
 		PipelineStatusLabel(run.Status),
 		valueOrPlaceholder(run.SourceBranch),
 		valueOrPlaceholder(run.RequestedBy.Username),
 		formatOptionalAge(run.QueuedAt),
 		formatRunDuration(run),
 	}
-	return renderListRow(run.Status, columns, values, selected)
+	return renderListRow(run.Status, columns, values[:len(columns)], selected)
 }
 
 func (m *PipelineRunsViewModel) helpText() string {
 	if m.filter.IsActive() {
 		return "Type to filter | Enter/Esc: Close"
 	}
-	help := "Enter: Inspect run | ctrl+o: Open run | r: Refresh | /: Filter | q: Back | auto-refreshing"
+	help := "Enter: Inspect run | f: Favorite | Tab: Details | ctrl+o: Open run | r: Refresh | /: Filter | q: Back | auto-refreshing"
 	if m.filter.Text() != "" {
 		help = strings.Replace(help, "q: Back", "Esc: Clear filter | q: Back", 1)
 	}

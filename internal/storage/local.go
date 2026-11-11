@@ -531,6 +531,32 @@ func (r *LocalRepository) DeleteRepositoryLink(id string) error {
 	return fmt.Errorf("repository link not found: %s", id)
 }
 
+func (r *LocalRepository) ListPipelineFavorites() ([]string, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	favorites := make([]string, len(r.config.PipelineFavorites))
+	copy(favorites, r.config.PipelineFavorites)
+	return favorites, nil
+}
+
+func (r *LocalRepository) TogglePipelineFavorite(key string) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	for i, favorite := range r.config.PipelineFavorites {
+		if favorite == key {
+			r.config.PipelineFavorites = append(r.config.PipelineFavorites[:i], r.config.PipelineFavorites[i+1:]...)
+			logger.Log("Removed pipeline favorite: %s", key)
+			return false, r.save()
+		}
+	}
+
+	r.config.PipelineFavorites = append(r.config.PipelineFavorites, key)
+	logger.Log("Added pipeline favorite: %s", key)
+	return true, r.save()
+}
+
 func (r *LocalRepository) GetSettings() (domain.Settings, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

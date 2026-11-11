@@ -537,3 +537,37 @@ func TestReloadPicksUpExternalConfigChanges(t *testing.T) {
 		t.Error("Expected reloaded HideOldOtherPRs to be true")
 	}
 }
+
+func TestTogglePipelineFavoritePersists(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpDir)
+	defer os.Setenv("HOME", oldHome)
+
+	repo, err := NewLocalRepository()
+	if err != nil {
+		t.Fatalf("Failed to create repository: %v", err)
+	}
+
+	isFavorite, err := repo.TogglePipelineFavorite("pipeline:pat:Proj:1")
+	if err != nil || !isFavorite {
+		t.Fatalf("Expected favorite added, got %v (err %v)", isFavorite, err)
+	}
+
+	reloaded, err := NewLocalRepository()
+	if err != nil {
+		t.Fatalf("Failed to reload repository: %v", err)
+	}
+	favorites, _ := reloaded.ListPipelineFavorites()
+	if len(favorites) != 1 || favorites[0] != "pipeline:pat:Proj:1" {
+		t.Fatalf("Expected persisted favorite, got %v", favorites)
+	}
+
+	isFavorite, err = reloaded.TogglePipelineFavorite("pipeline:pat:Proj:1")
+	if err != nil || isFavorite {
+		t.Fatalf("Expected favorite removed, got %v (err %v)", isFavorite, err)
+	}
+	if favorites, _ := reloaded.ListPipelineFavorites(); len(favorites) != 0 {
+		t.Errorf("Expected no favorites, got %v", favorites)
+	}
+}

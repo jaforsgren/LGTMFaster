@@ -80,6 +80,7 @@ func (m Model) openPipelineList() (Model, tea.Cmd) {
 
 	m.state = ViewPipelineList
 	m.pipelineWatchID++
+	m.applyPipelineFavorites()
 	m.topBar.SetView(components.ViewNamePipelines)
 	m.topBar.SetPipelineContext("", "", "")
 	m.topBar.SetPipelineCount(m.pipelineListView.PipelineCount())
@@ -257,6 +258,8 @@ func (m Model) handlePipelinesLoaded(msg PipelinesLoadedMsg) (Model, tea.Cmd) {
 }
 
 func (m Model) handlePipelineRunsLoaded(msg PipelineRunsLoadedMsg) (Model, tea.Cmd) {
+	m.pipelineListView.SetPreviewRuns(domain.PipelineFavoriteKey(msg.patID, msg.pipeline.Project, msg.pipeline.PipelineID), msg.runs)
+
 	current := m.pipelineRunsView.GetPipeline()
 	if current == nil || current.Identifier() != msg.pipeline || current.PATID != msg.patID {
 		return m, nil
@@ -266,6 +269,8 @@ func (m Model) handlePipelineRunsLoaded(msg PipelineRunsLoadedMsg) (Model, tea.C
 }
 
 func (m Model) handlePipelineRunLoaded(msg PipelineRunLoadedMsg) (Model, tea.Cmd) {
+	m.pipelineRunsView.SetPreviewStages(msg.run.FavoriteKey(), msg.stages)
+
 	current := m.pipelineRunView.GetRun()
 	if current == nil || current.Identifier() != msg.run.Identifier() || current.PATID != msg.run.PATID {
 		return m, nil
@@ -289,7 +294,11 @@ func (m Model) handlePipelineWatchTick(msg PipelineWatchTickMsg) (Model, tea.Cmd
 		if pipeline == nil {
 			return m, nil
 		}
-		return m, tea.Batch(m.loadPipelineRuns(*pipeline), schedulePipelineWatchTick(msg.watchID))
+		cmds := []tea.Cmd{m.loadPipelineRuns(*pipeline), schedulePipelineWatchTick(msg.watchID)}
+		if run := m.pipelineRunsView.GetSelectedRun(); run != nil && m.pipelineRunsView.IsPreviewOpen() {
+			cmds = append(cmds, m.loadPipelineRun(*run))
+		}
+		return m, tea.Batch(cmds...)
 	case ViewPipelineRun:
 		run := m.pipelineRunView.GetRun()
 		if run == nil || run.Status.IsFinished() {
@@ -306,8 +315,10 @@ func (m Model) refreshPipelineView() (Model, tea.Cmd) {
 	switch m.state {
 	case ViewPipelineList:
 		m.statusBar.SetMessage("Refreshing pipelines...", false)
+		m.pipelineListView.ResetPreview()
 		return m, m.loadPipelines()
 	case ViewPipelineRuns:
+		m.pipelineRunsView.ResetPreview()
 		if pipeline := m.pipelineRunsView.GetPipeline(); pipeline != nil {
 			return m, m.loadPipelineRuns(*pipeline)
 		}
@@ -403,6 +414,92 @@ func (m Model) pipelineBrowserTarget() (string, string) {
 	default:
 		return "", "pipeline"
 	}
+}
+
+func (m Model) applyPipelineFavorites() {
+	keys, err := m.repository.ListPipelineFavorites()
+	if err != nil {
+		logger.LogError("LOAD_PIPELINE_FAVORITES", "storage", err)
+		return
+	}
+
+	favorites := make(map[string]bool, len(keys))
+	for _, key := range keys {
+		favorites[key] = true
+	}
+	m.pipelineListView.SetFavorites(favorites)
+	m.pipelineRunsView.SetFavorites(favorites)
+	if run := m.pipelineRunView.GetRun(); run != nil {
+		m.pipelineRunView.SetFavorite(favorites[run.FavoriteKey()])
+	}
+}
+
+// selectedFavoriteTarget returns the favorite key and display name of whatever is selected in the current pipeline view.
+func (m Model) selectedFavoriteTarget() (string, string) {
+	switch m.state {
+	case ViewPipelineList:
+		if node := m.pipelineListView.GetSelectedNode(); node != nil {
+			return node.Key, node.Name
+		}
+	case ViewPipelineRuns:
+		if run := m.pipelineRunsView.GetSelectedRun(); run != nil {
+			return run.FavoriteKey(), "run " + run.Number
+		}
+	case ViewPipelineRun:
+		if run := m.pipelineRunView.GetRun(); run != nil {
+			return run.FavoriteKey(), "run " + run.Number
+		}
+	}
+	return "", ""
+}
+
+func (m Model) togglePipelineFavorite() (Model, tea.Cmd) {
+	key, name := m.selectedFavoriteTarget()
+	if key == "" {
+		m.statusBar.SetMessage("Nothing selected to favorite", true)
+		return m, nil
+	}
+
+	isFavorite, err := m.repository.TogglePipelineFavorite(key)
+	if err != nil {
+		m.statusBar.SetMessage(fmt.Sprintf("Failed to update favorites: %v", err), true)
+		return m, nil
+	}
+
+	m.applyPipelineFavorites()
+	if isFavorite {
+		m.statusBar.SetMessage(fmt.Sprintf("Added %s to favorites", name), false)
+	} else {
+		m.statusBar.SetMessage(fmt.Sprintf("Removed %s from favorites", name), false)
+	}
+	return m, clearStatusAfterDelay(4 * time.Second)
+}
+
+// loadPipelinePreview fetches whatever the open details pane is missing for the current selection.
+func (m Model) loadPipelinePreview() tea.Cmd {
+	switch m.state {
+	case ViewPipelineList:
+		if pipeline := m.pipelineListView.NextPreviewRequest(); pipeline != nil {
+			return m.loadPipelineRuns(*pipeline)
+		}
+	case ViewPipelineRuns:
+		if run := m.pipelineRunsView.NextPreviewRequest(); run != nil {
+			return m.loadPipelineRun(*run)
+		}
+	}
+	return nil
+}
+
+func (m Model) togglePipelinePreview() (Model, tea.Cmd) {
+	switch m.state {
+	case ViewPipelineList:
+		m.pipelineListView.TogglePreview()
+	case ViewPipelineRuns:
+		m.pipelineRunsView.TogglePreview()
+	default:
+		return m, nil
+	}
+	return m, m.loadPipelinePreview()
 }
 
 func isPipelineView(state ViewState) bool {

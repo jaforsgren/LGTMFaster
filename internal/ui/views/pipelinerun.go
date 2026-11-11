@@ -25,6 +25,7 @@ type PipelineRunViewModel struct {
 	run          *domain.PipelineRun
 	stages       []domain.PipelineStage
 	stagesLoaded bool
+	isFavorite   bool
 	cursor       listCursor
 	width        int
 	height       int
@@ -48,6 +49,10 @@ func (m *PipelineRunViewModel) SetRun(run domain.PipelineRun) {
 		m.stagesLoaded = false
 		m.cursor.Reset()
 	}
+}
+
+func (m *PipelineRunViewModel) SetFavorite(isFavorite bool) {
+	m.isFavorite = isFavorite
 }
 
 func (m *PipelineRunViewModel) GetRun() *domain.PipelineRun {
@@ -114,6 +119,9 @@ func (m *PipelineRunViewModel) View() string {
 	var b strings.Builder
 	run := m.run
 
+	if m.isFavorite {
+		b.WriteString(favoriteStyle.Render(favoriteMarker))
+	}
 	b.WriteString(pipelineTitleStyle.Render(fmt.Sprintf("Run %s", valueOrPlaceholder(run.Number))))
 	b.WriteString("\n\n")
 
@@ -185,7 +193,7 @@ func (m *PipelineRunViewModel) renderStage(stage domain.PipelineStage, selected 
 }
 
 func (m *PipelineRunViewModel) helpText() string {
-	help := "j/k: Select stage | a: Approve | x: Reject | ctrl+o: Open run | r: Refresh | q: Back"
+	help := "j/k: Select stage | a: Approve | x: Reject | f: Favorite | ctrl+o: Open run | r: Refresh | q: Back"
 	if m.run != nil && !m.run.Status.IsFinished() {
 		help += " | auto-refreshing"
 	}

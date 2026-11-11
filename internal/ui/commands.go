@@ -389,6 +389,34 @@ func (cr *CommandRegistry) registerKeyBindings() {
 			AvailableIn: []ViewState{ViewPipelineRun},
 		},
 		{
+			Keys:        []string{"z"},
+			Description: "Fold/unfold",
+			ShortHelp:   "z",
+			Handler:     handleFoldKey,
+			AvailableIn: []ViewState{ViewPipelineList},
+		},
+		{
+			Keys:        []string{"Z"},
+			Description: "Fold/unfold all",
+			ShortHelp:   "Z",
+			Handler:     handleFoldAllKey,
+			AvailableIn: []ViewState{ViewPipelineList},
+		},
+		{
+			Keys:        []string{"f"},
+			Description: "Toggle favorite",
+			ShortHelp:   "f",
+			Handler:     handleFavoriteKey,
+			AvailableIn: pipelineViewStates,
+		},
+		{
+			Keys:        []string{"tab"},
+			Description: "Toggle details pane",
+			ShortHelp:   "tab",
+			Handler:     handleTogglePreviewKey,
+			AvailableIn: []ViewState{ViewPipelineList, ViewPipelineRuns},
+		},
+		{
 			Keys:        []string{"L"},
 			Description: "Link to local repo",
 			ShortHelp:   "L",
@@ -602,6 +630,8 @@ func handleEnterKey(m Model) (Model, tea.Cmd) {
 		if pipeline := m.pipelineListView.GetSelectedPipeline(); pipeline != nil {
 			return m.enterPipelineRuns(*pipeline)
 		}
+		m.pipelineListView.ToggleSelected()
+		return m, m.loadPipelinePreview()
 	case ViewPipelineRuns:
 		if run := m.pipelineRunsView.GetSelectedRun(); run != nil {
 			return m.enterPipelineRun(*run)
@@ -634,8 +664,10 @@ func handleUpKey(m Model) (Model, tea.Cmd) {
 		cmd = m.prInspect.Update(tea.KeyMsg{Type: tea.KeyUp})
 	case ViewPipelineList:
 		m.pipelineListView.MoveUp()
+		cmd = m.loadPipelinePreview()
 	case ViewPipelineRuns:
 		m.pipelineRunsView.MoveUp()
+		cmd = m.loadPipelinePreview()
 	case ViewPipelineRun:
 		m.pipelineRunView.MoveUp()
 	}
@@ -657,8 +689,10 @@ func handleDownKey(m Model) (Model, tea.Cmd) {
 		cmd = m.prInspect.Update(tea.KeyMsg{Type: tea.KeyDown})
 	case ViewPipelineList:
 		m.pipelineListView.MoveDown()
+		cmd = m.loadPipelinePreview()
 	case ViewPipelineRuns:
 		m.pipelineRunsView.MoveDown()
+		cmd = m.loadPipelinePreview()
 	case ViewPipelineRun:
 		m.pipelineRunView.MoveDown()
 	}
@@ -872,6 +906,33 @@ func handleOpenBrowserKey(m Model) (Model, tea.Cmd) {
 
 	m.statusBar.SetMessage(fmt.Sprintf("Opening %s in browser...", target), false)
 	return m, nil
+}
+
+func handleFoldKey(m Model) (Model, tea.Cmd) {
+	if m.state != ViewPipelineList {
+		return m, nil
+	}
+	m.pipelineListView.ToggleSelected()
+	return m, m.loadPipelinePreview()
+}
+
+func handleFoldAllKey(m Model) (Model, tea.Cmd) {
+	if m.state != ViewPipelineList {
+		return m, nil
+	}
+	m.pipelineListView.ToggleAll()
+	return m, m.loadPipelinePreview()
+}
+
+func handleFavoriteKey(m Model) (Model, tea.Cmd) {
+	if !isPipelineView(m.state) {
+		return m, nil
+	}
+	return m.togglePipelineFavorite()
+}
+
+func handleTogglePreviewKey(m Model) (Model, tea.Cmd) {
+	return m.togglePipelinePreview()
 }
 
 func handleApproveStageKey(m Model) (Model, tea.Cmd) {

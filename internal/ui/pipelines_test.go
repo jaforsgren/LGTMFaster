@@ -139,6 +139,14 @@ func TestEnterKey_DrillsFromPipelineListToRunsToRun(t *testing.T) {
 	m.state = ViewPipelineList
 	m.pipelineListView.SetPipelines([]domain.Pipeline{testPipeline()})
 
+	m, _ = handleEnterKey(m)
+	m.pipelineListView.MoveDown()
+	m, _ = handleEnterKey(m)
+	if m.state != ViewPipelineList {
+		t.Fatalf("expected enter on groups to unfold in place, got %v", m.state)
+	}
+	m.pipelineListView.MoveDown()
+
 	m, cmd := handleEnterKey(m)
 	if m.state != ViewPipelineRuns {
 		t.Fatalf("expected runs view, got %v", m.state)
@@ -358,6 +366,9 @@ func TestNavigateBack_ThroughPipelineViews(t *testing.T) {
 func TestPipelineBrowserTarget(t *testing.T) {
 	m := createPipelineTestModel(&mockPipelineProvider{})
 	m.pipelineListView.SetPipelines([]domain.Pipeline{testPipeline()})
+	m.pipelineListView.ToggleAll()
+	m.pipelineListView.MoveDown()
+	m.pipelineListView.MoveDown()
 	m.pipelineRunsView.SetPipeline(testPipeline())
 	m.pipelineRunView.SetRun(testRun(domain.PipelineStatusRunning))
 
@@ -415,6 +426,94 @@ func TestPipelineShortcutsShowApprovalOnlyInRunView(t *testing.T) {
 	}
 	if containsShortcut(registry.GetContextualShortcuts(ViewPipelineList, false), "Approve stage") {
 		t.Error("expected no approve shortcut in pipeline list")
+	}
+}
+
+func TestFavoriteKey_TogglesSelectedNodeAndPersists(t *testing.T) {
+	m := createPipelineTestModel(&mockPipelineProvider{})
+	repo := m.repository.(*mockRepository)
+	m.state = ViewPipelineList
+	m.pipelineListView.SetPipelines([]domain.Pipeline{testPipeline()})
+
+	m, _ = handleFavoriteKey(m)
+
+	projectKey := domain.ProjectFavoriteKey(testPATID, "Proj")
+	if len(repo.pipelineFavorites) != 1 || repo.pipelineFavorites[0] != projectKey {
+		t.Fatalf("expected project favorited, got %v", repo.pipelineFavorites)
+	}
+
+	m, _ = handleFavoriteKey(m)
+	if len(repo.pipelineFavorites) != 0 {
+		t.Errorf("expected favorite toggled off, got %v", repo.pipelineFavorites)
+	}
+}
+
+func TestFavoriteKey_InRunView_FavoritesRun(t *testing.T) {
+	m := createPipelineTestModel(&mockPipelineProvider{})
+	repo := m.repository.(*mockRepository)
+	m.state = ViewPipelineRun
+	m.pipelineRunView.SetRun(testRun(domain.PipelineStatusRunning))
+
+	handleFavoriteKey(m)
+
+	if len(repo.pipelineFavorites) != 1 || repo.pipelineFavorites[0] != testRun(domain.PipelineStatusRunning).FavoriteKey() {
+		t.Errorf("expected run favorited, got %v", repo.pipelineFavorites)
+	}
+}
+
+func TestTogglePreviewKey_LoadsRunsForSelectedPipeline(t *testing.T) {
+	provider := &mockPipelineProvider{runs: []domain.PipelineRun{testRun(domain.PipelineStatusRunning)}}
+	m := createPipelineTestModel(provider)
+	m.state = ViewPipelineList
+	m.pipelineListView.SetPipelines([]domain.Pipeline{testPipeline()})
+	m.pipelineListView.ToggleAll()
+	m.pipelineListView.MoveDown()
+	m.pipelineListView.MoveDown()
+
+	m, cmd := handleTogglePreviewKey(m)
+	if !m.pipelineListView.IsPreviewOpen() || cmd == nil {
+		t.Fatal("expected pane open and runs requested")
+	}
+
+	m, _ = m.handlePipelineRunsLoaded(cmd().(PipelineRunsLoadedMsg))
+	if m.pipelineListView.NextPreviewRequest() != nil {
+		t.Error("expected preview runs cached after load")
+	}
+}
+
+func TestFoldKeys_OnlyActInPipelineList(t *testing.T) {
+	m := createPipelineTestModel(&mockPipelineProvider{})
+	m.pipelineListView.SetPipelines([]domain.Pipeline{testPipeline()})
+	m.state = ViewPipelineRuns
+
+	handleFoldAllKey(m)
+	if m.pipelineListView.GetSelectedPipeline() != nil {
+		t.Error("expected fold keys ignored outside pipeline list")
+	}
+
+	m.state = ViewPipelineList
+	handleFoldAllKey(m)
+	m.pipelineListView.MoveDown()
+	m.pipelineListView.MoveDown()
+	if m.pipelineListView.GetSelectedPipeline() == nil {
+		t.Error("expected Z to unfold all in pipeline list")
+	}
+}
+
+func TestPipelineShortcutsIncludeNewKeys(t *testing.T) {
+	registry := NewCommandRegistry()
+
+	listShortcuts := registry.GetContextualShortcuts(ViewPipelineList, false)
+	for _, description := range []string{"Fold/unfold", "Fold/unfold all", "Toggle favorite", "Toggle details pane", "Filter", "Open in browser"} {
+		if !containsShortcut(listShortcuts, description) {
+			t.Errorf("expected %q in pipeline list shortcuts", description)
+		}
+	}
+	if !containsShortcut(registry.GetContextualShortcuts(ViewPipelineRuns, false), "Toggle details pane") {
+		t.Error("expected details pane shortcut in runs view")
+	}
+	if !containsShortcut(registry.GetContextualShortcuts(ViewPipelineRun, false), "Toggle favorite") {
+		t.Error("expected favorite shortcut in run view")
 	}
 }
 

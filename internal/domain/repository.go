@@ -45,6 +45,11 @@ type Repository interface {
 
 	DeleteRepositoryLink(id string) error
 
+	ListPipelineFavorites() ([]string, error)
+
+	// TogglePipelineFavorite returns whether the key is a favorite after the toggle.
+	TogglePipelineFavorite(key string) (bool, error)
+
 	GetSettings() (Settings, error)
 
 	SaveSettings(settings Settings) error

@@ -40,11 +40,11 @@ type TopBarModel struct {
 }
 
 var (
-	titleStyle       = lipgloss.NewStyle().Padding(1, 2)
-	titleOrangeStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true)
-	valueWhiteStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("15"))
+	titleStyle        = lipgloss.NewStyle().Padding(1, 2)
+	titleOrangeStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true)
+	valueWhiteStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("15"))
 	shortcutBlueStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("33")).Bold(true)
-	descGrayStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("246"))
+	descGrayStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("246"))
 )
 
 func NewTopBar() *TopBarModel {
@@ -126,51 +126,38 @@ func (m *TopBarModel) HasLinkedRepo() bool {
 	return m.linkedRepoPath != ""
 }
 
+const (
+	topBarRows            = 5
+	topBarContextColWidth = 45
+	topBarColumnMargin    = 4
+	topBarHorizontalPad   = 4
+)
+
 func (m *TopBarModel) View() string {
 	titleLine := titleOrangeStyle.Render("LGTMFaster")
 
 	contextLines := m.buildContextInfo()
-	shortcutCol1, shortcutCol2, col1Width := m.buildShortcutsDisplay(len(contextLines))
+	availableWidth := m.width - topBarHorizontalPad - topBarContextColWidth
+	columns := layoutShortcutColumns(m.formattedShortcuts(), topBarRows, availableWidth)
 
-	var topSection []string
-	topSection = append(topSection, titleLine)
-	topSection = append(topSection, "")
+	topSection := []string{titleLine, ""}
 
-	const fixedRows = 5
-
-	const contextColWidth = 45
-	const colMargin = 4
-
-	for i := 0; i < fixedRows; i++ {
-		var contextCol, sc1, sc2 string
-
+	for i := 0; i < topBarRows; i++ {
+		var contextCol string
 		if i < len(contextLines) {
 			contextCol = contextLines[i]
 		}
 
-		if i < len(shortcutCol1) {
-			sc1 = shortcutCol1[i]
-		}
-
-		if i < len(shortcutCol2) {
-			sc2 = shortcutCol2[i]
-		}
-
-		contextVisible := lipgloss.Width(contextCol)
-		padding1 := contextColWidth - contextVisible
-		if padding1 < 0 {
-			padding1 = 1
-		}
-
-		line := contextCol + strings.Repeat(" ", padding1) + sc1
-
-		if sc2 != "" {
-			sc1Visible := lipgloss.Width(sc1)
-			padding2 := col1Width - sc1Visible + colMargin
-			if padding2 < colMargin {
-				padding2 = colMargin
+		line := contextCol + strings.Repeat(" ", max(1, topBarContextColWidth-lipgloss.Width(contextCol)))
+		for c, column := range columns {
+			if i >= len(column.cells) {
+				continue
 			}
-			line += strings.Repeat(" ", padding2) + sc2
+			cell := column.cells[i]
+			line += cell
+			if c < len(columns)-1 {
+				line += strings.Repeat(" ", column.width-lipgloss.Width(cell)+topBarColumnMargin)
+			}
 		}
 
 		topSection = append(topSection, line)
@@ -346,10 +333,8 @@ func (m *TopBarModel) buildPipelineContextInfo() []string {
 	return lines
 }
 
-func (m *TopBarModel) buildShortcutsDisplay(contextHeight int) ([]string, []string, int) {
-	var formattedShortcuts []string
-	maxWidth := 0
-
+func (m *TopBarModel) formattedShortcuts() []string {
+	var formatted []string
 	for _, shortcut := range m.shortcuts {
 		parts := strings.SplitN(shortcut, ">", 2)
 		if len(parts) != 2 {
@@ -358,30 +343,39 @@ func (m *TopBarModel) buildShortcutsDisplay(contextHeight int) ([]string, []stri
 
 		key := strings.TrimPrefix(parts[0], "<")
 		desc := strings.TrimSpace(parts[1])
+		formatted = append(formatted, shortcutBlueStyle.Render("<"+key+">")+" "+descGrayStyle.Render(desc))
+	}
+	return formatted
+}
 
-		formatted := shortcutBlueStyle.Render("<"+key+">") + " " + descGrayStyle.Render(desc)
-		formattedShortcuts = append(formattedShortcuts, formatted)
+type shortcutColumn struct {
+	cells []string
+	width int
+}
 
-		width := lipgloss.Width(formatted)
-		if width > maxWidth {
-			maxWidth = width
+// layoutShortcutColumns fills columns top to bottom, adding columns until the shortcuts run out
+// or the next column would not fit, so no hint is wrapped into the content below the top bar.
+func layoutShortcutColumns(shortcuts []string, rows, availableWidth int) []shortcutColumn {
+	var columns []shortcutColumn
+	usedWidth := 0
+
+	for start := 0; start < len(shortcuts); start += rows {
+		end := min(start+rows, len(shortcuts))
+		column := shortcutColumn{cells: shortcuts[start:end]}
+		for _, cell := range column.cells {
+			column.width = max(column.width, lipgloss.Width(cell))
 		}
+
+		required := column.width
+		if len(columns) > 0 {
+			required += topBarColumnMargin
+		}
+		if len(columns) > 0 && usedWidth+required > availableWidth {
+			break
+		}
+
+		usedWidth += required
+		columns = append(columns, column)
 	}
-
-	minRows := 5
-	if contextHeight > minRows {
-		minRows = contextHeight
-	}
-
-	var col1, col2 []string
-
-	if len(formattedShortcuts) <= minRows {
-		col1 = formattedShortcuts
-	} else {
-		splitPoint := minRows
-		col1 = formattedShortcuts[:splitPoint]
-		col2 = formattedShortcuts[splitPoint:]
-	}
-
-	return col1, col2, maxWidth
+	return columns
 }

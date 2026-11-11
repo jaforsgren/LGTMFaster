@@ -96,99 +96,204 @@ func TestListCursor_EmptyList(t *testing.T) {
 
 func testPipelines() []domain.Pipeline {
 	return []domain.Pipeline{
-		{ID: 3, Name: "deploy", Project: "Beta", Repository: "api", PATID: "pat"},
-		{ID: 1, Name: "ci", Project: "alpha", Repository: "web", PATID: "pat"},
-		{ID: 2, Name: "ci", Folder: `\infra`, Project: "Alpha", Repository: "api", PATID: "pat"},
+		{ID: 3, Name: "deploy", Project: "Beta", Repository: "api", PATID: "pat",
+			LatestRun: &domain.PipelineRun{Status: domain.PipelineStatusSucceeded}},
+		{ID: 1, Name: "ci", Project: "Alpha", Repository: "web", PATID: "pat",
+			LatestRun: &domain.PipelineRun{Status: domain.PipelineStatusSucceeded}},
+		{ID: 2, Name: "ci", Folder: `\infra`, Project: "Alpha", Repository: "api", PATID: "pat",
+			LatestRun: &domain.PipelineRun{Status: domain.PipelineStatusWaitingForApproval}},
 	}
 }
 
-func TestPipelineList_SortsByProjectRepoName(t *testing.T) {
+func newTestPipelineList() *PipelineListViewModel {
 	m := NewPipelineListView()
 	m.SetSize(viewTestWidth, viewTestHeight)
-
 	m.SetPipelines(testPipelines())
+	return m
+}
 
-	var order []int
-	for range testPipelines() {
-		order = append(order, m.GetSelectedPipeline().ID)
-		m.MoveDown()
+func visibleNodeNames(m *PipelineListViewModel) []string {
+	names := make([]string, len(m.visibleNodes))
+	for i, node := range m.visibleNodes {
+		names[i] = node.Name
 	}
-	if order[0] != 2 || order[1] != 1 || order[2] != 3 {
-		t.Errorf("expected order [2 1 3], got %v", order)
+	return names
+}
+
+func assertVisible(t *testing.T, m *PipelineListViewModel, expected ...string) {
+	t.Helper()
+	got := visibleNodeNames(m)
+	if strings.Join(got, ",") != strings.Join(expected, ",") {
+		t.Errorf("visible nodes = %v, want %v", got, expected)
 	}
 }
 
-func TestPipelineList_FilterMatchesProjectRepoAndName(t *testing.T) {
+func TestPipelineList_StartsWithProjectsFolded(t *testing.T) {
+	m := newTestPipelineList()
+
+	assertVisible(t, m, "Alpha", "Beta")
+	if m.GetSelectedPipeline() != nil {
+		t.Error("expected a group, not a pipeline, to be selected")
+	}
+}
+
+func TestPipelineList_ToggleSelectedUnfoldsAndFoldsParent(t *testing.T) {
+	m := newTestPipelineList()
+
+	m.ToggleSelected()
+	assertVisible(t, m, "Alpha", "api", "web", "Beta")
+
+	m.MoveDown()
+	m.ToggleSelected()
+	assertVisible(t, m, "Alpha", "api", `infra\ci`, "web", "Beta")
+
+	m.MoveDown()
+	if m.GetSelectedPipeline() == nil || m.GetSelectedPipeline().ID != 2 {
+		t.Fatalf("expected pipeline 2 selected, got %+v", m.GetSelectedNode())
+	}
+
+	m.ToggleSelected()
+	assertVisible(t, m, "Alpha", "api", "web", "Beta")
+	if m.GetSelectedNode().Name != "api" {
+		t.Errorf("expected folding a pipeline to select its repo, got %s", m.GetSelectedNode().Name)
+	}
+}
+
+func TestPipelineList_ToggleAllExpandsThenFolds(t *testing.T) {
+	m := newTestPipelineList()
+
+	m.ToggleAll()
+	assertVisible(t, m, "Alpha", "api", `infra\ci`, "web", "ci", "Beta", "api", "deploy")
+
+	m.MoveDown()
+	m.MoveDown()
+	m.ToggleAll()
+	assertVisible(t, m, "Alpha", "Beta")
+	if m.GetSelectedNode().Name != "Alpha" {
+		t.Errorf("expected selection to move to the root project, got %s", m.GetSelectedNode().Name)
+	}
+}
+
+func TestPipelineList_FavoritesSortFirstAtEachLevel(t *testing.T) {
+	m := newTestPipelineList()
+
+	m.SetFavorites(map[string]bool{
+		domain.ProjectFavoriteKey("pat", "Beta"):            true,
+		domain.RepositoryFavoriteKey("pat", "Alpha", "web"): true,
+	})
+	m.ToggleAll()
+
+	assertVisible(t, m, "Beta", "api", "deploy", "Alpha", "web", "ci", "api", `infra\ci`)
+	if !strings.Contains(m.View(), favoriteMarker+"Beta") {
+		t.Error("expected favorite marker rendered")
+	}
+}
+
+func TestPipelineList_GroupsSurfaceMostUrgentStatus(t *testing.T) {
+	m := newTestPipelineList()
+
+	if m.roots[0].Status != domain.PipelineStatusWaitingForApproval {
+		t.Errorf("expected Alpha to surface pending approval, got %s", m.roots[0].Status)
+	}
+	if m.roots[1].Status != domain.PipelineStatusSucceeded {
+		t.Errorf("expected Beta to be succeeded, got %s", m.roots[1].Status)
+	}
+	if m.roots[0].PipelineCount != 2 {
+		t.Errorf("expected Alpha pipeline count 2, got %d", m.roots[0].PipelineCount)
+	}
+}
+
+func TestPipelineList_FilterUnfoldsMatches(t *testing.T) {
 	tests := []struct {
-		filter     string
-		expectedID int
+		filter   string
+		expected []string
 	}{
-		{"beta", 3},
-		{"web", 1},
-		{`infra\ci`, 2},
+		{"beta", []string{"Beta", "api", "deploy"}},
+		{"web", []string{"Alpha", "web", "ci"}},
+		{`infra\ci`, []string{"Alpha", "api", `infra\ci`}},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.filter, func(t *testing.T) {
-			m := NewPipelineListView()
-			m.SetSize(viewTestWidth, viewTestHeight)
-			m.SetPipelines(testPipelines())
+			m := newTestPipelineList()
 
 			m.ActivateFilter()
 			typeIntoFilter(t, m.UpdateFilter, tt.filter)
 
-			selected := m.GetSelectedPipeline()
-			if selected == nil || selected.ID != tt.expectedID {
-				t.Fatalf("expected pipeline %d, got %+v", tt.expectedID, selected)
-			}
-			m.MoveDown()
-			if m.GetSelectedPipeline().ID != tt.expectedID {
-				t.Error("expected filter to yield a single pipeline")
-			}
+			assertVisible(t, m, tt.expected...)
 		})
 	}
 }
 
-func TestPipelineList_ClearFilterRestoresAll(t *testing.T) {
-	m := NewPipelineListView()
-	m.SetPipelines(testPipelines())
+func TestPipelineList_ClearFilterRestoresFolding(t *testing.T) {
+	m := newTestPipelineList()
 	m.ActivateFilter()
 	typeIntoFilter(t, m.UpdateFilter, "nomatch")
 
-	if m.GetSelectedPipeline() != nil {
-		t.Fatal("expected no pipelines while filtered")
+	if m.GetSelectedNode() != nil {
+		t.Fatal("expected nothing visible while filtered")
 	}
 
 	m.ClearFilter()
 
-	if m.GetSelectedPipeline() == nil || m.GetFilterText() != "" {
-		t.Error("expected pipelines visible after clearing filter")
-	}
+	assertVisible(t, m, "Alpha", "Beta")
 }
 
 func TestPipelineList_RefreshKeepsSelection(t *testing.T) {
-	m := NewPipelineListView()
-	m.SetPipelines(testPipelines())
+	m := newTestPipelineList()
+	m.ToggleAll()
 	m.MoveDown()
-	selectedID := m.GetSelectedPipeline().ID
+	m.MoveDown()
+	selected := m.GetSelectedNode().Key
 
 	m.SetPipelines(testPipelines())
 
-	if m.GetSelectedPipeline().ID != selectedID {
-		t.Errorf("expected selection %d preserved, got %d", selectedID, m.GetSelectedPipeline().ID)
+	if m.GetSelectedNode().Key != selected {
+		t.Errorf("expected selection %s preserved, got %s", selected, m.GetSelectedNode().Key)
 	}
 }
 
-func TestPipelineList_ViewRendersRows(t *testing.T) {
-	m := NewPipelineListView()
-	m.SetSize(viewTestWidth, viewTestHeight)
-	m.SetPipelines(testPipelines())
+func TestPipelineList_PreviewRequestsRunsOncePerPipeline(t *testing.T) {
+	m := newTestPipelineList()
+	m.ToggleAll()
+	m.MoveDown()
+	m.MoveDown()
 
+	if m.NextPreviewRequest() != nil {
+		t.Fatal("expected no preview request while pane is closed")
+	}
+
+	m.TogglePreview()
+	pipeline := m.NextPreviewRequest()
+	if pipeline == nil || pipeline.ID != 2 {
+		t.Fatalf("expected preview request for pipeline 2, got %+v", pipeline)
+	}
+	if m.NextPreviewRequest() != nil {
+		t.Error("expected in-flight request not to be repeated")
+	}
+
+	m.SetPreviewRuns(pipeline.FavoriteKey(), []domain.PipelineRun{{Number: "20260101.7"}})
+	if !strings.Contains(m.View(), "20260101.7") {
+		t.Error("expected preview pane to list runs")
+	}
+
+	m.ResetPreview()
+	if m.NextPreviewRequest() == nil {
+		t.Error("expected reset to allow refetching")
+	}
+}
+
+func TestPipelineList_PreviewForGroupsListsPipelines(t *testing.T) {
+	m := newTestPipelineList()
+	m.TogglePreview()
+
+	if m.NextPreviewRequest() != nil {
+		t.Error("expected no fetch for a project preview")
+	}
 	view := m.View()
-
-	for _, expected := range []string{"Pipelines", "Project", "deploy", `infra\ci`} {
+	for _, expected := range []string{"Pipelines in Alpha", `infra\ci`, "web (1)"} {
 		if !strings.Contains(view, expected) {
-			t.Errorf("expected view to contain %q", expected)
+			t.Errorf("expected preview to contain %q", expected)
 		}
 	}
 }
@@ -247,6 +352,57 @@ func TestPipelineRuns_FilterByBranch(t *testing.T) {
 
 	if m.GetSelectedRun() == nil || m.GetSelectedRun().ID != 9 {
 		t.Errorf("expected run 9, got %+v", m.GetSelectedRun())
+	}
+}
+
+func TestPipelineRuns_FavoritesFloatToTop(t *testing.T) {
+	m := NewPipelineRunsView()
+	m.SetPipeline(domain.Pipeline{ID: 1})
+	m.SetRuns([]domain.PipelineRun{{ID: 10, PATID: "pat"}, {ID: 9, PATID: "pat"}, {ID: 8, PATID: "pat"}})
+
+	m.SetFavorites(map[string]bool{domain.PipelineRunFavoriteKey("pat", "", 8): true})
+
+	if m.visibleRuns[0].ID != 8 || m.visibleRuns[1].ID != 10 {
+		t.Errorf("expected favorite run first then queue order, got %v", []int{m.visibleRuns[0].ID, m.visibleRuns[1].ID, m.visibleRuns[2].ID})
+	}
+	if m.GetSelectedRun().ID != 10 {
+		t.Errorf("expected selection to stay on run 10, got %d", m.GetSelectedRun().ID)
+	}
+}
+
+func TestPipelineRuns_PreviewShowsStages(t *testing.T) {
+	m := NewPipelineRunsView()
+	m.SetSize(viewTestWidth, viewTestHeight)
+	m.SetPipeline(domain.Pipeline{ID: 1})
+	m.SetRuns([]domain.PipelineRun{{ID: 10, Number: "run-10"}})
+	m.TogglePreview()
+
+	run := m.NextPreviewRequest()
+	if run == nil || run.ID != 10 {
+		t.Fatalf("expected preview request for run 10, got %+v", run)
+	}
+	m.SetPreviewStages(run.FavoriteKey(), testStages())
+
+	view := m.View()
+	for _, expected := range []string{"Stages of run-10", "Prod", "needs approval"} {
+		if !strings.Contains(view, expected) {
+			t.Errorf("expected preview to contain %q", expected)
+		}
+	}
+}
+
+func TestPipelineRuns_SetPipelineResetsPreview(t *testing.T) {
+	m := NewPipelineRunsView()
+	m.SetPipeline(domain.Pipeline{ID: 1})
+	m.SetRuns([]domain.PipelineRun{{ID: 10}})
+	m.TogglePreview()
+	m.SetPreviewStages(m.NextPreviewRequest().FavoriteKey(), testStages())
+
+	m.SetPipeline(domain.Pipeline{ID: 1})
+	m.SetRuns([]domain.PipelineRun{{ID: 10}})
+
+	if m.NextPreviewRequest() == nil {
+		t.Error("expected stages refetched after re-entering the pipeline")
 	}
 }
 

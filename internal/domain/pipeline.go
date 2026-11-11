@@ -1,6 +1,9 @@
 package domain
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 type PipelineStatus string
 
@@ -24,6 +27,30 @@ func (s PipelineStatus) IsFinished() bool {
 	default:
 		return false
 	}
+}
+
+// Favorite keys are scoped by PAT so identically named projects in different organizations stay distinct.
+const (
+	favoriteKindProject    = "project"
+	favoriteKindRepository = "repo"
+	favoriteKindPipeline   = "pipeline"
+	favoriteKindRun        = "run"
+)
+
+func ProjectFavoriteKey(patID, project string) string {
+	return fmt.Sprintf("%s:%s:%s", favoriteKindProject, patID, project)
+}
+
+func RepositoryFavoriteKey(patID, project, repository string) string {
+	return fmt.Sprintf("%s:%s:%s/%s", favoriteKindRepository, patID, project, repository)
+}
+
+func PipelineFavoriteKey(patID, project string, pipelineID int) string {
+	return fmt.Sprintf("%s:%s:%s:%d", favoriteKindPipeline, patID, project, pipelineID)
+}
+
+func PipelineRunFavoriteKey(patID, project string, runID int) string {
+	return fmt.Sprintf("%s:%s:%s:%d", favoriteKindRun, patID, project, runID)
 }
 
 type ApprovalDecision string
@@ -59,6 +86,10 @@ func (p Pipeline) Identifier() PipelineIdentifier {
 	return PipelineIdentifier{Project: p.Project, PipelineID: p.ID}
 }
 
+func (p Pipeline) FavoriteKey() string {
+	return PipelineFavoriteKey(p.PATID, p.Project, p.ID)
+}
+
 type PipelineRun struct {
 	ID           int
 	Number       string
@@ -78,6 +109,10 @@ type PipelineRun struct {
 
 func (r PipelineRun) Identifier() PipelineRunIdentifier {
 	return PipelineRunIdentifier{Project: r.Project, RunID: r.ID}
+}
+
+func (r PipelineRun) FavoriteKey() string {
+	return PipelineRunFavoriteKey(r.PATID, r.Project, r.ID)
 }
 
 type PipelineStage struct {

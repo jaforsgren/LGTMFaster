@@ -10,7 +10,8 @@ import (
 )
 
 type mockRepository struct {
-	pats map[string]*domain.PAT
+	pats              map[string]*domain.PAT
+	pipelineFavorites []string
 }
 
 func (m *mockRepository) ListPATs() ([]domain.PAT, error) {
@@ -95,6 +96,21 @@ func (m *mockRepository) SaveRepositoryLink(link domain.RepositoryLink) error {
 
 func (m *mockRepository) DeleteRepositoryLink(id string) error {
 	return nil
+}
+
+func (m *mockRepository) ListPipelineFavorites() ([]string, error) {
+	return m.pipelineFavorites, nil
+}
+
+func (m *mockRepository) TogglePipelineFavorite(key string) (bool, error) {
+	for i, favorite := range m.pipelineFavorites {
+		if favorite == key {
+			m.pipelineFavorites = append(m.pipelineFavorites[:i], m.pipelineFavorites[i+1:]...)
+			return false, nil
+		}
+	}
+	m.pipelineFavorites = append(m.pipelineFavorites, key)
+	return true, nil
 }
 
 func (m *mockRepository) GetSettings() (domain.Settings, error) {
