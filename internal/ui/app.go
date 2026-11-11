@@ -290,6 +290,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case "esc", "q":
 					m.commentDetailView.Deactivate()
 					return m, nil
+				case keyOpenBrowser:
+					return m.openCommentsMarkdown()
 				default:
 					cmd = m.commentDetailView.Update(msg)
 					return m, cmd

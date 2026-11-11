@@ -2,7 +2,6 @@ package views
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/viewport"
@@ -72,7 +71,7 @@ func (m *CommentDetailViewModel) View() string {
 		Foreground(lipgloss.Color("#6B7280")).
 		Italic(true)
 
-	help := helpStyle.Render("\nq/Esc: Back to Diff")
+	help := helpStyle.Render("\nq/Esc: Back to Diff | ctrl+o: Open as markdown")
 
 	return content + "\n" + help
 }
@@ -97,17 +96,8 @@ func (m *CommentDetailViewModel) updateViewport() {
 		return
 	}
 
-	// Separate general and inline comments
-	generalComments := []domain.Comment{}
-	inlineComments := []domain.Comment{}
-
-	for _, comment := range m.comments {
-		if comment.FilePath == "" {
-			generalComments = append(generalComments, comment)
-		} else {
-			inlineComments = append(inlineComments, comment)
-		}
-	}
+	grouped := groupComments(m.comments)
+	generalComments := grouped.general
 
 	// Render general/review-level comments first
 	if len(generalComments) > 0 {
@@ -129,7 +119,7 @@ func (m *CommentDetailViewModel) updateViewport() {
 	}
 
 	// Render inline comments grouped by file
-	if len(inlineComments) > 0 {
+	if len(grouped.filePaths) > 0 {
 		sectionHeaderStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#F59E0B")).
 			Bold(true).
@@ -139,18 +129,8 @@ func (m *CommentDetailViewModel) updateViewport() {
 		b.WriteString(sectionHeaderStyle.Render("Inline Comments"))
 		b.WriteString("\n\n")
 
-		commentsByFile := make(map[string][]domain.Comment)
-		var filePaths []string
-		for _, comment := range inlineComments {
-			if _, seen := commentsByFile[comment.FilePath]; !seen {
-				filePaths = append(filePaths, comment.FilePath)
-			}
-			commentsByFile[comment.FilePath] = append(commentsByFile[comment.FilePath], comment)
-		}
-		sort.Strings(filePaths)
-
-		for _, filePath := range filePaths {
-			fileComments := commentsByFile[filePath]
+		for _, filePath := range grouped.filePaths {
+			fileComments := grouped.byFile[filePath]
 			fileHeaderStyle := lipgloss.NewStyle().
 				Foreground(lipgloss.Color("#3B82F6")).
 				Bold(true).

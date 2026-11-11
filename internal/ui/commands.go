@@ -2,15 +2,18 @@ package ui
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"runtime"
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/atotto/clipboard"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/johanforsgren/lgtmfaster/internal/domain"
+	"github.com/johanforsgren/lgtmfaster/internal/logger"
 	"github.com/johanforsgren/lgtmfaster/internal/ui/components"
 	"github.com/johanforsgren/lgtmfaster/internal/ui/views"
 )
@@ -623,6 +626,8 @@ func (cr *CommandRegistry) GetAutocompleteSuggestion(input string, state ViewSta
 	return ""
 }
 
+const commentsMarkdownFilePattern = "lgtmfaster-pr-%d-comments-*.md"
+
 func isInViews(state ViewState, states []ViewState) bool {
 	for _, s := range states {
 		if s == state {
@@ -1006,7 +1011,7 @@ func handleOpenBrowserKey(m Model) (Model, tea.Cmd) {
 		return m, nil
 	}
 
-	if err := openBrowser(url); err != nil {
+	if err := openExternal(url); err != nil {
 		m.statusBar.SetMessage(fmt.Sprintf("Failed to open browser: %v", err), true)
 		return m, nil
 	}
@@ -1140,7 +1145,8 @@ func handleEditDescriptionKey(m Model) (Model, tea.Cmd) {
 	return m, nil
 }
 
-func openBrowser(url string) error {
+// openExternal opens a URL or a file with the system's default application.
+func openExternal(url string) error {
 	var cmd *exec.Cmd
 
 	switch runtime.GOOS {
@@ -1245,4 +1251,32 @@ func handleLinkKey(m Model) (Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+// openCommentsMarkdown writes every comment of the inspected pull request, with the code each is
+// about, to a markdown file and opens it with the system's default application.
+func (m Model) openCommentsMarkdown() (Model, tea.Cmd) {
+	pr := m.prInspect.GetPR()
+	number := 0
+	if pr != nil {
+		number = pr.Number
+	}
+
+	file, err := os.CreateTemp("", fmt.Sprintf(commentsMarkdownFilePattern, number))
+	if err == nil {
+		_, err = file.WriteString(m.commentDetailView.Markdown(pr))
+		file.Close()
+	}
+	if err == nil {
+		err = openExternal(file.Name())
+	}
+	if err != nil {
+		logger.LogError("OPEN_COMMENTS_MARKDOWN", "temp file", err)
+		m.statusBar.SetMessage(fmt.Sprintf("Failed to open comments as markdown: %v", err), true)
+		return m, nil
+	}
+
+	logger.LogFileWrite(file.Name())
+	m.statusBar.SetMessage("Opened comments as markdown: "+file.Name(), false)
+	return m, clearStatusAfterDelay(4 * time.Second)
 }
