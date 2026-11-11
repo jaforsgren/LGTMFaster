@@ -89,7 +89,6 @@ func TestOpenPipelineList_LoadsAndTagsPipelines(t *testing.T) {
 		pipelines: []domain.Pipeline{{ID: 1, Name: "ci", LatestRun: &domain.PipelineRun{ID: 5}}},
 	}
 	m := createPipelineTestModel(provider)
-	m.repository = &mockRepository{pats: map[string]*domain.PAT{}, settings: domain.Settings{PipelineAutoRefreshDisabled: true}}
 
 	newModel, cmd := m.openPipelineList()
 
@@ -114,7 +113,6 @@ func TestOpenPipelineList_LoadsAndTagsPipelines(t *testing.T) {
 
 func TestOpenPipelineList_UsesLoadedPipelinesWithoutReload(t *testing.T) {
 	m := createPipelineTestModel(&mockPipelineProvider{})
-	m.repository = &mockRepository{pats: map[string]*domain.PAT{}, settings: domain.Settings{PipelineAutoRefreshDisabled: true}}
 	m.pipelineListView.SetPipelines([]domain.Pipeline{testPipeline()})
 
 	newModel, cmd := m.openPipelineList()
@@ -663,8 +661,9 @@ func TestRunsFailure_StopsLoadingAndReportsTheError(t *testing.T) {
 	}
 }
 
-func TestOpenPipelineList_StartsTheAutoRefreshWatch(t *testing.T) {
+func TestOpenPipelineList_StartsTheAutoRefreshWatchWhenEnabled(t *testing.T) {
 	m := createPipelineTestModel(&mockPipelineProvider{})
+	m.repository = &mockRepository{pats: map[string]*domain.PAT{}, settings: domain.Settings{PipelineAutoRefreshEnabled: true}}
 	m.pipelineListView.SetPipelines([]domain.Pipeline{testPipeline()})
 	watchBefore := m.pipelineWatchID
 
@@ -683,8 +682,12 @@ func TestAutoRefreshKey_TogglesAndSavesTheSetting(t *testing.T) {
 	watchBefore := m.pipelineWatchID
 
 	m, _, handled := m.commandRegistry.HandleKey(m, keyAutoRefresh)
-	if !handled || !repository.settings.PipelineAutoRefreshDisabled {
-		t.Fatal("expected R to turn auto-refresh off and save it")
+	if !handled || !repository.settings.PipelineAutoRefreshEnabled {
+		t.Fatal("expected R to turn auto-refresh on and save it")
+	}
+	m, _, _ = m.commandRegistry.HandleKey(m, keyAutoRefresh)
+	if repository.settings.PipelineAutoRefreshEnabled {
+		t.Fatal("expected R to turn auto-refresh off again")
 	}
 	if m.pipelineWatchID == watchBefore {
 		t.Error("expected turning auto-refresh off to stop the running watch")
@@ -693,10 +696,29 @@ func TestAutoRefreshKey_TogglesAndSavesTheSetting(t *testing.T) {
 	if _, cmd := m.handlePipelineWatchTick(staleTick); cmd != nil {
 		t.Error("expected ticks of the stopped watch to be ignored")
 	}
+}
 
-	m, _, _ = m.commandRegistry.HandleKey(m, keyAutoRefresh)
-	if repository.settings.PipelineAutoRefreshDisabled {
-		t.Error("expected R to turn auto-refresh back on")
+func TestAutoRefresh_IsOffByDefault(t *testing.T) {
+	m := createPipelineTestModel(&mockPipelineProvider{})
+	m.pipelineListView.SetPipelines([]domain.Pipeline{testPipeline()})
+
+	m, cmd := m.openPipelineList()
+
+	if cmd != nil {
+		t.Error("expected no auto-refresh watch without the setting")
+	}
+}
+
+func TestAutoRefreshTick_RefreshesTheListAndSchedulesTheNext(t *testing.T) {
+	m := createPipelineTestModel(&mockPipelineProvider{pipelines: []domain.Pipeline{testPipeline()}})
+	m.repository = &mockRepository{pats: map[string]*domain.PAT{}, settings: domain.Settings{PipelineAutoRefreshEnabled: true}}
+	m.pipelineListView.SetPipelines([]domain.Pipeline{testPipeline()})
+	m, _ = m.openPipelineList()
+
+	m, cmd := m.handlePipelineWatchTick(PipelineWatchTickMsg{watchID: m.pipelineWatchID})
+
+	if cmd == nil || m.state != ViewPipelineList {
+		t.Error("expected a tick of the running watch to reload the list and schedule the next one")
 	}
 }
 

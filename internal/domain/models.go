@@ -98,9 +98,8 @@ type Settings struct {
 	PipelineSortMode    PipelineSortMode
 	// PipelineAutoRefreshSeconds is how often the pipeline views refresh while auto-refresh is on.
 	PipelineAutoRefreshSeconds int
-	// PipelineAutoRefreshDisabled is stored instead of an enabled flag so that auto-refresh is on
-	// for configs written before the setting existed.
-	PipelineAutoRefreshDisabled bool
+	// PipelineAutoRefreshEnabled turns the pipeline views' auto-refresh on; it is off by default.
+	PipelineAutoRefreshEnabled bool
 }
 
 // WithDefaults fills in the settings that are missing or out of range.

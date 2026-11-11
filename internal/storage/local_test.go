@@ -654,8 +654,8 @@ func TestLoad_WritesTheDefaultAutoRefreshIntervalToTheConfigFile(t *testing.T) {
 	}
 
 	settings, _ := repo.GetSettings()
-	if settings.PipelineAutoRefreshSeconds != domain.DefaultPipelineAutoRefreshSeconds || settings.PipelineAutoRefreshDisabled {
-		t.Errorf("expected auto-refresh on every %ds, got %+v", domain.DefaultPipelineAutoRefreshSeconds, settings)
+	if settings.PipelineAutoRefreshSeconds != domain.DefaultPipelineAutoRefreshSeconds || settings.PipelineAutoRefreshEnabled {
+		t.Errorf("expected auto-refresh off with a %ds interval, got %+v", domain.DefaultPipelineAutoRefreshSeconds, settings)
 	}
 	if settings.HideOldOtherPRsDays != 7 {
 		t.Errorf("expected the configured settings kept, got %+v", settings)

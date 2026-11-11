@@ -172,6 +172,11 @@ func TestTopBarView_ShowsAutoRefreshInPipelineViews(t *testing.T) {
 		t.Errorf("expected auto-refresh on in the context, got %q", view)
 	}
 
+	m.SetLastRefresh(time.Date(2026, 11, 11, 23, 44, 9, 0, time.Local))
+	if view := m.View(); !strings.Contains(view, "refreshed 23:44:09") {
+		t.Errorf("expected the last refresh time in the context, got %q", view)
+	}
+
 	m.SetAutoRefresh(false, 15*time.Second)
 	if view := m.View(); !strings.Contains(view, "Auto-refresh: OFF") {
 		t.Error("expected auto-refresh off in the context")

@@ -203,8 +203,8 @@ func tagPipelineRun(run *domain.PipelineRun, patID string, providerType domain.P
 func (m *Model) startPipelineWatch() tea.Cmd {
 	m.pipelineWatchID++
 	settings := m.autoRefreshSettings()
-	m.topBar.SetAutoRefresh(!settings.PipelineAutoRefreshDisabled, settings.PipelineAutoRefreshInterval())
-	if settings.PipelineAutoRefreshDisabled {
+	m.topBar.SetAutoRefresh(settings.PipelineAutoRefreshEnabled, settings.PipelineAutoRefreshInterval())
+	if !settings.PipelineAutoRefreshEnabled {
 		return nil
 	}
 	return schedulePipelineWatchTick(m.pipelineWatchID, settings.PipelineAutoRefreshInterval())
@@ -222,17 +222,17 @@ func (m Model) autoRefreshSettings() domain.Settings {
 // toggleAutoRefresh saves the flipped setting, so it holds for every pipeline view and the next start.
 func (m Model) toggleAutoRefresh() (Model, tea.Cmd) {
 	settings := m.autoRefreshSettings()
-	settings.PipelineAutoRefreshDisabled = !settings.PipelineAutoRefreshDisabled
+	settings.PipelineAutoRefreshEnabled = !settings.PipelineAutoRefreshEnabled
 	if err := m.repository.SaveSettings(settings); err != nil {
 		m.statusBar.SetMessage(fmt.Sprintf("Failed to save auto-refresh: %v", err), true)
 		return m, clearStatusAfterDelay(4 * time.Second)
 	}
 
 	watch := m.startPipelineWatch()
-	if settings.PipelineAutoRefreshDisabled {
-		m.statusBar.SetMessage("Auto-refresh off", false)
-	} else {
+	if settings.PipelineAutoRefreshEnabled {
 		m.statusBar.SetMessage(fmt.Sprintf("Auto-refresh on, every %s", settings.PipelineAutoRefreshInterval()), false)
+	} else {
+		m.statusBar.SetMessage("Auto-refresh off", false)
 	}
 	return m, tea.Batch(watch, clearStatusAfterDelay(4*time.Second))
 }
@@ -328,6 +328,7 @@ func pipelineRepoLabel(pipeline domain.Pipeline) string {
 func (m Model) handlePipelinesLoaded(msg PipelinesLoadedMsg) (Model, tea.Cmd) {
 	m.pipelineListView.SetPipelines(msg.pipelines)
 	m.topBar.SetPipelineCount(m.pipelineListView.PipelineCount())
+	m.topBar.SetLastRefresh(time.Now())
 	if msg.background && msg.failedPATCount == 0 {
 		return m, m.loadPipelinePreview()
 	}
@@ -349,6 +350,7 @@ func (m Model) handlePipelineRunsLoaded(msg PipelineRunsLoadedMsg) (Model, tea.C
 		return m, nil
 	}
 	m.pipelineRunsView.SetRuns(msg.runs)
+	m.topBar.SetLastRefresh(time.Now())
 	return m.resumePipelineRuns()
 }
 
@@ -367,6 +369,7 @@ func (m Model) handlePipelineRunLoaded(msg PipelineRunLoadedMsg) (Model, tea.Cmd
 	}
 	m.pipelineRunView.SetRun(msg.run)
 	m.pipelineRunView.SetStages(msg.stages)
+	m.topBar.SetLastRefresh(time.Now())
 	if m.state == ViewPipelineRun {
 		m.setPipelineRunContext(msg.run)
 	}

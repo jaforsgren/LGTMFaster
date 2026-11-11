@@ -30,14 +30,15 @@ const (
 	// TopBarHeight is the rendered height; View truncates lines so they never wrap and grow it.
 	TopBarHeight = topBarTitleRows + topBarHeadingRows + topBarSectionRows + topBarPaddingRows
 
-	topBarTitle          = "LGTMFaster"
-	topBarNameMax        = 25
-	topBarPathMax        = 35
-	topBarSeparator      = " │ "
-	topBarShortcutsGap   = 3
-	accountActiveMarker  = "● "
-	accountPassiveMarker = "○ "
-	truncationTail       = "..."
+	topBarTitle           = "LGTMFaster"
+	topBarNameMax         = 25
+	topBarPathMax         = 35
+	topBarSeparator       = " │ "
+	topBarShortcutsGap    = 3
+	accountActiveMarker   = "● "
+	accountPassiveMarker  = "○ "
+	truncationTail        = "..."
+	lastRefreshTimeFormat = "15:04:05"
 )
 
 var (
@@ -89,6 +90,7 @@ type TopBarModel struct {
 	pipelineCount  int
 	autoRefresh    bool
 	refreshEvery   time.Duration
+	lastRefresh    time.Time
 }
 
 func NewTopBar() *TopBarModel {
@@ -173,6 +175,11 @@ func (m *TopBarModel) SetPipelineCount(count int) {
 func (m *TopBarModel) SetAutoRefresh(enabled bool, interval time.Duration) {
 	m.autoRefresh = enabled
 	m.refreshEvery = interval
+}
+
+// SetLastRefresh records when pipeline data last arrived, which shows that auto-refresh is working.
+func (m *TopBarModel) SetLastRefresh(at time.Time) {
+	m.lastRefresh = at
 }
 
 func (m *TopBarModel) HasLinkedRepo() bool {
@@ -377,7 +384,11 @@ func (m *TopBarModel) autoRefreshLine() string {
 	if !m.autoRefresh {
 		return "⏸️ " + labelOrangeStyle.Render("Auto-refresh: ") + autoRefreshOffStyle.Render("OFF")
 	}
-	return "🔄 " + labelOrangeStyle.Render("Auto-refresh: ") + activeStyle.Render(fmt.Sprintf("ON every %s", m.refreshEvery))
+	line := "🔄 " + labelOrangeStyle.Render("Auto-refresh: ") + activeStyle.Render(fmt.Sprintf("ON every %s", m.refreshEvery))
+	if !m.lastRefresh.IsZero() {
+		line += dimStyle.Render(" · refreshed " + m.lastRefresh.Format(lastRefreshTimeFormat))
+	}
+	return line
 }
 
 func (m *TopBarModel) accountsHeading() string {
