@@ -15,7 +15,6 @@ const (
 	stageStatusWidth      = 22
 	runDetailLabelWidth   = 14
 	approvalHint          = "approval required: a approve / x reject"
-	autoRefreshingHint    = "  auto-refreshing"
 	pipelinesTitle        = "Pipelines"
 )
 
@@ -123,9 +122,6 @@ func (m *PipelineRunViewModel) View() string {
 		b.WriteString(favoriteStyle.Render(favoriteMarker))
 	}
 	b.WriteString(renderListTitle(pipelinesTitle, valueOrPlaceholder(run.PipelineName), fmt.Sprintf("Run %s", valueOrPlaceholder(run.Number))))
-	if !run.Status.IsFinished() {
-		b.WriteString(listMutedStyle.Render(autoRefreshingHint))
-	}
 	b.WriteString("\n\n")
 
 	b.WriteString(renderDetailLabel("Pipeline", runDetailLabelWidth))

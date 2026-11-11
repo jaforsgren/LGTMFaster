@@ -559,7 +559,7 @@ func TestPipelineRun_ViewShowsApprovalHint(t *testing.T) {
 
 	view := m.View()
 
-	for _, expected := range []string{"20260101.1", "Prod", approvalHint, "auto-refreshing"} {
+	for _, expected := range []string{"20260101.1", "Prod", approvalHint} {
 		if !strings.Contains(view, expected) {
 			t.Errorf("expected view to contain %q", expected)
 		}

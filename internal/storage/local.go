@@ -44,7 +44,7 @@ func NewLocalRepository() (*LocalRepository, error) {
 		if !os.IsNotExist(err) {
 			return nil, err
 		}
-		repo.config.Settings.HideOldOtherPRsDays = domain.DefaultHideOldOtherPRsDays
+		repo.config.Settings = repo.config.Settings.WithDefaults()
 	}
 
 	return repo, nil
@@ -80,9 +80,9 @@ func (r *LocalRepository) load() error {
 		needsSave = true
 	}
 
-	if r.config.Settings.HideOldOtherPRsDays <= 0 {
-		logger.Log("Defaulting HideOldOtherPRsDays to %d", domain.DefaultHideOldOtherPRsDays)
-		r.config.Settings.HideOldOtherPRsDays = domain.DefaultHideOldOtherPRsDays
+	if defaulted := r.config.Settings.WithDefaults(); defaulted != r.config.Settings {
+		logger.Log("Defaulting missing settings: %+v", defaulted)
+		r.config.Settings = defaulted
 		needsSave = true
 	}
 
@@ -584,23 +584,15 @@ func (r *LocalRepository) GetSettings() (domain.Settings, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	settings := r.config.Settings
-	if settings.HideOldOtherPRsDays <= 0 {
-		settings.HideOldOtherPRsDays = domain.DefaultHideOldOtherPRsDays
-	}
-	return settings, nil
+	return r.config.Settings.WithDefaults(), nil
 }
 
 func (r *LocalRepository) SaveSettings(settings domain.Settings) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if settings.HideOldOtherPRsDays <= 0 {
-		settings.HideOldOtherPRsDays = domain.DefaultHideOldOtherPRsDays
-	}
-
-	r.config.Settings = settings
-	logger.Log("Saved settings: HideOldOtherPRs=%v HideOldOtherPRsDays=%d", settings.HideOldOtherPRs, settings.HideOldOtherPRsDays)
+	r.config.Settings = settings.WithDefaults()
+	logger.Log("Saved settings: %+v", r.config.Settings)
 	return r.save()
 }
 

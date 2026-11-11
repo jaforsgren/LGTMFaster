@@ -239,7 +239,6 @@ func (m *PipelineRunsViewModel) View() string {
 		pipelineName = PipelineDisplayName(*m.pipeline)
 	}
 	b.WriteString(renderListTitle(pipelinesTitle, pipelineName))
-	b.WriteString(listMutedStyle.Render(autoRefreshingHint))
 	b.WriteString("\n\n")
 
 	switch {

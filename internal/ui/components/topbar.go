@@ -3,6 +3,7 @@ package components
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
@@ -46,6 +47,7 @@ var (
 	valueWhiteStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("15"))
 	dimStyle             = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	activeStyle          = lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Bold(true)
+	autoRefreshOffStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Bold(true)
 	shortcutBlueStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("33")).Bold(true)
 	descGrayStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("246"))
 	topBarHeadingStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Bold(true)
@@ -85,6 +87,8 @@ type TopBarModel struct {
 	pipelineName   string
 	pipelineRun    string
 	pipelineCount  int
+	autoRefresh    bool
+	refreshEvery   time.Duration
 }
 
 func NewTopBar() *TopBarModel {
@@ -164,6 +168,11 @@ func (m *TopBarModel) SetPipelineContext(repo, pipeline, run string) {
 
 func (m *TopBarModel) SetPipelineCount(count int) {
 	m.pipelineCount = count
+}
+
+func (m *TopBarModel) SetAutoRefresh(enabled bool, interval time.Duration) {
+	m.autoRefresh = enabled
+	m.refreshEvery = interval
 }
 
 func (m *TopBarModel) HasLinkedRepo() bool {
@@ -348,7 +357,10 @@ func renderBadge(appearance badgeAppearance) string {
 
 func (m *TopBarModel) buildPipelineContextInfo() []string {
 	if m.pipelineName == "" {
-		return []string{contextLine("🚀", "Pipelines", fmt.Sprintf("%d", m.pipelineCount))}
+		return []string{
+			contextLine("🚀", "Pipelines", fmt.Sprintf("%d", m.pipelineCount)),
+			m.autoRefreshLine(),
+		}
 	}
 
 	lines := []string{
@@ -358,7 +370,14 @@ func (m *TopBarModel) buildPipelineContextInfo() []string {
 	if m.pipelineRun != "" {
 		lines = append(lines, contextLine("▶️", "Run", m.pipelineRun))
 	}
-	return lines
+	return append(lines, m.autoRefreshLine())
+}
+
+func (m *TopBarModel) autoRefreshLine() string {
+	if !m.autoRefresh {
+		return "⏸️ " + labelOrangeStyle.Render("Auto-refresh: ") + autoRefreshOffStyle.Render("OFF")
+	}
+	return "🔄 " + labelOrangeStyle.Render("Auto-refresh: ") + activeStyle.Render(fmt.Sprintf("ON every %s", m.refreshEvery))
 }
 
 func (m *TopBarModel) accountsHeading() string {

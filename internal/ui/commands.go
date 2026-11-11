@@ -438,6 +438,13 @@ func (cr *CommandRegistry) registerKeyBindings() {
 			AvailableIn: []ViewState{ViewPipelineList},
 		},
 		{
+			Keys:        []string{keyAutoRefresh},
+			Description: "Toggle auto-refresh",
+			ShortHelp:   keyAutoRefresh,
+			Handler:     handleAutoRefreshKey,
+			AvailableIn: pipelineViewStates,
+		},
+		{
 			Keys:        []string{keyFoldAll},
 			Description: "Fold/unfold all",
 			ShortHelp:   keyFoldAll,
@@ -1007,6 +1014,10 @@ func handleFoldAllKey(m Model) (Model, tea.Cmd) {
 	}
 	m.pipelineListView.ToggleAll()
 	return m, m.loadPipelinePreview()
+}
+
+func handleAutoRefreshKey(m Model) (Model, tea.Cmd) {
+	return m.toggleAutoRefresh()
 }
 
 func handleFavoritesOnlyKey(m Model) (Model, tea.Cmd) {

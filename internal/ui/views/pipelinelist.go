@@ -288,28 +288,32 @@ func (m *PipelineListViewModel) ScrollPane(delta int) {
 	m.split.ScrollFocused(m.detailPanes(), delta, m.width, m.height)
 }
 
-// PendingRunRequests returns the pipelines whose runs are shown but not fetched: the selected one
-// while the details pane is open, and every unfolded one. They are marked in flight so cursor
-// movement does not refetch them.
-func (m *PipelineListViewModel) PendingRunRequests() []domain.Pipeline {
-	var wanted []*domain.Pipeline
+// ShownRunPipelines are the pipelines whose runs are on screen: the selected one while the details
+// pane is open, and every unfolded one.
+func (m *PipelineListViewModel) ShownRunPipelines() []domain.Pipeline {
+	var shown []domain.Pipeline
 	if pipeline := m.GetSelectedPipeline(); m.split.IsOpen() && pipeline != nil {
-		wanted = append(wanted, pipeline)
+		shown = append(shown, *pipeline)
 	}
 	for _, node := range m.visibleNodes {
 		if node.Kind == PipelineNodePipeline && m.expanded[node.ID] {
-			wanted = append(wanted, node.Pipeline)
+			shown = append(shown, *node.Pipeline)
 		}
 	}
+	return shown
+}
 
+// PendingRunRequests returns the shown pipelines whose runs are not fetched yet, and marks them in
+// flight so cursor movement does not refetch them.
+func (m *PipelineListViewModel) PendingRunRequests() []domain.Pipeline {
 	var requests []domain.Pipeline
-	for _, pipeline := range wanted {
+	for _, pipeline := range m.ShownRunPipelines() {
 		key := pipeline.FavoriteKey()
 		if _, loaded := m.previewRuns[key]; loaded || m.previewPending[key] {
 			continue
 		}
 		m.previewPending[key] = true
-		requests = append(requests, *pipeline)
+		requests = append(requests, pipeline)
 	}
 	return requests
 }

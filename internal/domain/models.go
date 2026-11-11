@@ -87,12 +87,35 @@ type PullRequest struct {
 	PATID          string
 }
 
-const DefaultHideOldOtherPRsDays = 30
+const (
+	DefaultHideOldOtherPRsDays        = 30
+	DefaultPipelineAutoRefreshSeconds = 15
+)
 
 type Settings struct {
 	HideOldOtherPRs     bool
 	HideOldOtherPRsDays int
 	PipelineSortMode    PipelineSortMode
+	// PipelineAutoRefreshSeconds is how often the pipeline views refresh while auto-refresh is on.
+	PipelineAutoRefreshSeconds int
+	// PipelineAutoRefreshDisabled is stored instead of an enabled flag so that auto-refresh is on
+	// for configs written before the setting existed.
+	PipelineAutoRefreshDisabled bool
+}
+
+// WithDefaults fills in the settings that are missing or out of range.
+func (s Settings) WithDefaults() Settings {
+	if s.HideOldOtherPRsDays <= 0 {
+		s.HideOldOtherPRsDays = DefaultHideOldOtherPRsDays
+	}
+	if s.PipelineAutoRefreshSeconds <= 0 {
+		s.PipelineAutoRefreshSeconds = DefaultPipelineAutoRefreshSeconds
+	}
+	return s
+}
+
+func (s Settings) PipelineAutoRefreshInterval() time.Duration {
+	return time.Duration(s.WithDefaults().PipelineAutoRefreshSeconds) * time.Second
 }
 
 type Comment struct {

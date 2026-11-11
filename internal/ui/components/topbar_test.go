@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -158,5 +159,26 @@ func TestTruncatePathStart_KeepsTheEnd(t *testing.T) {
 	}
 	if width := lipgloss.Width(got); width != 20 {
 		t.Errorf("expected width 20, got %d", width)
+	}
+}
+
+func TestTopBarView_ShowsAutoRefreshInPipelineViews(t *testing.T) {
+	m := NewTopBar()
+	m.SetWidth(wideTerminal)
+	m.SetView(ViewNamePipelines)
+
+	m.SetAutoRefresh(true, 15*time.Second)
+	if view := m.View(); !strings.Contains(view, "Auto-refresh: ON every 15s") {
+		t.Errorf("expected auto-refresh on in the context, got %q", view)
+	}
+
+	m.SetAutoRefresh(false, 15*time.Second)
+	if view := m.View(); !strings.Contains(view, "Auto-refresh: OFF") {
+		t.Error("expected auto-refresh off in the context")
+	}
+
+	m.SetView(ViewNamePRList)
+	if strings.Contains(m.View(), "Auto-refresh") {
+		t.Error("expected no auto-refresh line outside the pipeline views")
 	}
 }

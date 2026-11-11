@@ -737,6 +737,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.prListView.SetSettings(settings)
 		m.pipelineListView.SetSortMode(settings.PipelineSortMode)
 		m.statusBar.SetMessage("Settings reloaded", false)
+		if isPipelineView(m.state) {
+			return m, tea.Batch(m.startPipelineWatch(), clearStatusAfterDelay(4*time.Second))
+		}
 		return m, clearStatusAfterDelay(4 * time.Second)
 
 	case PipelinesLoadedMsg:
@@ -953,11 +956,11 @@ func (m Model) navigateBack() (tea.Model, tea.Cmd) {
 	case ViewPipelineRuns:
 		logger.Log("UI: Navigating back from Pipeline Runs to Pipelines")
 		m.state = ViewPipelineList
-		m.pipelineWatchID++
+		watch := m.startPipelineWatch()
 		m.topBar.SetPipelineContext("", "", "")
 		m.topBar.SetView(components.ViewNamePipelines)
 		m.updateShortcuts()
-		return m, nil
+		return m, watch
 	case ViewPipelineRun:
 		logger.Log("UI: Navigating back from Pipeline Run to Pipeline Runs")
 		return m.showPipelineRuns()

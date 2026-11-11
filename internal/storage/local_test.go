@@ -635,3 +635,36 @@ func TestSaveAndLoadSession_SurvivesReload(t *testing.T) {
 		t.Errorf("expected %+v, got %+v", session, got)
 	}
 }
+
+func TestLoad_WritesTheDefaultAutoRefreshIntervalToTheConfigFile(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	configDir := filepath.Join(home, ".lgtmfaster")
+	if err := os.MkdirAll(configDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(configDir, "config.json")
+	if err := os.WriteFile(configPath, []byte(`{"settings": {"HideOldOtherPRsDays": 7}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	repo, err := NewLocalRepository()
+	if err != nil {
+		t.Fatalf("Failed to create repository: %v", err)
+	}
+
+	settings, _ := repo.GetSettings()
+	if settings.PipelineAutoRefreshSeconds != domain.DefaultPipelineAutoRefreshSeconds || settings.PipelineAutoRefreshDisabled {
+		t.Errorf("expected auto-refresh on every %ds, got %+v", domain.DefaultPipelineAutoRefreshSeconds, settings)
+	}
+	if settings.HideOldOtherPRsDays != 7 {
+		t.Errorf("expected the configured settings kept, got %+v", settings)
+	}
+	written, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(written), `"PipelineAutoRefreshSeconds": 15`) {
+		t.Errorf("expected the default written to the config file, got %s", written)
+	}
+}

@@ -12,13 +12,14 @@ import (
 	"github.com/johanforsgren/lgtmfaster/internal/ui/views"
 )
 
-const pipelineWatchInterval = 10 * time.Second
-
 var errNoPipelineProviders = errors.New("no selected PAT supports pipelines (Azure DevOps only)")
 
+// PipelinesLoadedMsg is background when an auto-refresh loaded it, which reports nothing unless
+// it failed.
 type PipelinesLoadedMsg struct {
 	pipelines      []domain.Pipeline
 	failedPATCount int
+	background     bool
 }
 
 type PipelineRunsLoadedMsg struct {
@@ -86,7 +87,7 @@ func (m Model) openPipelineList() (Model, tea.Cmd) {
 	}
 
 	m.state = ViewPipelineList
-	m.pipelineWatchID++
+	watch := m.startPipelineWatch()
 	m.applyPipelineFavorites()
 	m.applyPipelinePreferences()
 	m.topBar.SetView(components.ViewNamePipelines)
@@ -95,11 +96,11 @@ func (m Model) openPipelineList() (Model, tea.Cmd) {
 	m.updateShortcuts()
 
 	if m.pipelineListView.HasPipelines() {
-		return m, nil
+		return m, watch
 	}
 
 	m.statusBar.SetMessage("Loading pipelines...", false)
-	return m, m.loadPipelines()
+	return m, tea.Batch(m.loadPipelines(), watch)
 }
 
 func (m Model) loadPipelines() tea.Cmd {
@@ -197,13 +198,60 @@ func tagPipelineRun(run *domain.PipelineRun, patID string, providerType domain.P
 	run.ProviderType = providerType
 }
 
+// startPipelineWatch restarts the auto-refresh for the current pipeline view. Bumping the watch
+// generation also stops the previous loop, which is all that happens while auto-refresh is off.
 func (m *Model) startPipelineWatch() tea.Cmd {
 	m.pipelineWatchID++
-	return schedulePipelineWatchTick(m.pipelineWatchID)
+	settings := m.autoRefreshSettings()
+	m.topBar.SetAutoRefresh(!settings.PipelineAutoRefreshDisabled, settings.PipelineAutoRefreshInterval())
+	if settings.PipelineAutoRefreshDisabled {
+		return nil
+	}
+	return schedulePipelineWatchTick(m.pipelineWatchID, settings.PipelineAutoRefreshInterval())
 }
 
-func schedulePipelineWatchTick(watchID int) tea.Cmd {
-	return tea.Tick(pipelineWatchInterval, func(time.Time) tea.Msg {
+func (m Model) autoRefreshSettings() domain.Settings {
+	settings, err := m.repository.GetSettings()
+	if err != nil {
+		logger.LogError("LOAD_AUTO_REFRESH", "storage", err)
+		return domain.Settings{}.WithDefaults()
+	}
+	return settings
+}
+
+// toggleAutoRefresh saves the flipped setting, so it holds for every pipeline view and the next start.
+func (m Model) toggleAutoRefresh() (Model, tea.Cmd) {
+	settings := m.autoRefreshSettings()
+	settings.PipelineAutoRefreshDisabled = !settings.PipelineAutoRefreshDisabled
+	if err := m.repository.SaveSettings(settings); err != nil {
+		m.statusBar.SetMessage(fmt.Sprintf("Failed to save auto-refresh: %v", err), true)
+		return m, clearStatusAfterDelay(4 * time.Second)
+	}
+
+	watch := m.startPipelineWatch()
+	if settings.PipelineAutoRefreshDisabled {
+		m.statusBar.SetMessage("Auto-refresh off", false)
+	} else {
+		m.statusBar.SetMessage(fmt.Sprintf("Auto-refresh on, every %s", settings.PipelineAutoRefreshInterval()), false)
+	}
+	return m, tea.Batch(watch, clearStatusAfterDelay(4*time.Second))
+}
+
+// loadPipelinesInBackground reloads the list for an auto-refresh tick.
+func (m Model) loadPipelinesInBackground() tea.Cmd {
+	load := m.loadPipelines()
+	return func() tea.Msg {
+		msg := load()
+		if loaded, ok := msg.(PipelinesLoadedMsg); ok {
+			loaded.background = true
+			return loaded
+		}
+		return msg
+	}
+}
+
+func schedulePipelineWatchTick(watchID int, interval time.Duration) tea.Cmd {
+	return tea.Tick(interval, func(time.Time) tea.Msg {
 		return PipelineWatchTickMsg{watchID: watchID}
 	})
 }
@@ -257,6 +305,9 @@ func pipelineRepoLabel(pipeline domain.Pipeline) string {
 func (m Model) handlePipelinesLoaded(msg PipelinesLoadedMsg) (Model, tea.Cmd) {
 	m.pipelineListView.SetPipelines(msg.pipelines)
 	m.topBar.SetPipelineCount(m.pipelineListView.PipelineCount())
+	if msg.background && msg.failedPATCount == 0 {
+		return m, m.loadPipelinePreview()
+	}
 
 	if msg.failedPATCount > 0 {
 		m.statusBar.SetMessage(fmt.Sprintf("Loaded %d pipelines (%d PAT(s) failed)", len(msg.pipelines), msg.failedPATCount), true)
@@ -303,14 +354,21 @@ func (m Model) handlePipelineWatchTick(msg PipelineWatchTickMsg) (Model, tea.Cmd
 	if msg.watchID != m.pipelineWatchID {
 		return m, nil
 	}
+	nextTick := schedulePipelineWatchTick(msg.watchID, m.autoRefreshSettings().PipelineAutoRefreshInterval())
 
 	switch m.state {
+	case ViewPipelineList:
+		cmds := []tea.Cmd{m.loadPipelinesInBackground(), nextTick}
+		for _, pipeline := range m.pipelineListView.ShownRunPipelines() {
+			cmds = append(cmds, m.loadPipelineRuns(pipeline))
+		}
+		return m, tea.Batch(cmds...)
 	case ViewPipelineRuns:
 		pipeline := m.pipelineRunsView.GetPipeline()
 		if pipeline == nil {
 			return m, nil
 		}
-		cmds := []tea.Cmd{m.loadPipelineRuns(*pipeline), schedulePipelineWatchTick(msg.watchID)}
+		cmds := []tea.Cmd{m.loadPipelineRuns(*pipeline), nextTick}
 		if run := m.pipelineRunsView.GetSelectedRun(); run != nil && m.pipelineRunsView.IsPreviewOpen() {
 			cmds = append(cmds, m.loadPipelineRun(*run))
 		}
@@ -321,7 +379,7 @@ func (m Model) handlePipelineWatchTick(msg PipelineWatchTickMsg) (Model, tea.Cmd
 			logger.Log("UI: Stopping pipeline watch, run is finished")
 			return m, nil
 		}
-		return m, tea.Batch(m.loadPipelineRun(*run), schedulePipelineWatchTick(msg.watchID))
+		return m, tea.Batch(m.loadPipelineRun(*run), nextTick)
 	default:
 		return m, nil
 	}

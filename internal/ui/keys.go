@@ -16,6 +16,7 @@ const (
 	keyFilter        = "/"
 	keyCommand       = ":"
 	keyRefresh       = "r"
+	keyAutoRefresh   = "R"
 	keyOpenBrowser   = "ctrl+o"
 	keyTogglePane    = "tab"
 	keyFocusPaneIn   = "right"
