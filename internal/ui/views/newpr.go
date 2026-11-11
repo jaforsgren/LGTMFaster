@@ -77,6 +77,9 @@ type NewPRViewModel struct {
 	isDraft        bool
 	focus          newPRField
 	highlighted    int
+	// replaceTarget makes the first character typed into the target field replace the preselected
+	// branch instead of being appended to it.
+	replaceTarget bool
 	active         bool
 	width          int
 	height         int
@@ -234,6 +237,10 @@ func (m *NewPRViewModel) handleTargetKey(msg tea.KeyMsg) tea.Cmd {
 		m.focusField(newPRFieldTitle)
 		return nil
 	}
+	if m.replaceTarget && msg.Type == tea.KeyRunes {
+		m.target.SetValue("")
+	}
+	m.replaceTarget = false
 	var cmd tea.Cmd
 	m.target, cmd = m.target.Update(msg)
 	m.highlighted = 0
@@ -279,6 +286,7 @@ func (m *NewPRViewModel) focusField(field newPRField) {
 	switch field {
 	case newPRFieldTarget:
 		m.target.Focus()
+		m.replaceTarget = m.target.Value() != ""
 	case newPRFieldTitle:
 		m.title.Focus()
 	case newPRFieldDescription:

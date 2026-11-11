@@ -81,6 +81,32 @@ func TestNewPR_TargetDropdownCompletesTheTypedBranch(t *testing.T) {
 	}
 }
 
+func TestNewPR_TypingIntoThePreselectedTargetReplacesIt(t *testing.T) {
+	m := newPRTestView()
+	pressKeys(m, shiftTabKey)
+
+	pressKeys(m, typed("dev"))
+
+	if m.target.Value() != "dev" {
+		t.Errorf("expected typing to replace the preselected main, got %q", m.target.Value())
+	}
+	pressKeys(m, tabKey)
+	if m.target.Value() != "develop" {
+		t.Errorf("expected tab to complete to develop, got %q", m.target.Value())
+	}
+}
+
+func TestNewPR_EditingKeysKeepThePreselectedTarget(t *testing.T) {
+	m := newPRTestView()
+	pressKeys(m, shiftTabKey)
+
+	pressKeys(m, tea.KeyMsg{Type: tea.KeyBackspace})
+
+	if m.target.Value() != "mai" {
+		t.Errorf("expected backspace to edit the preselected branch, got %q", m.target.Value())
+	}
+}
+
 func TestNewPR_DropdownLeavesOutTheSourceBranch(t *testing.T) {
 	m := newPRTestView()
 	m.target.SetValue("feature")
