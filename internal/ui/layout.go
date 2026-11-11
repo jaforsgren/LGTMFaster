@@ -40,7 +40,7 @@ func (m Model) resizeViews() {
 
 	overlays := []sizedView{
 		m.reviewView, m.mergeView, m.inlineCommentView, m.descriptionEditView,
-		m.logsView, m.repoLinkView, m.reposView, m.stageApprovalView,
+		m.logsView, m.repoLinkView, m.reposView, m.stageApprovalView, m.newPRView,
 	}
 	for _, view := range overlays {
 		view.SetSize(m.width, m.contentHeight())
@@ -96,12 +96,17 @@ func (m Model) activeOverlay() (string, bool) {
 		return m.reposView.View(), true
 	case m.stageApprovalView.IsActive():
 		return m.stageApprovalView.View(), true
+	case m.newPRView.IsActive():
+		return m.newPRView.View(), true
 	}
 	return "", false
 }
 
 // helpLine is the status bar's second row: what the keys do in whatever currently has input.
 func (m Model) helpLine() string {
+	if argument, isPRArgument := m.prCommandArgument(); isPRArgument && m.commandBar.IsActive() {
+		return m.branchSuggestionHelp(argument)
+	}
 	switch {
 	case m.commandBar.IsActive():
 		return commandHelp

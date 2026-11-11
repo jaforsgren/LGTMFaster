@@ -1,6 +1,9 @@
 package domain
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 type Provider interface {
 	GetType() ProviderType
@@ -20,6 +23,13 @@ type Provider interface {
 	MergePullRequest(ctx context.Context, identifier PRIdentifier, mergeMethod string, deleteBranch bool) error
 
 	UpdatePullRequestDescription(ctx context.Context, identifier PRIdentifier, description string) error
+
+	// ListRecentlyPushedBranches returns the branches the user pushed since the given time.
+	ListRecentlyPushedBranches(ctx context.Context, since time.Time) ([]PushedBranch, error)
+
+	ListBranches(ctx context.Context, repositoryFullName string) (RepositoryBranches, error)
+
+	CreatePullRequest(ctx context.Context, pr NewPullRequest) (*PullRequest, error)
 
 	ValidateCredentials(ctx context.Context) error
 }

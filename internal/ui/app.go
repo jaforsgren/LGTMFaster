@@ -54,6 +54,7 @@ const (
 	EditorSourceReview EditorSource = iota
 	EditorSourceInlineComment
 	EditorSourceDescriptionEdit
+	EditorSourceNewPR
 )
 
 type Model struct {
@@ -78,6 +79,8 @@ type Model struct {
 	pipelineRunsView    *views.PipelineRunsViewModel
 	pipelineRunView     *views.PipelineRunViewModel
 	stageApprovalView   *views.StageApprovalViewModel
+	newPRView           *views.NewPRViewModel
+	recentBranches      recentBranches
 	pipelineWatchID     int
 	// pipelineRunOrigin is the view the open run was entered from, which going back returns to.
 	pipelineRunOrigin ViewState
@@ -128,6 +131,7 @@ func NewModel(repository domain.Repository) Model {
 		pipelineRunsView:    views.NewPipelineRunsView(),
 		pipelineRunView:     views.NewPipelineRunView(),
 		stageApprovalView:   views.NewStageApprovalView(),
+		newPRView:           views.NewNewPRView(),
 		repository:          repository,
 		providers:           make(map[string]domain.Provider),
 		ctx:                 context.Background(),
@@ -173,6 +177,9 @@ func (m Model) isInInputMode() bool {
 	if m.stageApprovalView.IsActive() {
 		return true
 	}
+	if m.newPRView.IsActive() {
+		return true
+	}
 	if m.isFiltering() {
 		return true
 	}
@@ -212,12 +219,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.commandBar.Deactivate()
 					return m, nil
 				case keyComplete:
-					m.commandBar.AcceptSuggestion()
-					return m, nil
+					return m.completeCommand(), nil
 				default:
-					cmd = m.commandBar.Update(msg)
-					m.commandBar.SetSuggestion(m.commandRegistry.GetAutocompleteSuggestion(m.commandBar.CommandName(), m.state))
-					return m, cmd
+					return m.handleCommandInput(msg)
 				}
 			}
 
@@ -298,6 +302,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					cmd = m.logsView.Update(msg)
 					return m, cmd
 				}
+			}
+
+			if m.newPRView.IsActive() {
+				return m.handleNewPRKey(msg)
 			}
 
 			if m.descriptionEditView.IsActive() {
@@ -713,6 +721,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.inlineCommentView.SetValue(editedContent)
 		case EditorSourceDescriptionEdit:
 			m.descriptionEditView.SetValue(editedContent)
+		case EditorSourceNewPR:
+			m.newPRView.SetDescription(editedContent)
 		}
 
 		return m, nil
@@ -749,6 +759,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case PipelineRunsLoadedMsg:
 		return m.handlePipelineRunsLoaded(msg)
+
+	case RecentBranchesLoadedMsg:
+		return m.handleRecentBranchesLoaded(msg)
+
+	case NewPRBranchesLoadedMsg:
+		return m.handleNewPRBranchesLoaded(msg)
+
+	case PullRequestCreatedMsg:
+		return m.handlePullRequestCreated(msg)
 
 	case PipelineRunsFailedMsg:
 		return m.handlePipelineRunsFailed(msg)

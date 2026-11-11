@@ -162,6 +162,10 @@ func (m *mockRepository) Reload() error {
 type mockProvider struct {
 	submitReviewCalled bool
 	lastReview         domain.Review
+	pushedBranches     []domain.PushedBranch
+	branches           domain.RepositoryBranches
+	createdPR          *domain.PullRequest
+	lastNewPR          *domain.NewPullRequest
 }
 
 func (m *mockProvider) ListPullRequests(ctx context.Context, username string) ([]domain.PullRequest, error) {
@@ -200,6 +204,19 @@ func (m *mockProvider) MergePullRequest(ctx context.Context, identifier domain.P
 
 func (m *mockProvider) UpdatePullRequestDescription(ctx context.Context, identifier domain.PRIdentifier, description string) error {
 	return nil
+}
+
+func (m *mockProvider) ListRecentlyPushedBranches(ctx context.Context, since time.Time) ([]domain.PushedBranch, error) {
+	return m.pushedBranches, nil
+}
+
+func (m *mockProvider) ListBranches(ctx context.Context, repositoryFullName string) (domain.RepositoryBranches, error) {
+	return m.branches, nil
+}
+
+func (m *mockProvider) CreatePullRequest(ctx context.Context, pr domain.NewPullRequest) (*domain.PullRequest, error) {
+	m.lastNewPR = &pr
+	return m.createdPR, nil
 }
 
 func (m *mockProvider) GetType() domain.ProviderType {

@@ -134,7 +134,7 @@ func formatOptionalAge(t time.Time) string {
 	if t.IsZero() {
 		return emptyCellPlaceholder
 	}
-	return formatAge(t)
+	return FormatAge(t)
 }
 
 func valueOrPlaceholder(value string) string {
@@ -165,7 +165,7 @@ func padToWidth(s string, width int) string {
 	return s + strings.Repeat(" ", width-w)
 }
 
-func formatAge(t time.Time) string {
+func FormatAge(t time.Time) string {
 	d := time.Since(t)
 	switch {
 	case d < time.Minute:

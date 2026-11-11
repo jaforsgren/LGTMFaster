@@ -307,7 +307,7 @@ func (m *PRListViewModel) View() string {
 func prRow(pr domain.PullRequest, compact bool) listRow {
 	appearance := prCategoryAppearanceFor(pr.Category)
 	number := fmt.Sprintf("#%d", pr.Number)
-	age := formatAge(pr.CreatedAt)
+	age := FormatAge(pr.CreatedAt)
 	badge := prApprovalBadges[pr.ApprovalStatus]
 
 	values := []string{badge, pr.Title, pr.Repository.FullName, number, pr.Author.Username, age}

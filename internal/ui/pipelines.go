@@ -202,7 +202,7 @@ func tagPipelineRun(run *domain.PipelineRun, patID string, providerType domain.P
 // generation also stops the previous loop, which is all that happens while auto-refresh is off.
 func (m *Model) startPipelineWatch() tea.Cmd {
 	m.pipelineWatchID++
-	settings := m.autoRefreshSettings()
+	settings := m.currentSettings()
 	m.topBar.SetAutoRefresh(settings.PipelineAutoRefreshEnabled, settings.PipelineAutoRefreshInterval())
 	if !settings.PipelineAutoRefreshEnabled {
 		return nil
@@ -210,7 +210,7 @@ func (m *Model) startPipelineWatch() tea.Cmd {
 	return schedulePipelineWatchTick(m.pipelineWatchID, settings.PipelineAutoRefreshInterval())
 }
 
-func (m Model) autoRefreshSettings() domain.Settings {
+func (m Model) currentSettings() domain.Settings {
 	settings, err := m.repository.GetSettings()
 	if err != nil {
 		logger.LogError("LOAD_AUTO_REFRESH", "storage", err)
@@ -221,7 +221,7 @@ func (m Model) autoRefreshSettings() domain.Settings {
 
 // toggleAutoRefresh saves the flipped setting, so it holds for every pipeline view and the next start.
 func (m Model) toggleAutoRefresh() (Model, tea.Cmd) {
-	settings := m.autoRefreshSettings()
+	settings := m.currentSettings()
 	settings.PipelineAutoRefreshEnabled = !settings.PipelineAutoRefreshEnabled
 	if err := m.repository.SaveSettings(settings); err != nil {
 		m.statusBar.SetMessage(fmt.Sprintf("Failed to save auto-refresh: %v", err), true)
@@ -380,7 +380,7 @@ func (m Model) handlePipelineWatchTick(msg PipelineWatchTickMsg) (Model, tea.Cmd
 	if msg.watchID != m.pipelineWatchID {
 		return m, nil
 	}
-	nextTick := schedulePipelineWatchTick(msg.watchID, m.autoRefreshSettings().PipelineAutoRefreshInterval())
+	nextTick := schedulePipelineWatchTick(msg.watchID, m.currentSettings().PipelineAutoRefreshInterval())
 
 	switch m.state {
 	case ViewPipelineList:

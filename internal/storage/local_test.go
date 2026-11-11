@@ -664,7 +664,9 @@ func TestLoad_WritesTheDefaultAutoRefreshIntervalToTheConfigFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(written), `"PipelineAutoRefreshSeconds": 15`) {
-		t.Errorf("expected the default written to the config file, got %s", written)
+	for _, setting := range []string{`"PipelineAutoRefreshSeconds": 15`, `"RecentBranchMinutes": 60`} {
+		if !strings.Contains(string(written), setting) {
+			t.Errorf("expected %s written to the config file, got %s", setting, written)
+		}
 	}
 }

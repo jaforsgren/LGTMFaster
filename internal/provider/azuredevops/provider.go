@@ -59,10 +59,7 @@ func (p *Provider) ListPullRequests(ctx context.Context, username string) ([]dom
 		}
 
 		for _, pr := range *prs {
-			domainPR := convertPullRequest(&pr, username)
-			if domainPR.URL == "" {
-				domainPR.URL = p.buildPRURL(projectName, repoName, domainPR.Number)
-			}
+			domainPR := p.toDomainPullRequest(&pr, projectName, repoName, username)
 			mu.Lock()
 			allPRs = append(allPRs, domainPR)
 			mu.Unlock()
@@ -139,10 +136,7 @@ func (p *Provider) GetPullRequest(ctx context.Context, identifier domain.PRIdent
 		return nil, err
 	}
 
-	domainPR := convertPullRequest(pr, p.client.username)
-	if domainPR.URL == "" {
-		domainPR.URL = p.buildPRURL(projectName, repoName, domainPR.Number)
-	}
+	domainPR := p.toDomainPullRequest(pr, projectName, repoName, p.client.username)
 	return &domainPR, nil
 }
 
@@ -345,6 +339,16 @@ func (p *Provider) UpdatePullRequestDescription(ctx context.Context, identifier 
 
 	logger.Log("AzureDevOps: Successfully updated PR #%d description", identifier.Number)
 	return nil
+}
+
+// toDomainPullRequest converts a pull request, falling back to a built web URL when the API
+// response has no link to one.
+func (p *Provider) toDomainPullRequest(pr *git.GitPullRequest, projectName, repoName, currentUser string) domain.PullRequest {
+	domainPR := convertPullRequest(pr, currentUser)
+	if domainPR.URL == "" {
+		domainPR.URL = p.buildPRURL(projectName, repoName, domainPR.Number)
+	}
+	return domainPR
 }
 
 func (p *Provider) buildPRURL(projectName, repoName string, prNumber int) string {

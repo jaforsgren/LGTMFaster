@@ -16,6 +16,12 @@ type mockGitClient struct {
 	getIterationsErr error
 	getChangesErr    error
 	getBlobErr       error
+	pushes           *[]git.GitPush
+	refPages         []*git.GetRefsResponseValue
+	repository       *git.GitRepository
+	createdPR        *git.GitPullRequest
+	lastCreateArgs   *git.CreatePullRequestArgs
+	lastPushesArgs   *git.GetPushesArgs
 }
 
 func (m *mockGitClient) GetRepositories(ctx context.Context, args git.GetRepositoriesArgs) (*[]git.GitRepository, error) {
@@ -72,6 +78,30 @@ func (m *mockGitClient) CreateThread(ctx context.Context, args git.CreateThreadA
 
 func (m *mockGitClient) CreatePullRequestReviewer(ctx context.Context, args git.CreatePullRequestReviewerArgs) (*git.IdentityRefWithVote, error) {
 	return nil, nil
+}
+
+func (m *mockGitClient) CreatePullRequest(ctx context.Context, args git.CreatePullRequestArgs) (*git.GitPullRequest, error) {
+	m.lastCreateArgs = &args
+	return m.createdPR, nil
+}
+
+func (m *mockGitClient) GetPushes(ctx context.Context, args git.GetPushesArgs) (*[]git.GitPush, error) {
+	m.lastPushesArgs = &args
+	return m.pushes, nil
+}
+
+// GetRefs serves refPages in order, one per call, as the API serves continuation pages.
+func (m *mockGitClient) GetRefs(ctx context.Context, args git.GetRefsArgs) (*git.GetRefsResponseValue, error) {
+	if len(m.refPages) == 0 {
+		return &git.GetRefsResponseValue{}, nil
+	}
+	page := m.refPages[0]
+	m.refPages = m.refPages[1:]
+	return page, nil
+}
+
+func (m *mockGitClient) GetRepository(ctx context.Context, args git.GetRepositoryArgs) (*git.GitRepository, error) {
+	return m.repository, nil
 }
 
 func (m *mockGitClient) UpdatePullRequest(ctx context.Context, args git.UpdatePullRequestArgs) (*git.GitPullRequest, error) {

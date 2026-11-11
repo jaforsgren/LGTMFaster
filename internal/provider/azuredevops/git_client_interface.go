@@ -21,4 +21,8 @@ type GitClientInterface interface {
 	CreateThread(ctx context.Context, args git.CreateThreadArgs) (*git.GitPullRequestCommentThread, error)
 	CreatePullRequestReviewer(ctx context.Context, args git.CreatePullRequestReviewerArgs) (*git.IdentityRefWithVote, error)
 	UpdatePullRequest(ctx context.Context, args git.UpdatePullRequestArgs) (*git.GitPullRequest, error)
+	CreatePullRequest(ctx context.Context, args git.CreatePullRequestArgs) (*git.GitPullRequest, error)
+	GetPushes(ctx context.Context, args git.GetPushesArgs) (*[]git.GitPush, error)
+	GetRefs(ctx context.Context, args git.GetRefsArgs) (*git.GetRefsResponseValue, error)
+	GetRepository(ctx context.Context, args git.GetRepositoryArgs) (*git.GitRepository, error)
 }

@@ -90,6 +90,7 @@ type PullRequest struct {
 const (
 	DefaultHideOldOtherPRsDays        = 30
 	DefaultPipelineAutoRefreshSeconds = 15
+	DefaultRecentBranchMinutes        = 60
 )
 
 type Settings struct {
@@ -100,6 +101,8 @@ type Settings struct {
 	PipelineAutoRefreshSeconds int
 	// PipelineAutoRefreshEnabled turns the pipeline views' auto-refresh on; it is off by default.
 	PipelineAutoRefreshEnabled bool
+	// RecentBranchMinutes is how far back :pr looks for pushed branches to open a pull request from.
+	RecentBranchMinutes int
 }
 
 // WithDefaults fills in the settings that are missing or out of range.
@@ -110,7 +113,14 @@ func (s Settings) WithDefaults() Settings {
 	if s.PipelineAutoRefreshSeconds <= 0 {
 		s.PipelineAutoRefreshSeconds = DefaultPipelineAutoRefreshSeconds
 	}
+	if s.RecentBranchMinutes <= 0 {
+		s.RecentBranchMinutes = DefaultRecentBranchMinutes
+	}
 	return s
+}
+
+func (s Settings) RecentBranchWindow() time.Duration {
+	return time.Duration(s.WithDefaults().RecentBranchMinutes) * time.Minute
 }
 
 func (s Settings) PipelineAutoRefreshInterval() time.Duration {

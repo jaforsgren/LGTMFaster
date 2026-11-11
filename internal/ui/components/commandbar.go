@@ -27,7 +27,7 @@ type CommandBarModel struct {
 	textInput  textinput.Model
 	width      int
 	active     bool
-	suggestion string
+	completion string
 }
 
 func NewCommandBar() *CommandBarModel {
@@ -48,14 +48,14 @@ func (m *CommandBarModel) SetWidth(width int) {
 
 func (m *CommandBarModel) Activate() {
 	m.active = true
-	m.suggestion = ""
+	m.completion = ""
 	m.textInput.Focus()
 	m.textInput.SetValue(commandPrefix)
 }
 
 func (m *CommandBarModel) Deactivate() {
 	m.active = false
-	m.suggestion = ""
+	m.completion = ""
 	m.textInput.Blur()
 	m.textInput.SetValue("")
 }
@@ -68,37 +68,39 @@ func (m *CommandBarModel) Value() string {
 	return m.textInput.Value()
 }
 
-// CommandName is the command word typed so far, without the prefix or arguments.
-func (m *CommandBarModel) CommandName() string {
-	fields := strings.Fields(strings.TrimPrefix(m.textInput.Value(), commandPrefix))
-	if len(fields) != 1 || strings.HasSuffix(m.textInput.Value(), " ") {
-		return ""
-	}
-	return fields[0]
+// Input is the typed text without the command prefix.
+func (m *CommandBarModel) Input() string {
+	return strings.TrimPrefix(m.textInput.Value(), commandPrefix)
 }
 
-// SetSuggestion sets the command the typed name completes to; it is shown faded after the input.
-func (m *CommandBarModel) SetSuggestion(suggestion string) {
-	m.suggestion = suggestion
+// SetInput replaces the typed text, keeping the cursor at its end.
+func (m *CommandBarModel) SetInput(input string) {
+	m.textInput.SetValue(commandPrefix + input)
+	m.textInput.CursorEnd()
 }
 
-// AcceptSuggestion completes the typed name to the suggestion and reports whether there was one.
-func (m *CommandBarModel) AcceptSuggestion() bool {
-	if m.remainingSuggestion() == "" {
+// SetCompletion sets the whole input the typed text completes to; the part still to type is shown
+// faded after the input.
+func (m *CommandBarModel) SetCompletion(completion string) {
+	m.completion = completion
+}
+
+// AcceptCompletion replaces the input with the completion and reports whether there was one.
+func (m *CommandBarModel) AcceptCompletion() bool {
+	if m.completion == "" || m.completion == m.Input() {
 		return false
 	}
-	m.textInput.SetValue(commandPrefix + m.suggestion + " ")
-	m.textInput.CursorEnd()
-	m.suggestion = ""
+	m.SetInput(m.completion)
+	m.completion = ""
 	return true
 }
 
-func (m *CommandBarModel) remainingSuggestion() string {
-	name := m.CommandName()
-	if name == "" || !strings.HasPrefix(m.suggestion, name) {
+func (m *CommandBarModel) remainingCompletion() string {
+	input := m.Input()
+	if !strings.HasPrefix(m.completion, input) {
 		return ""
 	}
-	return m.suggestion[len(name):]
+	return m.completion[len(input):]
 }
 
 func (m *CommandBarModel) Update(msg tea.Msg) tea.Cmd {
@@ -111,5 +113,5 @@ func (m *CommandBarModel) View() string {
 	if !m.active {
 		return commandBarStyle.Width(m.width).Render("")
 	}
-	return commandBarStyle.Width(m.width).Render(m.textInput.View() + commandSuggestionStyle.Render(m.remainingSuggestion()))
+	return commandBarStyle.Width(m.width).Render(m.textInput.View() + commandSuggestionStyle.Render(m.remainingCompletion()))
 }

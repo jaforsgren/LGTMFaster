@@ -77,7 +77,7 @@ func (cr *CommandRegistry) registerCommands() {
 		{
 			Name:        "pr",
 			Aliases:     []string{"prs", "pulls"},
-			Description: "List pull requests",
+			Description: "List pull requests, or :pr <repository>:<branch> to open one",
 			ShortHelp:   ":pr",
 			Handler:     handlePRCommand,
 			AvailableIn: allViewStates,
@@ -511,6 +511,12 @@ func (cr *CommandRegistry) ExecuteCommand(m Model, cmdName string, args []string
 	return cmd.Handler(m, args)
 }
 
+// Resolve finds a command by its name or one of its aliases.
+func (cr *CommandRegistry) Resolve(name string) (*Command, bool) {
+	command, ok := cr.commands[name]
+	return command, ok
+}
+
 func (cr *CommandRegistry) HandleKey(m Model, key string) (Model, tea.Cmd, bool) {
 	for _, kb := range cr.keyBindings {
 		if !isInViews(m.state, kb.AvailableIn) {
@@ -637,12 +643,31 @@ func handlePATsCommand(m Model, args []string) (Model, tea.Cmd) {
 	return m, m.loadPATs()
 }
 
+// handlePRCommand lists the pull requests, or with a "<repository>:<branch>" argument opens the form
+// for a new one from that branch.
 func handlePRCommand(m Model, args []string) (Model, tea.Cmd) {
 	if len(m.providers) == 0 && m.provider == nil {
 		m.statusBar.SetMessage("No active PAT. Please select a PAT first.", true)
 		return m, nil
 	}
+	if len(args) > 0 {
+		return m.startNewPR(strings.Join(args, " "))
+	}
 	return m, m.loadPRsWithCache()
+}
+
+// inspectPR opens a pull request in the inspect view and loads its details, diff and comments.
+func (m Model) inspectPR(pr domain.PullRequest) (Model, tea.Cmd) {
+	m.state = ViewPRInspect
+	m.prInspect.SwitchToDescription()
+	m.topBar.SetContext(pr.Repository.FullName, fmt.Sprintf("%d", pr.Number))
+	m.topBar.SetView(components.ViewNamePRDescription)
+	m.updateShortcuts()
+	return m, tea.Batch(
+		m.loadPRDetail(pr),
+		m.loadDiff(pr),
+		m.loadComments(pr),
+	)
 }
 
 func handlePipelinesCommand(m Model, args []string) (Model, tea.Cmd) {
@@ -688,18 +713,8 @@ func handleEnterKey(m Model) (Model, tea.Cmd) {
 		newModel, cmd := m.handlePATEnter()
 		return newModel.(Model), cmd
 	case ViewPRList:
-		pr := m.prListView.GetSelectedPR()
-		if pr != nil {
-			m.state = ViewPRInspect
-			m.prInspect.SwitchToDescription()
-			m.topBar.SetContext(pr.Repository.FullName, fmt.Sprintf("%d", pr.Number))
-			m.topBar.SetView(components.ViewNamePRDescription)
-			m.updateShortcuts()
-			return m, tea.Batch(
-				m.loadPRDetail(*pr),
-				m.loadDiff(*pr),
-				m.loadComments(*pr),
-			)
+		if pr := m.prListView.GetSelectedPR(); pr != nil {
+			return m.inspectPR(*pr)
 		}
 	case ViewPRInspect:
 		if m.prInspect.GetMode() == views.PRInspectModeDiff {

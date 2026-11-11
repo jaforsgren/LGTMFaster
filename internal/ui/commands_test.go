@@ -26,6 +26,7 @@ func createTestModel() Model {
 		pipelineRunsView:  views.NewPipelineRunsView(),
 		pipelineRunView:   views.NewPipelineRunView(),
 		stageApprovalView: views.NewStageApprovalView(),
+		newPRView:         views.NewNewPRView(),
 		commandRegistry:   NewCommandRegistry(),
 		repository:        &mockRepository{pats: map[string]*domain.PAT{}},
 	}
