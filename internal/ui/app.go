@@ -79,19 +79,21 @@ type Model struct {
 	pipelineRunView     *views.PipelineRunViewModel
 	stageApprovalView   *views.StageApprovalViewModel
 	pipelineWatchID     int
-	repository          domain.Repository
-	provider            domain.Provider
-	providers           map[string]domain.Provider
-	primaryProvider     domain.Provider
-	primaryPATID        string
-	ctx                 context.Context
-	commandRegistry     *CommandRegistry
-	isInitialStartup    bool
-	loadingState        LoadingState
-	spinner             spinner.Model
-	prCache             *PRCache
-	editorTempFile      string
-	editorSource        EditorSource
+	// pipelineRunOrigin is the view the open run was entered from, which going back returns to.
+	pipelineRunOrigin ViewState
+	repository        domain.Repository
+	provider          domain.Provider
+	providers         map[string]domain.Provider
+	primaryProvider   domain.Provider
+	primaryPATID      string
+	ctx               context.Context
+	commandRegistry   *CommandRegistry
+	isInitialStartup  bool
+	loadingState      LoadingState
+	spinner           spinner.Model
+	prCache           *PRCache
+	editorTempFile    string
+	editorSource      EditorSource
 	// resume is the stored session still waiting for its PRs or pipelines to load.
 	resume *domain.Session
 }
@@ -955,15 +957,9 @@ func (m Model) navigateBack() (tea.Model, tea.Cmd) {
 		return m, m.loadPRsWithCache()
 	case ViewPipelineRuns:
 		logger.Log("UI: Navigating back from Pipeline Runs to Pipelines")
-		m.state = ViewPipelineList
-		watch := m.startPipelineWatch()
-		m.topBar.SetPipelineContext("", "", "")
-		m.topBar.SetView(components.ViewNamePipelines)
-		m.updateShortcuts()
-		return m, watch
+		return m.showPipelineList()
 	case ViewPipelineRun:
-		logger.Log("UI: Navigating back from Pipeline Run to Pipeline Runs")
-		return m.showPipelineRuns()
+		return m.leavePipelineRun()
 	}
 	return m, nil
 }

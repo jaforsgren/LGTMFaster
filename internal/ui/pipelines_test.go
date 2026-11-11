@@ -720,3 +720,61 @@ func TestWatchTickInPipelineList_ReloadsQuietly(t *testing.T) {
 		t.Error("expected the reloaded pipelines in the list")
 	}
 }
+
+func runOpenedFromPipelineList(t *testing.T) Model {
+	t.Helper()
+	pipeline := testPipeline()
+	run := testRun(domain.PipelineStatusSucceeded)
+	m := createPipelineTestModel(&mockPipelineProvider{run: &run})
+	m.state = ViewPipelineList
+	m.pipelineListView.SetSortMode(domain.PipelineSortPipeline)
+	m.pipelineListView.SetPipelines([]domain.Pipeline{pipeline})
+	m, _ = handleFoldKey(m)
+	m.pipelineListView.SetPreviewRuns(pipeline.FavoriteKey(), []domain.PipelineRun{run})
+	m, _ = handleDownKey(m)
+	m, _ = handleEnterKey(m)
+	if m.state != ViewPipelineRun {
+		t.Fatalf("expected the run to open, got %v", m.state)
+	}
+	return m
+}
+
+func TestLeavingRunOpenedFromPipelineList_ReturnsToTheList(t *testing.T) {
+	for name, back := range map[string]KeyHandler{"esc": handleEscKey, "q": handleQuitKey} {
+		m := runOpenedFromPipelineList(t)
+
+		m, _ = back(m)
+
+		if m.state != ViewPipelineList {
+			t.Errorf("%s: expected to return to the pipeline list, got %v", name, m.state)
+		}
+	}
+}
+
+func TestLeavingRunOpenedFromRunsList_ReturnsToTheRuns(t *testing.T) {
+	pipeline := testPipeline()
+	run := testRun(domain.PipelineStatusSucceeded)
+	m := createPipelineTestModel(&mockPipelineProvider{run: &run})
+	m, _ = m.enterPipelineRuns(pipeline)
+	m.pipelineRunsView.SetRuns([]domain.PipelineRun{run})
+	m, _ = handleEnterKey(m)
+
+	m, _ = handleEscKey(m)
+
+	if m.state != ViewPipelineRuns {
+		t.Errorf("expected to return to the runs list, got %v", m.state)
+	}
+}
+
+func TestLeavingRunWithoutRunsPipeline_NeverGetsStuck(t *testing.T) {
+	run := testRun(domain.PipelineStatusSucceeded)
+	m := createPipelineTestModel(&mockPipelineProvider{run: &run})
+	m.state = ViewPipelineRuns
+	m, _ = m.enterPipelineRun(run)
+
+	m, _ = handleEscKey(m)
+
+	if m.state == ViewPipelineRun {
+		t.Error("expected going back to leave the run view")
+	}
+}

@@ -262,6 +262,26 @@ func (m Model) enterPipelineRuns(pipeline domain.Pipeline) (Model, tea.Cmd) {
 	return m.showPipelineRuns()
 }
 
+func (m Model) showPipelineList() (Model, tea.Cmd) {
+	m.state = ViewPipelineList
+	watch := m.startPipelineWatch()
+	m.topBar.SetPipelineContext("", "", "")
+	m.topBar.SetView(components.ViewNamePipelines)
+	m.updateShortcuts()
+	return m, tea.Batch(watch, m.loadPipelinePreview())
+}
+
+// leavePipelineRun goes back to where the run was opened from. Without a pipeline in the runs view
+// that is the pipeline list, so going back can never leave the user stuck in the run.
+func (m Model) leavePipelineRun() (Model, tea.Cmd) {
+	if m.pipelineRunOrigin == ViewPipelineList || m.pipelineRunsView.GetPipeline() == nil {
+		logger.Log("UI: Navigating back from Pipeline Run to Pipelines")
+		return m.showPipelineList()
+	}
+	logger.Log("UI: Navigating back from Pipeline Run to Pipeline Runs")
+	return m.showPipelineRuns()
+}
+
 func (m Model) showPipelineRuns() (Model, tea.Cmd) {
 	pipeline := m.pipelineRunsView.GetPipeline()
 	if pipeline == nil {
@@ -277,7 +297,10 @@ func (m Model) showPipelineRuns() (Model, tea.Cmd) {
 	return m, tea.Batch(m.loadPipelineRuns(*pipeline), watch)
 }
 
+// enterPipelineRun opens a run from the pipeline list or the runs list, and remembers which so
+// going back returns there.
 func (m Model) enterPipelineRun(run domain.PipelineRun) (Model, tea.Cmd) {
+	m.pipelineRunOrigin = m.state
 	m.state = ViewPipelineRun
 	m.pipelineRunView.SetRun(run)
 	m.topBar.SetView(components.ViewNamePipelineRun)
