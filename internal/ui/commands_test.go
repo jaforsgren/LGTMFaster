@@ -21,6 +21,10 @@ func createTestModel() Model {
 		inlineCommentView: views.NewInlineCommentView(),
 		commentDetailView: views.NewCommentDetailView(),
 		logsView:          views.NewLogsView(),
+		pipelineListView:  views.NewPipelineListView(),
+		pipelineRunsView:  views.NewPipelineRunsView(),
+		pipelineRunView:   views.NewPipelineRunView(),
+		stageApprovalView: views.NewStageApprovalView(),
 		commandRegistry:   NewCommandRegistry(),
 	}
 }
@@ -471,7 +475,7 @@ func TestCtrlOKeyBinding_AvailableInPRInspect(t *testing.T) {
 						break
 					}
 				}
-				if availableInPRInspect && binding.Description == "Open PR in browser" {
+				if availableInPRInspect && binding.Description == "Open in browser" {
 					ctrlOBinding = binding
 					break
 				}
@@ -480,7 +484,7 @@ func TestCtrlOKeyBinding_AvailableInPRInspect(t *testing.T) {
 	}
 
 	if ctrlOBinding == nil {
-		t.Error("expected 'ctrl+o' key binding for 'Open PR in browser' to be available in ViewPRInspect")
+		t.Error("expected 'ctrl+o' key binding for 'Open in browser' to be available in ViewPRInspect")
 	}
 }
 

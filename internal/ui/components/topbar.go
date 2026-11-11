@@ -7,6 +7,12 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+const (
+	ViewNamePipelines    = "Pipelines"
+	ViewNamePipelineRuns = "Pipeline Runs"
+	ViewNamePipelineRun  = "Pipeline Run"
+)
+
 type TopBarModel struct {
 	width          int
 	totalPRs       int
@@ -27,6 +33,10 @@ type TopBarModel struct {
 	shortcuts      []string
 	linkedRepoPath string
 	linkedBranch   string
+	pipelineRepo   string
+	pipelineName   string
+	pipelineRun    string
+	pipelineCount  int
 }
 
 var (
@@ -100,6 +110,16 @@ func (m *TopBarModel) SetLinkedRepo(path, branch string) {
 func (m *TopBarModel) ClearLinkedRepo() {
 	m.linkedRepoPath = ""
 	m.linkedBranch = ""
+}
+
+func (m *TopBarModel) SetPipelineContext(repo, pipeline, run string) {
+	m.pipelineRepo = repo
+	m.pipelineName = pipeline
+	m.pipelineRun = run
+}
+
+func (m *TopBarModel) SetPipelineCount(count int) {
+	m.pipelineCount = count
 }
 
 func (m *TopBarModel) HasLinkedRepo() bool {
@@ -186,8 +206,11 @@ func (m *TopBarModel) buildContextInfo() []string {
 	lines = append(lines, patLine)
 
 	isPRView := m.currentView == "PR Description" || m.currentView == "PR Diff" || m.currentView == "PR Inspect"
+	isPipelineView := m.currentView == ViewNamePipelines || m.currentView == ViewNamePipelineRuns || m.currentView == ViewNamePipelineRun
 
-	if isPRView && m.currentRepo != "" {
+	if isPipelineView {
+		lines = append(lines, m.buildPipelineContextInfo()...)
+	} else if isPRView && m.currentRepo != "" {
 		repoEmoji := "📦"
 		lines = append(lines,
 			repoEmoji+" "+
@@ -303,6 +326,23 @@ func (m *TopBarModel) buildContextInfo() []string {
 		lines = append(lines, "")
 	}
 
+	return lines
+}
+
+func (m *TopBarModel) buildPipelineContextInfo() []string {
+	if m.pipelineName == "" {
+		return []string{
+			"🚀 " + titleOrangeStyle.Render("Pipelines: ") + valueWhiteStyle.Render(fmt.Sprintf("%d", m.pipelineCount)),
+		}
+	}
+
+	lines := []string{
+		"📦 " + titleOrangeStyle.Render("Repo: ") + valueWhiteStyle.Render(m.pipelineRepo),
+		"🚀 " + titleOrangeStyle.Render("Pipeline: ") + valueWhiteStyle.Render(m.pipelineName),
+	}
+	if m.pipelineRun != "" {
+		lines = append(lines, "▶️ "+titleOrangeStyle.Render("Run: ")+valueWhiteStyle.Render(m.pipelineRun))
+	}
 	return lines
 }
 

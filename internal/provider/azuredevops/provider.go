@@ -14,7 +14,6 @@ import (
 	"github.com/microsoft/azure-devops-go-api/azuredevops/v7/webapi"
 )
 
-
 type ResolvedRepository struct {
 	ProjectID string
 	RepoID    string
@@ -45,17 +44,48 @@ func (p *Provider) GetType() domain.ProviderType {
 }
 
 func (p *Provider) ListPullRequests(ctx context.Context, username string) ([]domain.PullRequest, error) {
+	allPRs := []domain.PullRequest{}
+	var mu sync.Mutex
+
+	err := p.visitRepositories(ctx, func(projectID, projectName, repoID, repoName string) {
+		prs, err := p.client.ListPullRequests(ctx, projectID, repoID)
+		if err != nil {
+			logger.Log("AzureDevOps: Skipping inaccessible repo %s/%s: %v", projectName, repoName, err)
+			return
+		}
+
+		if prs == nil {
+			return
+		}
+
+		for _, pr := range *prs {
+			domainPR := convertPullRequest(&pr, username)
+			if domainPR.URL == "" {
+				domainPR.URL = p.buildPRURL(projectName, repoName, domainPR.Number)
+			}
+			mu.Lock()
+			allPRs = append(allPRs, domainPR)
+			mu.Unlock()
+		}
+	})
+
+	return allPRs, err
+}
+
+type repositoryVisitor func(projectID, projectName, repoID, repoName string)
+
+// visitRepositories walks every repository in every project, one goroutine per project.
+// The visitor is therefore called concurrently and must synchronise any shared state itself.
+func (p *Provider) visitRepositories(ctx context.Context, visit repositoryVisitor) error {
 	projects, err := p.client.ListProjects(ctx)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	if projects == nil || len(*projects) == 0 {
-		return []domain.PullRequest{}, nil
+		return nil
 	}
 
-	var allPRs []domain.PullRequest
-	var mu sync.Mutex
 	var wg sync.WaitGroup
 	errChan := make(chan error, len(*projects))
 
@@ -70,7 +100,7 @@ func (p *Provider) ListPullRequests(ctx context.Context, username string) ([]dom
 				return
 			}
 
-			if repos == nil || len(*repos) == 0 {
+			if repos == nil {
 				return
 			}
 
@@ -78,28 +108,7 @@ func (p *Provider) ListPullRequests(ctx context.Context, username string) ([]dom
 				if repo.Id == nil {
 					continue
 				}
-
-				repoID := repo.Id.String()
-				repoName := common.GetString(repo.Name)
-				prs, err := p.client.ListPullRequests(ctx, projectID, repoID)
-				if err != nil {
-					logger.Log("AzureDevOps: Skipping inaccessible repo %s/%s: %v", projectName, repoName, err)
-					continue
-				}
-
-				if prs == nil {
-					continue
-				}
-
-				for _, pr := range *prs {
-					domainPR := convertPullRequest(&pr, username)
-					if domainPR.URL == "" {
-						domainPR.URL = p.buildPRURL(projectName, repoName, domainPR.Number)
-					}
-					mu.Lock()
-					allPRs = append(allPRs, domainPR)
-					mu.Unlock()
-				}
+				visit(projectID, projectName, repo.Id.String(), common.GetString(repo.Name))
 			}
 		}(common.GetUUIDString(project.Id), common.GetString(project.Name))
 	}
@@ -108,10 +117,10 @@ func (p *Provider) ListPullRequests(ctx context.Context, username string) ([]dom
 	close(errChan)
 
 	if len(errChan) > 0 {
-		return allPRs, <-errChan
+		return <-errChan
 	}
 
-	return allPRs, nil
+	return nil
 }
 
 func (p *Provider) GetPullRequest(ctx context.Context, identifier domain.PRIdentifier) (*domain.PullRequest, error) {

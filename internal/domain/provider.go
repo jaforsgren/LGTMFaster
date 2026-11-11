@@ -23,3 +23,17 @@ type Provider interface {
 
 	ValidateCredentials(ctx context.Context) error
 }
+
+// PipelineProvider is optional: providers without CI/CD support (currently GitHub) do not implement it,
+// so callers must type-assert a Provider before use.
+type PipelineProvider interface {
+	ListPipelines(ctx context.Context) ([]Pipeline, error)
+
+	ListPipelineRuns(ctx context.Context, identifier PipelineIdentifier) ([]PipelineRun, error)
+
+	GetPipelineRun(ctx context.Context, identifier PipelineRunIdentifier) (*PipelineRun, error)
+
+	GetPipelineRunStages(ctx context.Context, identifier PipelineRunIdentifier) ([]PipelineStage, error)
+
+	SubmitStageApproval(ctx context.Context, approval StageApproval) error
+}

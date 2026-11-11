@@ -34,6 +34,10 @@ type KeyBinding struct {
 	RequiresLinkedRepo bool
 }
 
+var allViewStates = []ViewState{ViewPATs, ViewPRList, ViewPRInspect, ViewPipelineList, ViewPipelineRuns, ViewPipelineRun}
+
+var pipelineViewStates = []ViewState{ViewPipelineList, ViewPipelineRuns, ViewPipelineRun}
+
 type CommandRegistry struct {
 	commands    map[string]*Command
 	keyBindings []*KeyBinding
@@ -57,7 +61,7 @@ func (cr *CommandRegistry) registerCommands() {
 			Description: "Switch to PAT management view",
 			ShortHelp:   ":p",
 			Handler:     handlePATsCommand,
-			AvailableIn: []ViewState{ViewPATs, ViewPRList, ViewPRInspect},
+			AvailableIn: allViewStates,
 		},
 		{
 			Name:        "pr",
@@ -65,7 +69,15 @@ func (cr *CommandRegistry) registerCommands() {
 			Description: "List pull requests",
 			ShortHelp:   ":pr",
 			Handler:     handlePRCommand,
-			AvailableIn: []ViewState{ViewPATs, ViewPRList, ViewPRInspect},
+			AvailableIn: allViewStates,
+		},
+		{
+			Name:        "pipelines",
+			Aliases:     []string{"pl", "pipes"},
+			Description: "List pipelines (Azure DevOps)",
+			ShortHelp:   ":pl",
+			Handler:     handlePipelinesCommand,
+			AvailableIn: allViewStates,
 		},
 		{
 			Name:        "logs",
@@ -73,7 +85,7 @@ func (cr *CommandRegistry) registerCommands() {
 			Description: "View session logs",
 			ShortHelp:   ":logs",
 			Handler:     handleLogsCommand,
-			AvailableIn: []ViewState{ViewPATs, ViewPRList, ViewPRInspect},
+			AvailableIn: allViewStates,
 		},
 		{
 			Name:        "merge",
@@ -89,7 +101,7 @@ func (cr *CommandRegistry) registerCommands() {
 			Description: "Quit application",
 			ShortHelp:   ":q",
 			Handler:     handleQuitCommand,
-			AvailableIn: []ViewState{ViewPATs, ViewPRList, ViewPRInspect},
+			AvailableIn: allViewStates,
 		},
 		{
 			Name:        "link",
@@ -105,7 +117,7 @@ func (cr *CommandRegistry) registerCommands() {
 			Description: "Manage linked repositories",
 			ShortHelp:   ":repos",
 			Handler:     handleReposCommand,
-			AvailableIn: []ViewState{ViewPATs, ViewPRList, ViewPRInspect},
+			AvailableIn: allViewStates,
 		},
 		{
 			Name:        "settings",
@@ -113,7 +125,7 @@ func (cr *CommandRegistry) registerCommands() {
 			Description: "Edit settings file",
 			ShortHelp:   ":s",
 			Handler:     handleSettingsCommand,
-			AvailableIn: []ViewState{ViewPATs, ViewPRList, ViewPRInspect},
+			AvailableIn: allViewStates,
 		},
 		{
 			Name:        "help",
@@ -121,7 +133,7 @@ func (cr *CommandRegistry) registerCommands() {
 			Description: "Show help",
 			ShortHelp:   ":h",
 			Handler:     nil,
-			AvailableIn: []ViewState{ViewPATs, ViewPRList, ViewPRInspect},
+			AvailableIn: allViewStates,
 		},
 	}
 
@@ -140,14 +152,14 @@ func (cr *CommandRegistry) registerKeyBindings() {
 			Description: "Quit/Back",
 			ShortHelp:   "q",
 			Handler:     handleQuitKey,
-			AvailableIn: []ViewState{ViewPATs, ViewPRList, ViewPRInspect},
+			AvailableIn: allViewStates,
 		},
 		{
 			Keys:        []string{"enter"},
 			Description: "Select",
 			ShortHelp:   "enter",
 			Handler:     handleEnterKey,
-			AvailableIn: []ViewState{ViewPATs, ViewPRList, ViewPRInspect},
+			AvailableIn: []ViewState{ViewPATs, ViewPRList, ViewPRInspect, ViewPipelineList, ViewPipelineRuns},
 		},
 		{
 			Keys:        []string{" "},
@@ -161,21 +173,21 @@ func (cr *CommandRegistry) registerKeyBindings() {
 			Description: "Back",
 			ShortHelp:   "h",
 			Handler:     handleBackKey,
-			AvailableIn: []ViewState{ViewPRList, ViewPRInspect},
+			AvailableIn: []ViewState{ViewPRList, ViewPRInspect, ViewPipelineList, ViewPipelineRuns, ViewPipelineRun},
 		},
 		{
 			Keys:        []string{"up", "k"},
 			Description: "Navigate up",
 			ShortHelp:   "j/k",
 			Handler:     handleUpKey,
-			AvailableIn: []ViewState{ViewPATs, ViewPRList, ViewPRInspect},
+			AvailableIn: allViewStates,
 		},
 		{
 			Keys:        []string{"down", "j"},
 			Description: "Navigate down",
 			ShortHelp:   "",
 			Handler:     handleDownKey,
-			AvailableIn: []ViewState{ViewPATs, ViewPRList, ViewPRInspect},
+			AvailableIn: allViewStates,
 		},
 		{
 			Keys:        []string{"a"},
@@ -203,14 +215,14 @@ func (cr *CommandRegistry) registerKeyBindings() {
 			Description: "Refresh",
 			ShortHelp:   "r",
 			Handler:     handleRefreshKey,
-			AvailableIn: []ViewState{ViewPRList},
+			AvailableIn: []ViewState{ViewPRList, ViewPipelineList, ViewPipelineRuns, ViewPipelineRun},
 		},
 		{
 			Keys:        []string{"/"},
 			Description: "Filter",
 			ShortHelp:   "/",
 			Handler:     handleFilterKey,
-			AvailableIn: []ViewState{ViewPRList},
+			AvailableIn: []ViewState{ViewPRList, ViewPipelineList, ViewPipelineRuns},
 		},
 		{
 			Keys:        []string{"n"},
@@ -315,7 +327,7 @@ func (cr *CommandRegistry) registerKeyBindings() {
 			Description: "Command mode",
 			ShortHelp:   ":",
 			Handler:     handleColonKey,
-			AvailableIn: []ViewState{ViewPATs, ViewPRList, ViewPRInspect},
+			AvailableIn: allViewStates,
 		},
 		{
 			Keys:        []string{"ctrl+s"},
@@ -329,14 +341,14 @@ func (cr *CommandRegistry) registerKeyBindings() {
 			Description: "Cancel/Back",
 			ShortHelp:   "esc",
 			Handler:     handleEscKey,
-			AvailableIn: []ViewState{ViewPATs, ViewPRList, ViewPRInspect},
+			AvailableIn: allViewStates,
 		},
 		{
 			Keys:        []string{"ctrl+o"},
-			Description: "Open PR in browser",
+			Description: "Open in browser",
 			ShortHelp:   "ctrl+o",
 			Handler:     handleOpenBrowserKey,
-			AvailableIn: []ViewState{ViewPRList, ViewPRInspect},
+			AvailableIn: []ViewState{ViewPRList, ViewPRInspect, ViewPipelineList, ViewPipelineRuns, ViewPipelineRun},
 		},
 		{
 			Keys:               []string{"g"},
@@ -361,6 +373,20 @@ func (cr *CommandRegistry) registerKeyBindings() {
 			Handler:            handlePullKey,
 			AvailableIn:        []ViewState{ViewPRInspect},
 			RequiresLinkedRepo: true,
+		},
+		{
+			Keys:        []string{"a"},
+			Description: "Approve stage",
+			ShortHelp:   "a",
+			Handler:     handleApproveStageKey,
+			AvailableIn: []ViewState{ViewPipelineRun},
+		},
+		{
+			Keys:        []string{"x"},
+			Description: "Reject stage",
+			ShortHelp:   "x",
+			Handler:     handleRejectStageKey,
+			AvailableIn: []ViewState{ViewPipelineRun},
 		},
 		{
 			Keys:        []string{"L"},
@@ -511,6 +537,10 @@ func handlePRCommand(m Model, args []string) (Model, tea.Cmd) {
 	return m, m.loadPRsWithCache()
 }
 
+func handlePipelinesCommand(m Model, args []string) (Model, tea.Cmd) {
+	return m.openPipelineList()
+}
+
 func handleLogsCommand(m Model, args []string) (Model, tea.Cmd) {
 	m.logsView.Activate()
 	return m, nil
@@ -568,6 +598,14 @@ func handleEnterKey(m Model) (Model, tea.Cmd) {
 			m.reviewView.Activate(views.ReviewModeComment)
 		}
 		return m, nil
+	case ViewPipelineList:
+		if pipeline := m.pipelineListView.GetSelectedPipeline(); pipeline != nil {
+			return m.enterPipelineRuns(*pipeline)
+		}
+	case ViewPipelineRuns:
+		if run := m.pipelineRunsView.GetSelectedRun(); run != nil {
+			return m.enterPipelineRun(*run)
+		}
 	}
 	return m, nil
 }
@@ -594,6 +632,12 @@ func handleUpKey(m Model) (Model, tea.Cmd) {
 			return m, nil
 		}
 		cmd = m.prInspect.Update(tea.KeyMsg{Type: tea.KeyUp})
+	case ViewPipelineList:
+		m.pipelineListView.MoveUp()
+	case ViewPipelineRuns:
+		m.pipelineRunsView.MoveUp()
+	case ViewPipelineRun:
+		m.pipelineRunView.MoveUp()
 	}
 	return m, cmd
 }
@@ -611,6 +655,12 @@ func handleDownKey(m Model) (Model, tea.Cmd) {
 			return m, nil
 		}
 		cmd = m.prInspect.Update(tea.KeyMsg{Type: tea.KeyDown})
+	case ViewPipelineList:
+		m.pipelineListView.MoveDown()
+	case ViewPipelineRuns:
+		m.pipelineRunsView.MoveDown()
+	case ViewPipelineRun:
+		m.pipelineRunView.MoveDown()
 	}
 	return m, cmd
 }
@@ -650,13 +700,20 @@ func handleRefreshKey(m Model) (Model, tea.Cmd) {
 		m.prCache = nil
 		return m, m.loadPRsStreaming()
 	}
+	if isPipelineView(m.state) {
+		return m.refreshPipelineView()
+	}
 	return m, nil
 }
 
 func handleFilterKey(m Model) (Model, tea.Cmd) {
-	if m.state == ViewPRList {
+	switch m.state {
+	case ViewPRList:
 		m.prListView.ActivateFilter()
-		return m, nil
+	case ViewPipelineList:
+		m.pipelineListView.ActivateFilter()
+	case ViewPipelineRuns:
+		m.pipelineRunsView.ActivateFilter()
 	}
 	return m, nil
 }
@@ -772,12 +829,21 @@ func handleEscKey(m Model) (Model, tea.Cmd) {
 		m.prListView.ClearFilter()
 		return m, nil
 	}
+	if m.state == ViewPipelineList && m.pipelineListView.GetFilterText() != "" {
+		m.pipelineListView.ClearFilter()
+		return m, nil
+	}
+	if m.state == ViewPipelineRuns && m.pipelineRunsView.GetFilterText() != "" {
+		m.pipelineRunsView.ClearFilter()
+		return m, nil
+	}
 	newModel, cmd := m.navigateBack()
 	return newModel.(Model), cmd
 }
 
 func handleOpenBrowserKey(m Model) (Model, tea.Cmd) {
 	var url string
+	target := "PR"
 
 	switch m.state {
 	case ViewPRList:
@@ -790,10 +856,12 @@ func handleOpenBrowserKey(m Model) (Model, tea.Cmd) {
 		if pr != nil {
 			url = pr.URL
 		}
+	case ViewPipelineList, ViewPipelineRuns, ViewPipelineRun:
+		url, target = m.pipelineBrowserTarget()
 	}
 
 	if url == "" {
-		m.statusBar.SetMessage("No PR URL available", true)
+		m.statusBar.SetMessage(fmt.Sprintf("No %s URL available", target), true)
 		return m, nil
 	}
 
@@ -802,8 +870,16 @@ func handleOpenBrowserKey(m Model) (Model, tea.Cmd) {
 		return m, nil
 	}
 
-	m.statusBar.SetMessage("Opening PR in browser...", false)
+	m.statusBar.SetMessage(fmt.Sprintf("Opening %s in browser...", target), false)
 	return m, nil
+}
+
+func handleApproveStageKey(m Model) (Model, tea.Cmd) {
+	return m.beginStageApproval(domain.ApprovalDecisionApprove)
+}
+
+func handleRejectStageKey(m Model) (Model, tea.Cmd) {
+	return m.beginStageApproval(domain.ApprovalDecisionReject)
 }
 
 func handleInlineCommentKey(m Model) (Model, tea.Cmd) {

@@ -7,18 +7,22 @@ import (
 
 	"github.com/johanforsgren/lgtmfaster/internal/logger"
 	"github.com/microsoft/azure-devops-go-api/azuredevops/v7"
+	"github.com/microsoft/azure-devops-go-api/azuredevops/v7/build"
 	"github.com/microsoft/azure-devops-go-api/azuredevops/v7/core"
 	"github.com/microsoft/azure-devops-go-api/azuredevops/v7/git"
+	"github.com/microsoft/azure-devops-go-api/azuredevops/v7/pipelinesapproval"
 	"github.com/sergi/go-diff/diffmatchpatch"
 )
 
 type Client struct {
-	connection   *azuredevops.Connection
-	coreClient   core.Client
-	gitClient    GitClientInterface
-	organization string
-	username     string
-	userID       string
+	connection     *azuredevops.Connection
+	coreClient     core.Client
+	gitClient      GitClientInterface
+	buildClient    BuildClientInterface
+	approvalClient ApprovalClientInterface
+	organization   string
+	username       string
+	userID         string
 }
 
 func NewClient(token string, organization string, username string) (*Client, error) {
@@ -35,12 +39,24 @@ func NewClient(token string, organization string, username string) (*Client, err
 		return nil, fmt.Errorf("failed to create git client: %w", err)
 	}
 
+	buildClient, err := build.NewClient(context.Background(), connection)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create build client: %w", err)
+	}
+
+	approvalClient, err := pipelinesapproval.NewClient(context.Background(), connection)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create pipelines approval client: %w", err)
+	}
+
 	client := &Client{
-		connection:   connection,
-		coreClient:   coreClient,
-		gitClient:    gitClient,
-		organization: organization,
-		username:     username,
+		connection:     connection,
+		coreClient:     coreClient,
+		gitClient:      gitClient,
+		buildClient:    buildClient,
+		approvalClient: approvalClient,
+		organization:   organization,
+		username:       username,
 	}
 
 	userID, err := client.getAuthenticatedUserID(context.Background())

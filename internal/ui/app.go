@@ -27,6 +27,9 @@ const (
 	ViewPATs ViewState = iota
 	ViewPRList
 	ViewPRInspect
+	ViewPipelineList
+	ViewPipelineRuns
+	ViewPipelineRun
 )
 
 const prCacheTTL = 30 * time.Second
@@ -71,6 +74,11 @@ type Model struct {
 	logsView            *views.LogsViewModel
 	repoLinkView        *views.RepoLinkViewModel
 	reposView           *views.ReposViewModel
+	pipelineListView    *views.PipelineListViewModel
+	pipelineRunsView    *views.PipelineRunsViewModel
+	pipelineRunView     *views.PipelineRunViewModel
+	stageApprovalView   *views.StageApprovalViewModel
+	pipelineWatchID     int
 	repository        domain.Repository
 	provider          domain.Provider
 	providers         map[string]domain.Provider
@@ -112,6 +120,10 @@ func NewModel(repository domain.Repository) Model {
 		logsView:            views.NewLogsView(),
 		repoLinkView:        views.NewRepoLinkView(),
 		reposView:           views.NewReposView(),
+		pipelineListView:    views.NewPipelineListView(),
+		pipelineRunsView:    views.NewPipelineRunsView(),
+		pipelineRunView:     views.NewPipelineRunView(),
+		stageApprovalView:   views.NewStageApprovalView(),
 		repository:        repository,
 		providers:         make(map[string]domain.Provider),
 		ctx:               context.Background(),
@@ -153,6 +165,15 @@ func (m Model) isInInputMode() bool {
 	if m.reposView.IsActive() {
 		return true
 	}
+	if m.stageApprovalView.IsActive() {
+		return true
+	}
+	if m.state == ViewPipelineList && m.pipelineListView.IsFiltering() {
+		return true
+	}
+	if m.state == ViewPipelineRuns && m.pipelineRunsView.IsFiltering() {
+		return true
+	}
 	if m.state == ViewPATs && (m.patsView.Mode == views.PATModeAdd || m.patsView.Mode == views.PATModeEdit) {
 		return true
 	}
@@ -183,6 +204,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.logsView.SetSize(msg.Width, msg.Height)
 		m.repoLinkView.SetSize(msg.Width, msg.Height)
 		m.reposView.SetSize(msg.Width, msg.Height)
+		m.pipelineListView.SetSize(msg.Width, msg.Height)
+		m.pipelineRunsView.SetSize(msg.Width, msg.Height)
+		m.pipelineRunView.SetSize(msg.Width, msg.Height)
+		m.stageApprovalView.SetSize(msg.Width, msg.Height)
 
 	case tea.KeyMsg:
 		key := msg.String()
@@ -343,6 +368,41 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 
+			if m.stageApprovalView.IsActive() {
+				switch key {
+				case "enter":
+					return m, m.submitStageApproval()
+				case "esc":
+					m.stageApprovalView.Deactivate()
+					return m, nil
+				default:
+					cmd = m.stageApprovalView.Update(msg)
+					return m, cmd
+				}
+			}
+
+			if m.state == ViewPipelineList && m.pipelineListView.IsFiltering() {
+				switch key {
+				case "enter", "esc":
+					m.pipelineListView.DeactivateFilter()
+					return m, nil
+				default:
+					cmd = m.pipelineListView.UpdateFilter(msg)
+					return m, cmd
+				}
+			}
+
+			if m.state == ViewPipelineRuns && m.pipelineRunsView.IsFiltering() {
+				switch key {
+				case "enter", "esc":
+					m.pipelineRunsView.DeactivateFilter()
+					return m, nil
+				default:
+					cmd = m.pipelineRunsView.UpdateFilter(msg)
+					return m, cmd
+				}
+			}
+
 			if m.state == ViewPATs && (m.patsView.Mode == views.PATModeAdd || m.patsView.Mode == views.PATModeEdit) {
 				switch key {
 				case "enter":
@@ -362,8 +422,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.prListView.DeactivateFilter()
 					return m, nil
 				default:
-					cmd = m.prListView.UpdateFilterInput(msg)
-					m.prListView.ApplyFilterFromInput()
+					cmd = m.prListView.UpdateFilter(msg)
 					return m, cmd
 				}
 			}
@@ -680,6 +739,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.statusBar.SetMessage("Settings reloaded", false)
 		return m, clearStatusAfterDelay(4 * time.Second)
 
+	case PipelinesLoadedMsg:
+		return m.handlePipelinesLoaded(msg)
+
+	case PipelineRunsLoadedMsg:
+		return m.handlePipelineRunsLoaded(msg)
+
+	case PipelineRunLoadedMsg:
+		return m.handlePipelineRunLoaded(msg)
+
+	case PipelineWatchTickMsg:
+		return m.handlePipelineWatchTick(msg)
+
+	case StageApprovalSubmittedMsg:
+		return m.handleStageApprovalSubmitted(msg)
+
 	case ClearStatusMsg:
 		m.statusBar.ClearMessage()
 		return m, nil
@@ -721,6 +795,8 @@ func (m Model) View() string {
 		content = m.repoLinkView.View()
 	} else if m.reposView.IsActive() {
 		content = m.reposView.View()
+	} else if m.stageApprovalView.IsActive() {
+		content = m.stageApprovalView.View()
 	} else {
 		switch m.state {
 		case ViewPATs:
@@ -729,6 +805,12 @@ func (m Model) View() string {
 			content = m.prListView.View()
 		case ViewPRInspect:
 			content = m.prInspect.View()
+		case ViewPipelineList:
+			content = m.pipelineListView.View()
+		case ViewPipelineRuns:
+			content = m.pipelineRunsView.View()
+		case ViewPipelineRun:
+			content = m.pipelineRunView.View()
 		}
 	}
 
@@ -899,6 +981,25 @@ func (m Model) navigateBack() (tea.Model, tea.Cmd) {
 		m.topBar.SetView("PR List")
 		m.updateShortcuts()
 		return m, nil
+	case ViewPipelineList:
+		logger.Log("UI: Navigating back from Pipelines to PR List")
+		m.state = ViewPRList
+		m.pipelineWatchID++
+		m.topBar.SetPipelineContext("", "", "")
+		m.topBar.SetView("PR List")
+		m.updateShortcuts()
+		return m, m.loadPRsWithCache()
+	case ViewPipelineRuns:
+		logger.Log("UI: Navigating back from Pipeline Runs to Pipelines")
+		m.state = ViewPipelineList
+		m.pipelineWatchID++
+		m.topBar.SetPipelineContext("", "", "")
+		m.topBar.SetView(components.ViewNamePipelines)
+		m.updateShortcuts()
+		return m, nil
+	case ViewPipelineRun:
+		logger.Log("UI: Navigating back from Pipeline Run to Pipeline Runs")
+		return m.showPipelineRuns()
 	}
 	return m, nil
 }
@@ -1350,9 +1451,13 @@ func (m Model) loadComments(pr domain.PullRequest) tea.Cmd {
 }
 
 func (m Model) getProviderForPR(pr domain.PullRequest) domain.Provider {
-	// If we have multiple providers, use the one that matches the PR's PATID
-	if len(m.providers) > 0 && pr.PATID != "" {
-		if provider, ok := m.providers[pr.PATID]; ok {
+	return m.getProviderForPAT(pr.PATID)
+}
+
+func (m Model) getProviderForPAT(patID string) domain.Provider {
+	// If we have multiple providers, use the one that matches the PATID
+	if len(m.providers) > 0 && patID != "" {
+		if provider, ok := m.providers[patID]; ok {
 			return provider
 		}
 	}

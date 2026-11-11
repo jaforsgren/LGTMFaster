@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/charmbracelet/bubbles/table"
-	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/johanforsgren/lgtmfaster/internal/domain"
@@ -50,12 +49,10 @@ type PRListViewModel struct {
 	visiblePRs []domain.PullRequest
 
 	// UI state
-	width       int
-	height      int
-	filterInput textinput.Model
-	filtering   bool
-	filterText  string
-	settings    domain.Settings
+	width    int
+	height   int
+	filter   listFilter
+	settings domain.Settings
 }
 
 func NewPRListView() *PRListViewModel {
@@ -88,13 +85,9 @@ func NewPRListView() *PRListViewModel {
 		Bold(true)
 	t.SetStyles(s)
 
-	ti := textinput.New()
-	ti.Placeholder = "Filter by title, author, or PR number..."
-	ti.CharLimit = 100
-
 	return &PRListViewModel{
-		table:       t,
-		filterInput: ti,
+		table:  t,
+		filter: newListFilter("Filter by title, author, or PR number..."),
 	}
 }
 
@@ -200,17 +193,9 @@ func (m *PRListViewModel) filterOldOtherPRs(prs []domain.PullRequest) []domain.P
 }
 
 func (m *PRListViewModel) filterPRs(prs []domain.PullRequest) []domain.PullRequest {
-	if m.filterText == "" {
-		return prs
-	}
-
-	filter := strings.ToLower(m.filterText)
 	var out []domain.PullRequest
-
 	for _, pr := range prs {
-		if strings.Contains(strings.ToLower(pr.Title), filter) ||
-			strings.Contains(strings.ToLower(pr.Author.Username), filter) ||
-			strings.Contains(strconv.Itoa(pr.Number), filter) {
+		if m.filter.Matches(pr.Title, pr.Author.Username, strconv.Itoa(pr.Number)) {
 			out = append(out, pr)
 		}
 	}
@@ -283,8 +268,9 @@ func (m *PRListViewModel) RestoreCursor(index int) {
 
 func (m *PRListViewModel) Update(msg tea.Msg) tea.Cmd {
 	var cmd tea.Cmd
-	if m.filtering {
-		m.filterInput, cmd = m.filterInput.Update(msg)
+	if m.filter.IsActive() {
+		cmd = m.filter.Update(msg)
+		m.rebuild()
 	} else {
 		m.table, cmd = m.table.Update(msg)
 		if m.table.Cursor() == 0 && len(m.visiblePRs) > 0 {
@@ -295,28 +281,15 @@ func (m *PRListViewModel) Update(msg tea.Msg) tea.Cmd {
 }
 
 func (m *PRListViewModel) ActivateFilter() {
-	m.filtering = true
-	m.filterInput.SetValue(m.filterText)
-	m.filterInput.Focus()
+	m.filter.Activate()
 }
 
 func (m *PRListViewModel) DeactivateFilter() {
-	m.filtering = false
-	m.filterInput.Blur()
-}
-
-func (m *PRListViewModel) ApplyFilter() {
-	m.filterText = m.filterInput.Value()
-	m.filtering = false
-	m.filterInput.Blur()
-	m.rebuild()
+	m.filter.Deactivate()
 }
 
 func (m *PRListViewModel) ClearFilter() {
-	m.filterText = ""
-	m.filterInput.SetValue("")
-	m.filtering = false
-	m.filterInput.Blur()
+	m.filter.Clear()
 	m.rebuild()
 }
 
@@ -328,19 +301,10 @@ func (m *PRListViewModel) View() string {
 
 	tableView := m.colorizeTableRows(m.table.View())
 
-	var content string
-	if m.filtering {
-		filterStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#F59E0B")).
-			Bold(true)
-		content = tableView +
-			"\n" + filterStyle.Render("Filter: ") + m.filterInput.View() +
-			help
-	} else {
-		content = tableView + help
+	if m.filter.IsActive() {
+		return tableView + "\n" + m.filter.View() + help
 	}
-
-	return content
+	return tableView + help
 }
 
 // post effect render rows.
@@ -360,32 +324,27 @@ func (m *PRListViewModel) colorizeTableRows(tableOutput string) string {
 }
 
 func (m *PRListViewModel) helpText() string {
-	if m.filtering {
+	if m.filter.IsActive() {
 		return "Type to filter | Enter/Esc: Close"
 	}
-	if m.filterText != "" {
+	if m.filter.Text() != "" {
 		return "Enter: Inspect | r: Refresh | /: Filter | Esc: Clear filter | q: Back"
 	}
 	return "Enter: Inspect | r: Refresh | /: Filter | q: Back"
 }
 
 func (m *PRListViewModel) IsFiltering() bool {
-	return m.filtering
+	return m.filter.IsActive()
 }
 
-func (m *PRListViewModel) UpdateFilterInput(msg tea.Msg) tea.Cmd {
-	var cmd tea.Cmd
-	m.filterInput, cmd = m.filterInput.Update(msg)
+func (m *PRListViewModel) UpdateFilter(msg tea.Msg) tea.Cmd {
+	cmd := m.filter.Update(msg)
+	m.rebuild()
 	return cmd
 }
 
-func (m *PRListViewModel) ApplyFilterFromInput() {
-	m.filterText = m.filterInput.Value()
-	m.rebuild()
-}
-
 func (m *PRListViewModel) GetFilterText() string {
-	return m.filterText
+	return m.filter.Text()
 }
 
 func truncateString(s string, maxWidth int) string {
