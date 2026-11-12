@@ -31,6 +31,7 @@ const (
 	ViewPipelineRuns
 	ViewPipelineRun
 	ViewDashboard
+	ViewPipelineLog
 )
 
 const prCacheTTL = 30 * time.Second
@@ -83,6 +84,10 @@ type Model struct {
 	pipelineRunsView    *views.PipelineRunsViewModel
 	pipelineRunView     *views.PipelineRunViewModel
 	stageApprovalView   *views.StageApprovalViewModel
+	pipelineLogView     *views.PipelineLogViewModel
+	pipelineRetryView   *views.PipelineRetryViewModel
+	pipelineTriggerView *views.PipelineTriggerViewModel
+	fileFinderView      *views.FileFinderViewModel
 	newPRView           *views.NewPRViewModel
 	extensionFilterView *views.ExtensionFilterViewModel
 	topBarHidden        bool
@@ -92,6 +97,8 @@ type Model struct {
 	prInspectOrigin ViewState
 	recentBranches  recentBranches
 	pipelineWatchID int
+	// pipelineLogWatchID is the generation of the loop following a run's log.
+	pipelineLogWatchID int
 	// pipelineRunOrigin is the view the open run was entered from, which going back returns to.
 	pipelineRunOrigin ViewState
 	repository        domain.Repository
@@ -146,6 +153,10 @@ func NewModel(repository domain.Repository) Model {
 		pipelineRunsView:    views.NewPipelineRunsView(),
 		pipelineRunView:     views.NewPipelineRunView(),
 		stageApprovalView:   views.NewStageApprovalView(),
+		pipelineLogView:     views.NewPipelineLogView(),
+		pipelineRetryView:   views.NewPipelineRetryView(),
+		pipelineTriggerView: views.NewPipelineTriggerView(),
+		fileFinderView:      views.NewFileFinderView(),
 		newPRView:           views.NewNewPRView(),
 		extensionFilterView: views.NewExtensionFilterView(),
 		workItemPickerView:  views.NewWorkItemPickerView(),
@@ -193,6 +204,9 @@ func (m Model) isInInputMode() bool {
 		return true
 	}
 	if m.stageApprovalView.IsActive() {
+		return true
+	}
+	if m.pipelineRetryView.IsActive() || m.pipelineTriggerView.IsActive() || m.fileFinderView.IsActive() {
 		return true
 	}
 	if m.newPRView.IsActive() {
@@ -418,6 +432,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 
+			if m.pipelineRetryView.IsActive() {
+				return m.handlePipelineRetryKey(msg)
+			}
+
+			if m.pipelineTriggerView.IsActive() {
+				return m.handlePipelineTriggerKey(msg)
+			}
+
+			if m.fileFinderView.IsActive() {
+				return m.handleFileFinderKey(msg)
+			}
+
+			if search, ok := m.activeTextSearch(); ok && search.IsSearching() {
+				return m.handleTextSearchInputKey(search, msg)
+			}
+
 			if m.state == ViewPipelineList && m.pipelineListView.IsFiltering() {
 				switch key {
 				case "enter", "esc":
@@ -465,6 +495,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+		if m.state == ViewPRInspect && !isDiffMotionKey(key) {
+			m.prInspect.ResetMotion()
+		}
 		newModel, cmd, handled := m.commandRegistry.HandleKey(m, key)
 		if handled {
 			return newModel, cmd
@@ -620,6 +653,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(clearStatusAfterDelay(4*time.Second), resumeCmd)
 
 	case PRsLoadedMsg:
+		if msg.background && msg.failedPATCount > 0 {
+			m.statusBar.SetMessage(fmt.Sprintf("Auto-refresh failed to load PRs for %d PAT(s)", msg.failedPATCount), true)
+			return m, clearStatusAfterDelay(4 * time.Second)
+		}
 		if msg.groups != nil && len(msg.groups) > 0 {
 			m.prListView.SetPRGroups(msg.groups)
 
@@ -656,6 +693,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.topBar.SetStats(len(msg.prs), len(repoMap))
 		m.topBar.SetPRBreakdown(authored, assigned, other)
+		if msg.background {
+			m.topBar.SetLastRefresh(time.Now())
+			m.dashboardView.SetPRs(m.prListView.AllPRs())
+			return m, m.loadPRListComments()
+		}
 		var resultsCmd, resumeCmd tea.Cmd
 		m, resultsCmd = m.showPRResults()
 		m.statusBar.SetMessage(fmt.Sprintf("Loaded %d pull requests", len(msg.prs)), false)
@@ -836,6 +878,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case StageApprovalSubmittedMsg:
 		return m.handleStageApprovalSubmitted(msg)
+
+	case PipelineLogsLoadedMsg:
+		return m.handlePipelineLogsLoaded(msg)
+
+	case PipelineLogLinesLoadedMsg:
+		return m.handlePipelineLogLinesLoaded(msg)
+
+	case PipelineLogLinesFailedMsg:
+		return m.handlePipelineLogLinesFailed(msg)
+
+	case PipelineLogTickMsg:
+		return m.handlePipelineLogTick(msg)
+
+	case PipelineRetriedMsg:
+		return m.handlePipelineRetried(msg)
+
+	case PipelineTriggerOptionsLoadedMsg:
+		return m.handlePipelineTriggerOptionsLoaded(msg)
+
+	case PipelineTriggeredMsg:
+		return m.handlePipelineTriggered(msg)
 
 	case ClearStatusMsg:
 		m.statusBar.ClearMessage()
@@ -1027,7 +1090,6 @@ func (m Model) navigateBack() (tea.Model, tea.Cmd) {
 	case ViewPipelineList:
 		logger.Log("UI: Navigating back from Pipelines to PR List")
 		m.state = ViewPRList
-		m.pipelineWatchID++
 		m.topBar.SetPipelineContext("", "", "")
 		m.topBar.SetView(components.ViewNamePRList)
 		m.updateShortcuts()
@@ -1037,6 +1099,8 @@ func (m Model) navigateBack() (tea.Model, tea.Cmd) {
 		return m.showPipelineList()
 	case ViewPipelineRun:
 		return m.leavePipelineRun()
+	case ViewPipelineLog:
+		return m.leavePipelineLogs()
 	}
 	return m, nil
 }
@@ -1295,11 +1359,13 @@ func (m Model) loadPRs() tea.Cmd {
 
 		var allGroups []domain.PRGroup
 		var allPRs []domain.PullRequest
+		failedPATCount := 0
 
 		for i := 0; i < len(selectedPATs); i++ {
 			result := <-results
 			if result.err != nil {
 				logger.LogError("LOAD_PRS", result.pat.Name, result.err)
+				failedPATCount++
 				continue
 			}
 
@@ -1322,7 +1388,21 @@ func (m Model) loadPRs() tea.Cmd {
 			allPRs = append(allPRs, taggedPRs...)
 		}
 
-		return PRsLoadedMsg{prs: allPRs, groups: allGroups}
+		return PRsLoadedMsg{prs: allPRs, groups: allGroups, failedPATCount: failedPATCount}
+	}
+}
+
+// loadPRsInBackground reloads the pull requests for an auto-refresh tick, all PATs at once so the
+// list does not flicker through partial results.
+func (m Model) loadPRsInBackground() tea.Cmd {
+	load := m.loadPRs()
+	return func() tea.Msg {
+		msg := load()
+		if loaded, ok := msg.(PRsLoadedMsg); ok {
+			loaded.background = true
+			return loaded
+		}
+		return msg
 	}
 }
 
@@ -1524,9 +1604,13 @@ type PATsLoadedMsg struct {
 	pats []domain.PAT
 }
 
+// PRsLoadedMsg is background when an auto-refresh loaded it: it only updates the data, leaving the
+// view as it is, and is dropped when a PAT failed so its pull requests do not vanish meanwhile.
 type PRsLoadedMsg struct {
-	prs    []domain.PullRequest
-	groups []domain.PRGroup
+	prs            []domain.PullRequest
+	groups         []domain.PRGroup
+	failedPATCount int
+	background     bool
 }
 
 type PRDetailLoadedMsg struct {

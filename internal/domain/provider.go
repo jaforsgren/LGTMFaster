@@ -68,4 +68,18 @@ type PipelineProvider interface {
 	GetPipelineRunStages(ctx context.Context, identifier PipelineRunIdentifier) ([]PipelineStage, error)
 
 	SubmitStageApproval(ctx context.Context, approval StageApproval) error
+
+	// ListPipelineRunLogs returns the logs of the run's steps, in run order.
+	ListPipelineRunLogs(ctx context.Context, identifier PipelineRunIdentifier) ([]PipelineLog, error)
+
+	// GetPipelineLogLines returns the lines of a step's log after the first offset ones, so a log
+	// that is still being written can be followed by asking for what was added since.
+	GetPipelineLogLines(ctx context.Context, identifier PipelineRunIdentifier, logID int, offset int) ([]string, error)
+
+	// RetryPipelineRun returns the run that retries: the same run, or a new one for a rerun.
+	RetryPipelineRun(ctx context.Context, retry PipelineRetry) (*PipelineRun, error)
+
+	GetPipelineTriggerOptions(ctx context.Context, identifier PipelineIdentifier) (*PipelineTriggerOptions, error)
+
+	TriggerPipeline(ctx context.Context, trigger PipelineTrigger) (*PipelineRun, error)
 }

@@ -23,6 +23,15 @@ type mockPipelineProvider struct {
 	approvalErr   error
 	lastApproval  *domain.StageApproval
 	lastRunsQuery domain.PipelineIdentifier
+	logs          []domain.PipelineLog
+	logLines      map[int][]string
+	lastLogOffset int
+	retried       *domain.PipelineRun
+	lastRetry     *domain.PipelineRetry
+	options       *domain.PipelineTriggerOptions
+	triggered     *domain.PipelineRun
+	lastTrigger   *domain.PipelineTrigger
+	actionErr     error
 }
 
 func (m *mockPipelineProvider) GetType() domain.ProviderType {
@@ -54,6 +63,44 @@ func (m *mockPipelineProvider) GetPipelineRunStages(ctx context.Context, identif
 func (m *mockPipelineProvider) SubmitStageApproval(ctx context.Context, approval domain.StageApproval) error {
 	m.lastApproval = &approval
 	return m.approvalErr
+}
+
+func (m *mockPipelineProvider) ListPipelineRunLogs(ctx context.Context, identifier domain.PipelineRunIdentifier) ([]domain.PipelineLog, error) {
+	return m.logs, nil
+}
+
+func (m *mockPipelineProvider) GetPipelineLogLines(ctx context.Context, identifier domain.PipelineRunIdentifier, logID int, offset int) ([]string, error) {
+	m.lastLogOffset = offset
+	if m.actionErr != nil {
+		return nil, m.actionErr
+	}
+	lines := m.logLines[logID]
+	return lines[min(offset, len(lines)):], nil
+}
+
+func (m *mockPipelineProvider) RetryPipelineRun(ctx context.Context, retry domain.PipelineRetry) (*domain.PipelineRun, error) {
+	m.lastRetry = &retry
+	if m.actionErr != nil {
+		return nil, m.actionErr
+	}
+	run := *m.retried
+	return &run, nil
+}
+
+func (m *mockPipelineProvider) GetPipelineTriggerOptions(ctx context.Context, identifier domain.PipelineIdentifier) (*domain.PipelineTriggerOptions, error) {
+	if m.actionErr != nil {
+		return nil, m.actionErr
+	}
+	return m.options, nil
+}
+
+func (m *mockPipelineProvider) TriggerPipeline(ctx context.Context, trigger domain.PipelineTrigger) (*domain.PipelineRun, error) {
+	m.lastTrigger = &trigger
+	if m.actionErr != nil {
+		return nil, m.actionErr
+	}
+	run := *m.triggered
+	return &run, nil
 }
 
 func testPipeline() domain.Pipeline {
@@ -236,7 +283,7 @@ func TestPipelineWatchTick_RefreshesActiveRun(t *testing.T) {
 	}
 }
 
-func TestPipelineWatchTick_StopsForFinishedRun(t *testing.T) {
+func TestPipelineWatchTick_KeepsTickingForFinishedRun(t *testing.T) {
 	m := createPipelineTestModel(&mockPipelineProvider{})
 	m.state = ViewPipelineRun
 	m.pipelineRunView.SetRun(testRun(domain.PipelineStatusSucceeded))
@@ -244,8 +291,8 @@ func TestPipelineWatchTick_StopsForFinishedRun(t *testing.T) {
 
 	_, cmd := m.handlePipelineWatchTick(PipelineWatchTickMsg{watchID: 3})
 
-	if cmd != nil {
-		t.Error("expected watch to stop for finished run")
+	if cmd == nil {
+		t.Error("expected the watch to keep ticking for the views shown after the finished run")
 	}
 }
 

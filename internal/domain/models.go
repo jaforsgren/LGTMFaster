@@ -99,9 +99,10 @@ type Settings struct {
 	HideOldOtherPRs     bool
 	HideOldOtherPRsDays int
 	PipelineSortMode    PipelineSortMode
-	// PipelineAutoRefreshSeconds is how often the pipeline views refresh while auto-refresh is on.
+	// PipelineAutoRefreshSeconds is how often the PR list, dashboard and pipeline views refresh while
+	// auto-refresh is on. The name predates the PR list refreshing and is kept for existing configs.
 	PipelineAutoRefreshSeconds int
-	// PipelineAutoRefreshEnabled turns the pipeline views' auto-refresh on; it is off by default.
+	// PipelineAutoRefreshEnabled turns auto-refresh on; it is off by default.
 	PipelineAutoRefreshEnabled bool
 	// RecentBranchMinutes is how far back :pr looks for pushed branches to open a pull request from.
 	RecentBranchMinutes int

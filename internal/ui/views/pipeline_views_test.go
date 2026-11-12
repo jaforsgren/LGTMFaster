@@ -497,6 +497,26 @@ func testStages() []domain.PipelineStage {
 	}
 }
 
+func TestPipelineRun_StagesShowHowLongTheyRan(t *testing.T) {
+	m := NewPipelineRunView()
+	m.SetSize(160, 30)
+	m.SetRun(domain.PipelineRun{ID: 1})
+	started := time.Now().Add(-time.Hour)
+
+	m.SetStages([]domain.PipelineStage{
+		{ID: "build", Name: "Build", Status: domain.PipelineStatusSucceeded, StartedAt: started, FinishedAt: started.Add(95 * time.Second)},
+		{ID: "test", Name: "Test", Status: domain.PipelineStatusRunning, StartedAt: time.Now().Add(-2 * time.Minute)},
+		{ID: "prod", Name: "Prod", Status: domain.PipelineStatusQueued},
+	})
+
+	view := m.View()
+	for _, duration := range []string{"1m35s", "2m0s"} {
+		if !strings.Contains(view, duration) {
+			t.Errorf("expected stage duration %q in the run view", duration)
+		}
+	}
+}
+
 func TestPipelineRun_FirstLoadSelectsPendingApproval(t *testing.T) {
 	m := NewPipelineRunView()
 	m.SetRun(domain.PipelineRun{ID: 1})

@@ -25,6 +25,8 @@ func (m Model) activeSplitList() (splitList, bool) {
 		return m.pipelineListView, true
 	case ViewPipelineRuns:
 		return m.pipelineRunsView, true
+	case ViewPipelineLog:
+		return m.pipelineLogView, true
 	case ViewPRInspect:
 		if m.prInspect.GetMode() == views.PRInspectModeDescription {
 			return m.prInspect, true

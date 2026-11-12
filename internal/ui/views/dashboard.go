@@ -10,7 +10,6 @@ import (
 )
 
 const (
-	dashboardEmptySection  = "Nothing here."
 	dashboardChecksLoading = " · checking builds (%d left)..."
 	dashboardFailingFormat = "%s  (failing: %s)"
 	checksLoadingIcon      = "…"
@@ -24,6 +23,9 @@ const (
 	dashboardRunsTitle   = "Your active pipeline runs"
 	dashboardRunsLoading = "Loading pipeline runs..."
 	noCursor             = -1
+	// dashboardEmptyPaneRows is the height of a pane with nothing in it: only its title, so the
+	// panes with something to show get the room.
+	dashboardEmptyPaneRows = 1
 )
 
 // dashboardRunsPane is the focus index of the active runs pane, after the pull request panes.
@@ -98,11 +100,17 @@ func NewDashboardView() *DashboardViewModel {
 func (m *DashboardViewModel) SetSize(width, height int) {
 	m.width = width
 	m.height = height
+	m.fitCursors()
+}
+
+// fitCursors sizes every pane's cursor to its pane, which changes with the size and whenever a pane
+// becomes empty or filled.
+func (m *DashboardViewModel) fitCursors() {
 	layout := m.layout()
-	for i := range m.cursors {
-		m.cursors[i].SetVisibleRows(layout.heights[i%dashboardRows] - dashboardPaneChromeRows)
+	for section := range m.cursors {
+		m.cursors[section].SetVisibleRows(layout.sectionHeight(section) - dashboardPaneChromeRows)
 	}
-	m.runsCursor.SetVisibleRows(layout.heights[dashboardRows] - dashboardPaneChromeRows)
+	m.runsCursor.SetVisibleRows(layout.runsHeight - dashboardPaneChromeRows)
 }
 
 func (m *DashboardViewModel) SetPRs(prs []domain.PullRequest) {
@@ -136,6 +144,7 @@ func (m *DashboardViewModel) SetActiveRuns(runs []domain.PipelineRun) {
 	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].QueuedAt.After(sorted[j].QueuedAt) })
 	m.runs = sorted
 	m.runsLoaded = true
+	m.fitCursors()
 
 	m.runsCursor.Clamp(len(sorted))
 	for i, run := range sorted {
@@ -291,20 +300,75 @@ func (m *DashboardViewModel) rebuild() {
 			}
 		}
 	}
+	m.fitCursors()
 }
 
-// dashboardLayout holds the inner sizes of the grid's columns and rows, which together occupy
-// exactly the main window. The last row is the runs pane, as wide as the window.
+// dashboardLayout holds the inner sizes of the panes, which together occupy exactly the main
+// window. Each column stacks its pull request panes on its own, so an empty pane only gives its
+// room to the pane under or over it; the runs pane below spans the window.
 type dashboardLayout struct {
-	widths  []int
-	heights []int
+	widths []int
+	// heights holds the pull request panes' heights per column, top to bottom.
+	heights    [][]int
+	runsHeight int
+}
+
+func (l dashboardLayout) sectionHeight(section int) int {
+	return l.heights[section/dashboardRows][section%dashboardRows]
 }
 
 func (m *DashboardViewModel) layout() dashboardLayout {
-	return dashboardLayout{
-		widths:  splitEvenly(outerSize(m.width, paneHorizontalPadding), dashboardColumns, paneHorizontalPadding),
-		heights: splitEvenly(outerSize(m.height, paneVerticalPadding), dashboardGridRows, paneVerticalPadding),
+	outer := outerSize(m.height, paneVerticalPadding)
+	gridOuter := outer / dashboardGridRows * dashboardRows
+	runsOuter := outer - gridOuter
+	if m.runsLoaded && len(m.runs) == 0 {
+		runsOuter = outerSize(dashboardEmptyPaneRows, paneVerticalPadding)
+		gridOuter = outer - runsOuter
 	}
+
+	heights := make([][]int, dashboardColumns)
+	for column := range heights {
+		empty := make([]bool, dashboardRows)
+		for row := range empty {
+			empty[row] = len(m.sections[column*dashboardRows+row]) == 0
+		}
+		heights[column] = stackPanes(gridOuter, empty)
+	}
+	return dashboardLayout{
+		widths:     splitEvenly(outerSize(m.width, paneHorizontalPadding), dashboardColumns, paneHorizontalPadding),
+		heights:    heights,
+		runsHeight: innerSize(runsOuter, paneVerticalPadding),
+	}
+}
+
+// stackPanes divides an outer height between panes stacked on each other and returns their inner
+// heights: empty panes only show their title and the others share the rest evenly. When all are
+// empty, the last one takes the rest so the stack still fills the height.
+func stackPanes(outer int, empty []bool) []int {
+	emptyOuter := outerSize(dashboardEmptyPaneRows, paneVerticalPadding)
+	filled := make([]bool, len(empty))
+	filledCount := 0
+	for i, isEmpty := range empty {
+		filled[i] = !isEmpty
+		if filled[i] {
+			filledCount++
+		}
+	}
+	if filledCount == 0 {
+		filled[len(filled)-1] = true
+		filledCount = 1
+	}
+
+	shared := splitEvenly(outer-(len(empty)-filledCount)*emptyOuter, filledCount, paneVerticalPadding)
+	heights := make([]int, len(empty))
+	for i := range heights {
+		if !filled[i] {
+			heights[i] = dashboardEmptyPaneRows
+			continue
+		}
+		heights[i], shared = shared[0], shared[1:]
+	}
+	return heights
 }
 
 // splitEvenly divides an outer size into parts, the last one taking the rounding remainder, and
@@ -328,13 +392,13 @@ func (m *DashboardViewModel) View() string {
 		panes := make([]string, dashboardRows)
 		for row := range panes {
 			section := column*dashboardRows + row
-			width, height := layout.widths[column], layout.heights[row]
+			width, height := layout.widths[column], layout.heights[column][row]
 			panes[row] = renderPane(m.renderSection(section, width), width, height, m.paneBorderColor(section))
 		}
 		columns[column] = lipgloss.JoinVertical(lipgloss.Left, panes...)
 	}
 	grid := lipgloss.JoinHorizontal(lipgloss.Top, columns...)
-	runs := renderPane(m.renderRuns(), m.width, layout.heights[dashboardRows], m.paneBorderColor(dashboardRunsPane))
+	runs := renderPane(m.renderRuns(), m.width, layout.runsHeight, m.paneBorderColor(dashboardRunsPane))
 	return lipgloss.JoinVertical(lipgloss.Left, grid, runs)
 }
 
@@ -346,15 +410,16 @@ func (m *DashboardViewModel) paneBorderColor(pane int) lipgloss.Color {
 }
 
 func (m *DashboardViewModel) renderRuns() string {
+	title := listTitleStyle.Render(fmt.Sprintf("%s (%d)", dashboardRunsTitle, len(m.runs)))
+	if m.runsLoaded && len(m.runs) == 0 {
+		return title
+	}
+
 	var b strings.Builder
-	b.WriteString(listTitleStyle.Render(fmt.Sprintf("%s (%d)", dashboardRunsTitle, len(m.runs))))
+	b.WriteString(title)
 	b.WriteString("\n\n")
-	switch {
-	case !m.runsLoaded:
+	if !m.runsLoaded {
 		b.WriteString(listMutedStyle.Render(dashboardRunsLoading))
-		return b.String()
-	case len(m.runs) == 0:
-		b.WriteString(listMutedStyle.Render(dashboardEmptySection))
 		return b.String()
 	}
 
@@ -402,7 +467,7 @@ func dashboardRunRow(run domain.PipelineRun) listRow {
 			runStageLabel(run),
 			valueOrPlaceholder(run.SourceBranch),
 			formatOptionalAge(run.QueuedAt),
-			formatRunDuration(run),
+			formatElapsed(run.StartedAt, run.FinishedAt),
 			runCommitLabel(run),
 		},
 		style: listRowStyle,
@@ -416,13 +481,13 @@ func (m *DashboardViewModel) renderSection(section, width int) string {
 		title += fmt.Sprintf(dashboardChecksLoading, loading)
 	}
 
+	if len(members) == 0 {
+		return listTitleStyle.Render(title)
+	}
+
 	var b strings.Builder
 	b.WriteString(listTitleStyle.Render(title))
 	b.WriteString("\n\n")
-	if len(members) == 0 {
-		b.WriteString(listMutedStyle.Render(dashboardEmptySection))
-		return b.String()
-	}
 
 	cursor := m.cursors[section]
 	if section != m.focus {

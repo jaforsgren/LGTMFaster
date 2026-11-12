@@ -22,6 +22,7 @@ const (
 	ViewNamePipelines     = "Pipelines"
 	ViewNamePipelineRuns  = "Pipeline Runs"
 	ViewNamePipelineRun   = "Pipeline Run"
+	ViewNamePipelineLog   = "Pipeline Logs"
 )
 
 const (
@@ -282,7 +283,11 @@ func (m *TopBarModel) isPRView() bool {
 }
 
 func (m *TopBarModel) isPipelineView() bool {
-	return m.currentView == ViewNamePipelines || m.currentView == ViewNamePipelineRuns || m.currentView == ViewNamePipelineRun
+	switch m.currentView {
+	case ViewNamePipelines, ViewNamePipelineRuns, ViewNamePipelineRun, ViewNamePipelineLog:
+		return true
+	}
+	return false
 }
 
 func (m *TopBarModel) buildContextInfo() []string {
@@ -303,6 +308,7 @@ func (m *TopBarModel) buildContextInfo() []string {
 			contextLine("👀", "Assigned", fmt.Sprintf("%d", m.assignedPRs)),
 			contextLine("⏳", "Pending", fmt.Sprintf("%d", m.otherPRs)),
 			contextLine("📦", "Repos", fmt.Sprintf("%d", m.repoCount)),
+			m.autoRefreshLine(),
 		)
 	}
 	return lines

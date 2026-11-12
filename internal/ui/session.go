@@ -16,6 +16,8 @@ var sessionViews = map[ViewState]domain.SessionView{
 	ViewPipelineRuns: domain.SessionViewPipelineRuns,
 	ViewPipelineRun:  domain.SessionViewPipelineRun,
 	ViewDashboard:    domain.SessionViewDashboard,
+	// The logs resume as their run, since they are reread on opening anyway.
+	ViewPipelineLog: domain.SessionViewPipelineRun,
 }
 
 // captureSession records the view, its selection and which details panes are open.
@@ -33,13 +35,13 @@ func (m Model) captureSession() domain.Session {
 		session.PRKey = pr.Key()
 	}
 
-	if pipeline := m.pipelineRunsView.GetPipeline(); pipeline != nil && (m.state == ViewPipelineRuns || m.state == ViewPipelineRun) {
+	if pipeline := m.pipelineRunsView.GetPipeline(); pipeline != nil && (m.state == ViewPipelineRuns || m.state == ViewPipelineRun || m.state == ViewPipelineLog) {
 		session.PipelineKey = pipeline.FavoriteKey()
 	} else if node := m.pipelineListView.GetSelectedNode(); node != nil {
 		session.PipelineKey = node.Key
 	}
 
-	if run := m.pipelineRunView.GetRun(); run != nil && m.state == ViewPipelineRun {
+	if run := m.pipelineRunView.GetRun(); run != nil && (m.state == ViewPipelineRun || m.state == ViewPipelineLog) {
 		session.RunKey = run.FavoriteKey()
 	} else if run := m.pipelineRunsView.GetSelectedRun(); run != nil {
 		session.RunKey = run.FavoriteKey()

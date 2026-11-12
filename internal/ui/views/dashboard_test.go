@@ -151,14 +151,44 @@ func TestDashboard_FocusStaysWhereTheUserPutIt(t *testing.T) {
 	}
 }
 
-func TestDashboard_EmptyPanesSaySo(t *testing.T) {
-	m := NewDashboardView()
-	m.SetSize(160, 40)
-
+func TestDashboard_EmptyPanesShrinkToTheirTitle(t *testing.T) {
+	m := loadedDashboard()
+	m.SetPRs(dashboardTestPRs()[4:])
 	m.SetActiveRuns(nil)
 
-	if strings.Count(m.View(), dashboardEmptySection) != dashboardPaneCount() {
-		t.Error("expected every empty pane to say so")
+	layout := m.layout()
+	for _, section := range []int{sectionReview, sectionFailing} {
+		if got := layout.sectionHeight(section); got != dashboardEmptyPaneRows {
+			t.Errorf("expected empty section %d to be %d row high, got %d", section, dashboardEmptyPaneRows, got)
+		}
+	}
+	if layout.runsHeight != dashboardEmptyPaneRows {
+		t.Errorf("expected the empty runs pane to be %d row high, got %d", dashboardEmptyPaneRows, layout.runsHeight)
+	}
+	if layout.sectionHeight(sectionCreated) <= layout.sectionHeight(sectionReview) {
+		t.Error("expected the filled pane to take the room of the empty one")
+	}
+
+	view := m.View()
+	for _, title := range []string{"Waiting for your review (0)", "Failing checks (0)", dashboardRunsTitle + " (0)"} {
+		if !strings.Contains(view, title) {
+			t.Errorf("expected %q in the dashboard", title)
+		}
+	}
+	main := RenderMainWindow("", m.width, m.height)
+	if lipgloss.Height(view) != lipgloss.Height(main) {
+		t.Errorf("expected the panes to still fill %d rows, got %d", lipgloss.Height(main), lipgloss.Height(view))
+	}
+}
+
+func TestDashboard_AllEmptyPanesStillFillTheWindow(t *testing.T) {
+	m := NewDashboardView()
+	m.SetSize(160, 40)
+	m.SetActiveRuns(nil)
+
+	main := RenderMainWindow("", m.width, m.height)
+	if got := lipgloss.Height(m.View()); got != lipgloss.Height(main) {
+		t.Errorf("expected the panes to fill %d rows, got %d", lipgloss.Height(main), got)
 	}
 }
 

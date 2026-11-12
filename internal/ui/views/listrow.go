@@ -21,6 +21,7 @@ const (
 	listFilterRows       = 2
 	listDividerRows      = 1
 	listDividerGlyph     = "─"
+	truncationMarker     = "..."
 	// listChromeRows is every row of a list view that is not a list row.
 	listChromeRows = listTitleRows + listHeaderRows + listScrollInfoRows + listFilterRows
 )
@@ -144,6 +145,25 @@ func valueOrPlaceholder(value string) string {
 	return value
 }
 
+// truncateStart keeps the end of s, which for a path is the file name, cutting from the start
+// instead. It also returns how many bytes of s were cut, so positions in s can be mapped onto it.
+func truncateStart(s string, maxWidth int) (string, int) {
+	if runewidth.StringWidth(s) <= maxWidth {
+		return s, 0
+	}
+	if maxWidth <= len(truncationMarker) {
+		return "", len(s)
+	}
+	cut := 0
+	for _, r := range s {
+		if runewidth.StringWidth(s[cut:]) <= maxWidth-len(truncationMarker) {
+			break
+		}
+		cut += len(string(r))
+	}
+	return truncationMarker + s[cut:], cut
+}
+
 func truncateString(s string, maxWidth int) string {
 	if maxWidth <= 0 {
 		return ""
@@ -151,10 +171,10 @@ func truncateString(s string, maxWidth int) string {
 	if runewidth.StringWidth(s) <= maxWidth {
 		return s
 	}
-	if maxWidth <= 3 {
+	if maxWidth <= len(truncationMarker) {
 		return runewidth.Truncate(s, maxWidth, "")
 	}
-	return runewidth.Truncate(s, maxWidth-3, "") + "..."
+	return runewidth.Truncate(s, maxWidth-len(truncationMarker), "") + truncationMarker
 }
 
 func padToWidth(s string, width int) string {

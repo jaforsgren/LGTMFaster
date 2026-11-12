@@ -111,7 +111,7 @@ func TestNewPR_DropdownLeavesOutTheSourceBranch(t *testing.T) {
 	m := newPRTestView()
 	m.target.SetValue("feature")
 
-	if matches := m.targetMatches(); len(matches) != 0 {
+	if matches := m.target.Matches(); len(matches) != 0 {
 		t.Errorf("expected the source branch not to be offered, got %v", matches)
 	}
 }

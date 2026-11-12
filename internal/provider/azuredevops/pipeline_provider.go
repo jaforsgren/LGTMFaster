@@ -195,12 +195,7 @@ func (p *Provider) buildPipelineRunURL(projectName string, runID int) string {
 // Stage -> Checkpoint -> Checkpoint.Approval, so each pending approval is attributed to
 // its nearest Stage ancestor.
 func convertTimelineToStages(records []build.TimelineRecord) []domain.PipelineStage {
-	recordsByID := make(map[uuid.UUID]build.TimelineRecord, len(records))
-	for _, record := range records {
-		if record.Id != nil {
-			recordsByID[*record.Id] = record
-		}
-	}
+	recordsByID := indexTimelineRecords(records)
 
 	stagesByID := make(map[uuid.UUID]*domain.PipelineStage)
 	for _, record := range records {
@@ -208,10 +203,13 @@ func convertTimelineToStages(records []build.TimelineRecord) []domain.PipelineSt
 			continue
 		}
 		stagesByID[*record.Id] = &domain.PipelineStage{
-			ID:     record.Id.String(),
-			Name:   common.GetString(record.Name),
-			Order:  common.GetInt(record.Order),
-			Status: mapTimelineRecordStatus(record.State, record.Result),
+			ID:         record.Id.String(),
+			Name:       common.GetString(record.Name),
+			RefName:    common.GetString(record.Identifier),
+			Order:      common.GetInt(record.Order),
+			Status:     mapTimelineRecordStatus(record.State, record.Result),
+			StartedAt:  timeOrZero(record.StartTime),
+			FinishedAt: timeOrZero(record.FinishTime),
 		}
 	}
 
@@ -219,11 +217,11 @@ func convertTimelineToStages(records []build.TimelineRecord) []domain.PipelineSt
 		if record.Id == nil || common.GetString(record.Type) != timelineRecordTypeApproval || isRecordCompleted(record.State) {
 			continue
 		}
-		stageID, found := findStageAncestor(record, recordsByID)
+		stageRecord, found := findAncestor(record, recordsByID, timelineRecordTypeStage)
 		if !found {
 			continue
 		}
-		if stage, ok := stagesByID[stageID]; ok {
+		if stage, ok := stagesByID[*stageRecord.Id]; ok {
 			stage.PendingApprovalID = record.Id.String()
 			stage.Status = domain.PipelineStatusWaitingForApproval
 		}
@@ -239,21 +237,42 @@ func convertTimelineToStages(records []build.TimelineRecord) []domain.PipelineSt
 	return stages
 }
 
-func findStageAncestor(record build.TimelineRecord, recordsByID map[uuid.UUID]build.TimelineRecord) (uuid.UUID, bool) {
+// findAncestor is the record's nearest ancestor of the given type.
+func findAncestor(record build.TimelineRecord, recordsByID map[uuid.UUID]build.TimelineRecord, recordType string) (build.TimelineRecord, bool) {
+	for _, ancestor := range timelineAncestors(record, recordsByID) {
+		if common.GetString(ancestor.Type) == recordType {
+			return ancestor, true
+		}
+	}
+	return build.TimelineRecord{}, false
+}
+
+// timelineAncestors lists the record's ancestors, nearest first, stopping at a missing parent or
+// a cycle.
+func timelineAncestors(record build.TimelineRecord, recordsByID map[uuid.UUID]build.TimelineRecord) []build.TimelineRecord {
+	var ancestors []build.TimelineRecord
 	visited := make(map[uuid.UUID]bool)
 	current := record
 	for current.ParentId != nil && !visited[*current.ParentId] {
 		visited[*current.ParentId] = true
 		parent, ok := recordsByID[*current.ParentId]
 		if !ok {
-			return uuid.UUID{}, false
+			break
 		}
-		if common.GetString(parent.Type) == timelineRecordTypeStage {
-			return *parent.Id, true
-		}
+		ancestors = append(ancestors, parent)
 		current = parent
 	}
-	return uuid.UUID{}, false
+	return ancestors
+}
+
+func indexTimelineRecords(records []build.TimelineRecord) map[uuid.UUID]build.TimelineRecord {
+	recordsByID := make(map[uuid.UUID]build.TimelineRecord, len(records))
+	for _, record := range records {
+		if record.Id != nil {
+			recordsByID[*record.Id] = record
+		}
+	}
+	return recordsByID
 }
 
 func isRecordCompleted(state *build.TimelineRecordState) bool {

@@ -45,12 +45,16 @@ type KeyBinding struct {
 
 const helpSeparator = " | "
 
-var allViewStates = []ViewState{ViewPATs, ViewPRList, ViewPRInspect, ViewPipelineList, ViewPipelineRuns, ViewPipelineRun, ViewDashboard}
+var allViewStates = []ViewState{ViewPATs, ViewPRList, ViewPRInspect, ViewPipelineList, ViewPipelineRuns, ViewPipelineRun, ViewPipelineLog, ViewDashboard}
 
 var pipelineViewStates = []ViewState{ViewPipelineList, ViewPipelineRuns, ViewPipelineRun}
 
 // splitViewStates are the lists with a details pane beside them.
 var splitViewStates = []ViewState{ViewPRList, ViewPipelineList, ViewPipelineRuns}
+
+// paneViewStates are the views whose panes tab, → and ← move between: the split lists and the
+// pipeline logs, whose steps and log sit side by side.
+var paneViewStates = append(slices.Clone(splitViewStates), ViewPipelineLog)
 
 type CommandRegistry struct {
 	commands    map[string]*Command
@@ -65,6 +69,7 @@ func NewCommandRegistry() *CommandRegistry {
 	registry.registerCommands()
 	registry.registerKeyBindings()
 	registry.registerPipelineSortBindings()
+	registry.registerDiffCountBindings()
 	return registry
 }
 
@@ -230,7 +235,7 @@ func (cr *CommandRegistry) registerKeyBindings() {
 			Description: "focus pane",
 			ShortHelp:   "→/←",
 			Handler:     handleFocusPaneInKey,
-			AvailableIn: splitViewStates,
+			AvailableIn: paneViewStates,
 			Navigation:  true,
 		},
 		{
@@ -238,7 +243,7 @@ func (cr *CommandRegistry) registerKeyBindings() {
 			Description: "focus pane",
 			ShortHelp:   "→/←",
 			Handler:     handleFocusPaneOutKey,
-			AvailableIn: splitViewStates,
+			AvailableIn: paneViewStates,
 			Navigation:  true,
 		},
 		{
@@ -247,6 +252,46 @@ func (cr *CommandRegistry) registerKeyBindings() {
 			ShortHelp:   keyFilter,
 			Handler:     handleFilterKey,
 			AvailableIn: []ViewState{ViewPRList, ViewPipelineList, ViewPipelineRuns},
+			Navigation:  true,
+		},
+		{
+			Keys:        []string{keyFilter},
+			Description: "search",
+			ShortHelp:   keyFilter,
+			Handler:     handleSearchKey,
+			AvailableIn: []ViewState{ViewPipelineLog, ViewPRInspect},
+			Navigation:  true,
+		},
+		{
+			Keys:        []string{keyTop},
+			Description: "top/bottom",
+			ShortHelp:   keyTop + "/" + keyBottom,
+			Handler:     handleLogTopKey,
+			AvailableIn: []ViewState{ViewPipelineLog},
+			Navigation:  true,
+		},
+		{
+			Keys:        []string{keyBottom},
+			Description: "top/bottom",
+			ShortHelp:   keyTop + "/" + keyBottom,
+			Handler:     handleLogBottomKey,
+			AvailableIn: []ViewState{ViewPipelineLog},
+			Navigation:  true,
+		},
+		{
+			Keys:        []string{keyPageUp},
+			Description: "page",
+			ShortHelp:   "pgup/pgdn",
+			Handler:     handleLogPageUpKey,
+			AvailableIn: []ViewState{ViewPipelineLog},
+			Navigation:  true,
+		},
+		{
+			Keys:        []string{keyPageDown},
+			Description: "page",
+			ShortHelp:   "pgup/pgdn",
+			Handler:     handleLogPageDownKey,
+			AvailableIn: []ViewState{ViewPipelineLog},
 			Navigation:  true,
 		},
 		{
@@ -330,7 +375,7 @@ func (cr *CommandRegistry) registerKeyBindings() {
 			Description: "Toggle details pane",
 			ShortHelp:   keyTogglePane,
 			Handler:     handleTogglePreviewKey,
-			AvailableIn: splitViewStates,
+			AvailableIn: paneViewStates,
 		},
 		{
 			Keys:        []string{keyToggleTopBar},
@@ -359,20 +404,33 @@ func (cr *CommandRegistry) registerKeyBindings() {
 			Description: "Refresh",
 			ShortHelp:   keyRefresh,
 			Handler:     handleRefreshKey,
-			AvailableIn: []ViewState{ViewPRList, ViewPipelineList, ViewPipelineRuns, ViewPipelineRun, ViewDashboard},
+			AvailableIn: []ViewState{ViewPRList, ViewPipelineList, ViewPipelineRuns, ViewPipelineRun, ViewPipelineLog, ViewDashboard},
 		},
 		{
 			Keys:        []string{keyOpenBrowser},
 			Description: "Open in browser",
 			ShortHelp:   keyOpenBrowser,
 			Handler:     handleOpenBrowserKey,
-			AvailableIn: []ViewState{ViewPRList, ViewPRInspect, ViewPipelineList, ViewPipelineRuns, ViewPipelineRun, ViewDashboard},
+			AvailableIn: []ViewState{ViewPRList, ViewPRInspect, ViewPipelineList, ViewPipelineRuns, ViewPipelineRun, ViewPipelineLog, ViewDashboard},
 		},
 		{
-			Keys:        []string{keyNextFile, keyFocusPaneIn},
-			Description: "Next/previous file",
+			Keys:        []string{keyNextFile},
+			Description: "Next/previous file (n/N: match while searching)",
 			ShortHelp:   keyNextFile + "/" + keyPrevFile,
+			Handler:     handleNextFileOrMatchKey,
+			AvailableIn: []ViewState{ViewPRInspect},
+		},
+		{
+			Keys:        []string{keyFocusPaneIn},
+			Description: "Next/previous file",
 			Handler:     handleNextFileKey,
+			AvailableIn: []ViewState{ViewPRInspect},
+		},
+		{
+			Keys:        []string{keySpace},
+			Description: "Find file (space space)",
+			ShortHelp:   "␣␣",
+			Handler:     handleDiffLeaderKey,
 			AvailableIn: []ViewState{ViewPRInspect},
 		},
 		{
@@ -436,6 +494,13 @@ func (cr *CommandRegistry) registerKeyBindings() {
 			Description: "Commits",
 			ShortHelp:   keyCommits,
 			Handler:     handleCommitsKey,
+			AvailableIn: []ViewState{ViewPRInspect},
+		},
+		{
+			Keys:        []string{keyBottom},
+			Description: "Go to line ([n]gg), top (gg), bottom (G)",
+			ShortHelp:   "[n]gg/G",
+			Handler:     handleDiffBottomKey,
 			AvailableIn: []ViewState{ViewPRInspect},
 		},
 		{
@@ -526,6 +591,76 @@ func (cr *CommandRegistry) registerKeyBindings() {
 			AvailableIn: []ViewState{ViewPipelineRun},
 		},
 		{
+			Keys:        []string{keyLogs},
+			Description: "Logs",
+			ShortHelp:   keyLogs,
+			Handler:     handleLogsKey,
+			AvailableIn: []ViewState{ViewPipelineRun},
+		},
+		{
+			Keys:        []string{keyRetry},
+			Description: "Retry run",
+			ShortHelp:   keyRetry,
+			Handler:     handleRetryKey,
+			AvailableIn: []ViewState{ViewPipelineRuns, ViewPipelineRun, ViewPipelineLog},
+		},
+		{
+			Keys:        []string{keyTrigger},
+			Description: "Run pipeline",
+			ShortHelp:   keyTrigger,
+			Handler:     handleTriggerKey,
+			AvailableIn: []ViewState{ViewPipelineList, ViewPipelineRuns},
+		},
+		{
+			Keys:        []string{keyFollow},
+			Description: "Follow log",
+			ShortHelp:   keyFollow,
+			Handler:     handleFollowKey,
+			AvailableIn: []ViewState{ViewPipelineLog},
+		},
+		{
+			Keys:        []string{keyNextMatch},
+			Description: "Next/previous match",
+			ShortHelp:   keyNextMatch + "/" + keyPrevMatch,
+			Handler:     handleNextMatchKey,
+			AvailableIn: []ViewState{ViewPipelineLog},
+		},
+		{
+			Keys:        []string{keyPrevMatch},
+			Description: "Next/previous match",
+			ShortHelp:   keyNextMatch + "/" + keyPrevMatch,
+			Handler:     handlePrevMatchKey,
+			AvailableIn: []ViewState{ViewPipelineLog, ViewPRInspect},
+		},
+		{
+			Keys:        []string{keyNextError},
+			Description: "Next/previous error",
+			ShortHelp:   keyNextError + "/" + keyPrevError,
+			Handler:     logLevelJumpHandler(domain.LogLineError, true),
+			AvailableIn: []ViewState{ViewPipelineLog},
+		},
+		{
+			Keys:        []string{keyPrevError},
+			Description: "Next/previous error",
+			ShortHelp:   keyNextError + "/" + keyPrevError,
+			Handler:     logLevelJumpHandler(domain.LogLineError, false),
+			AvailableIn: []ViewState{ViewPipelineLog},
+		},
+		{
+			Keys:        []string{keyNextWarning},
+			Description: "Next/previous warning",
+			ShortHelp:   keyNextWarning + "/" + keyPrevWarning,
+			Handler:     logLevelJumpHandler(domain.LogLineWarning, true),
+			AvailableIn: []ViewState{ViewPipelineLog},
+		},
+		{
+			Keys:        []string{keyPrevWarning},
+			Description: "Next/previous warning",
+			ShortHelp:   keyNextWarning + "/" + keyPrevWarning,
+			Handler:     logLevelJumpHandler(domain.LogLineWarning, false),
+			AvailableIn: []ViewState{ViewPipelineLog},
+		},
+		{
 			Keys:        []string{keyFold},
 			Description: "Fold/unfold",
 			ShortHelp:   keyFold,
@@ -544,7 +679,7 @@ func (cr *CommandRegistry) registerKeyBindings() {
 			Description: "Toggle auto-refresh",
 			ShortHelp:   keyAutoRefresh,
 			Handler:     handleAutoRefreshKey,
-			AvailableIn: []ViewState{ViewPipelineList, ViewPipelineRuns, ViewPipelineRun, ViewDashboard},
+			AvailableIn: []ViewState{ViewPRList, ViewPipelineList, ViewPipelineRuns, ViewPipelineRun, ViewDashboard},
 		},
 		{
 			Keys:        []string{keyFoldAll},
@@ -580,6 +715,45 @@ func (cr *CommandRegistry) registerPipelineSortBindings() {
 		}
 		cr.keyBindings = append(cr.keyBindings, binding)
 	}
+}
+
+// registerDiffCountBindings binds the digits that count a vim motion in the diff, like 10gg. They
+// carry no ShortHelp; the G binding's "[n]gg/G" hint covers them.
+func (cr *CommandRegistry) registerDiffCountBindings() {
+	for digit := range diffCountDigits {
+		cr.keyBindings = append(cr.keyBindings, &KeyBinding{
+			Keys:        []string{strconv.Itoa(digit)},
+			Description: "Line count for gg/G",
+			Handler:     diffCountHandler(digit),
+			AvailableIn: []ViewState{ViewPRInspect},
+		})
+	}
+}
+
+func diffCountHandler(digit int) KeyHandler {
+	return func(m Model) (Model, tea.Cmd) {
+		if m.prInspect.GetMode() == views.PRInspectModeDiff {
+			m.prInspect.PushMotionDigit(digit)
+		}
+		return m, nil
+	}
+}
+
+// isDiffMotionKey reports the keys that continue a vim motion in the diff; any other key drops a
+// half-typed one.
+func isDiffMotionKey(key string) bool {
+	if key == keyTop || key == keyBottom || key == keySpace {
+		return true
+	}
+	digit, err := strconv.Atoi(key)
+	return err == nil && digit >= 0 && digit < diffCountDigits
+}
+
+func handleDiffBottomKey(m Model) (Model, tea.Cmd) {
+	if m.prInspect.GetMode() == views.PRInspectModeDiff {
+		m.prInspect.PressShiftG()
+	}
+	return m, nil
 }
 
 func sortPipelinesHandler(mode domain.PipelineSortMode) KeyHandler {
@@ -894,6 +1068,9 @@ func handleUpKey(m Model) (Model, tea.Cmd) {
 		cmd = m.loadPipelinePreview()
 	case ViewPipelineRun:
 		m.pipelineRunView.MoveUp()
+	case ViewPipelineLog:
+		m.pipelineLogView.MoveUp()
+		cmd = m.loadPendingLogLines()
 	}
 	return m, cmd
 }
@@ -929,6 +1106,9 @@ func handleDownKey(m Model) (Model, tea.Cmd) {
 		cmd = m.loadPipelinePreview()
 	case ViewPipelineRun:
 		m.pipelineRunView.MoveDown()
+	case ViewPipelineLog:
+		m.pipelineLogView.MoveDown()
+		cmd = m.loadPendingLogLines()
 	}
 	return m, cmd
 }
@@ -1011,6 +1191,15 @@ func handleNextFileKey(m Model) (Model, tea.Cmd) {
 		return handleFocusPaneInKey(m)
 	}
 	return m, nil
+}
+
+// handleNextFileOrMatchKey is n in PR inspect: the next search match while a search is kept in
+// the diff, as in vim, else the next file.
+func handleNextFileOrMatchKey(m Model) (Model, tea.Cmd) {
+	if search, ok := m.activeTextSearch(); ok && search.SearchQuery() != "" {
+		return handleNextMatchKey(m)
+	}
+	return handleNextFileKey(m)
 }
 
 func handlePrevFileKey(m Model) (Model, tea.Cmd) {
@@ -1123,6 +1312,10 @@ func handleEscKey(m Model) (Model, tea.Cmd) {
 		m.pipelineRunsView.ClearFilter()
 		return m, nil
 	}
+	if search, ok := m.activeTextSearch(); ok && search.SearchQuery() != "" {
+		search.ClearSearch()
+		return m, nil
+	}
 	newModel, cmd := m.navigateBack()
 	return newModel.(Model), cmd
 }
@@ -1196,6 +1389,57 @@ func handleFavoriteKey(m Model) (Model, tea.Cmd) {
 		return m, nil
 	}
 	return m.togglePipelineFavorite()
+}
+
+func handleLogsKey(m Model) (Model, tea.Cmd) {
+	return m.openPipelineLogs()
+}
+
+func handleRetryKey(m Model) (Model, tea.Cmd) {
+	return m.beginPipelineRetry()
+}
+
+func handleTriggerKey(m Model) (Model, tea.Cmd) {
+	return m.beginPipelineTrigger()
+}
+
+func handleFollowKey(m Model) (Model, tea.Cmd) {
+	return m.toggleLogFollow()
+}
+
+const (
+	noErrorLineMessage   = "No more errors in this step"
+	noWarningLineMessage = "No more warnings in this step"
+)
+
+func logLevelJumpHandler(level domain.LogLineLevel, forward bool) KeyHandler {
+	nothingFound := noWarningLineMessage
+	if level == domain.LogLineError {
+		nothingFound = noErrorLineMessage
+	}
+	return func(m Model) (Model, tea.Cmd) {
+		return m.jumpOrReport(func() bool { return m.pipelineLogView.JumpToLevel(level, forward) }, nothingFound)
+	}
+}
+
+func handleLogTopKey(m Model) (Model, tea.Cmd) {
+	m.pipelineLogView.ScrollToTop()
+	return m, nil
+}
+
+func handleLogBottomKey(m Model) (Model, tea.Cmd) {
+	m.pipelineLogView.ScrollToBottom()
+	return m, nil
+}
+
+func handleLogPageUpKey(m Model) (Model, tea.Cmd) {
+	m.pipelineLogView.PageUp()
+	return m, nil
+}
+
+func handleLogPageDownKey(m Model) (Model, tea.Cmd) {
+	m.pipelineLogView.PageDown()
+	return m, nil
 }
 
 func handleApproveStageKey(m Model) (Model, tea.Cmd) {
@@ -1366,8 +1610,14 @@ func handleSettingsCommand(m Model, args []string) (Model, tea.Cmd) {
 	return m, m.openSettingsEditor()
 }
 
+// handleCheckoutKey checks out the PR's branch, except in the diff, where g is the first key of the
+// vim gg motion.
 func handleCheckoutKey(m Model) (Model, tea.Cmd) {
 	if m.state != ViewPRInspect {
+		return m, nil
+	}
+	if m.prInspect.GetMode() == views.PRInspectModeDiff {
+		m.prInspect.PressG()
 		return m, nil
 	}
 	newModel, cmd := m.handleCheckoutBranch()

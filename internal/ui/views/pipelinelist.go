@@ -890,7 +890,7 @@ func runDetailLines(run domain.PipelineRun) []string {
 		{"Commit", truncateString(runCommitLabel(run), runCommitDetailWidth)},
 		{"Requested by", valueOrPlaceholder(run.RequestedBy.Username)},
 		{"Queued", formatOptionalAge(run.QueuedAt)},
-		{"Duration", formatRunDuration(run)},
+		{"Duration", formatElapsed(run.StartedAt, run.FinishedAt)},
 	}
 	lines := make([]string, 0, len(details))
 	for _, detail := range details {

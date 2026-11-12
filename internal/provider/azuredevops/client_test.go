@@ -2,6 +2,7 @@ package azuredevops
 
 import (
 	"context"
+	"errors"
 	"github.com/johanforsgren/lgtmfaster/internal/domain"
 	"io"
 	"strings"
@@ -30,6 +31,7 @@ type mockGitClient struct {
 	commit           *git.GitCommit
 	commitCalls      int
 	itemObjectIDs    map[string]string
+	itemContents     map[string]string
 	prCommits        *git.GetPullRequestCommitsResponseValue
 	workItemRefs     *[]webapi.ResourceRef
 	pullRequest      *git.GitPullRequest
@@ -128,6 +130,13 @@ func (m *mockGitClient) GetCommit(ctx context.Context, args git.GetCommitArgs) (
 
 // GetItem serves itemObjectIDs by "path@commit".
 func (m *mockGitClient) GetItem(ctx context.Context, args git.GetItemArgs) (*git.GitItem, error) {
+	if args.IncludeContent != nil && *args.IncludeContent {
+		content, ok := m.itemContents[*args.Path+"@"+*args.VersionDescriptor.Version]
+		if !ok {
+			return nil, errors.New("item not found")
+		}
+		return &git.GitItem{Content: &content}, nil
+	}
 	objectID, ok := m.itemObjectIDs[*args.Path+"@"+*args.VersionDescriptor.Version]
 	if !ok {
 		return nil, nil

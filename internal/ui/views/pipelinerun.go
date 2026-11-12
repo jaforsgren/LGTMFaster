@@ -13,6 +13,7 @@ const (
 	stagesHeadingRows     = 2
 	pipelineRunChromeRows = listTitleRows + runDetailRows + stagesHeadingRows + listScrollInfoRows
 	stageStatusWidth      = 22
+	stageDurationWidth    = 10
 	runDetailLabelWidth   = 14
 	approvalHint          = "approval required: a approve / x reject"
 	pipelinesTitle        = "Pipelines"
@@ -160,7 +161,8 @@ func (m *PipelineRunViewModel) View() string {
 
 func (m *PipelineRunViewModel) renderStage(stage domain.PipelineStage, selected bool) string {
 	const minStageNameWidth = 20
-	nameWidth := flexColumnWidth(m.width, stageStatusWidth+len(approvalHint)+2, minStageNameWidth)
+	const columnSpacing = 3
+	nameWidth := flexColumnWidth(m.width, stageStatusWidth+stageDurationWidth+len(approvalHint)+columnSpacing, minStageNameWidth)
 
 	marker := unselectedRowMarker
 	nameStyle := listRowStyle
@@ -172,7 +174,8 @@ func (m *PipelineRunViewModel) renderStage(stage domain.PipelineStage, selected 
 	line := nameStyle.Render(marker) +
 		renderPipelineStatusIcon(stage.Status) + " " +
 		nameStyle.Render(padToWidth(truncateString(stage.Name, nameWidth), nameWidth)) + " " +
-		renderPipelineStatusLabel(stage.Status, stageStatusWidth)
+		renderPipelineStatusLabel(stage.Status, stageStatusWidth) + " " +
+		listMutedStyle.Render(padToWidth(formatElapsed(stage.StartedAt, stage.FinishedAt), stageDurationWidth))
 
 	if stage.AwaitsApproval() {
 		line += " " + approvalHintStyle.Render(approvalHint)

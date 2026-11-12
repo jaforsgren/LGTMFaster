@@ -41,11 +41,18 @@ type PRInspectViewModel struct {
 	commitCursor     listCursor
 	viewingCommit    *domain.Commit
 	// prDiff keeps the pull request's diff while a commit's diff is the source.
-	prDiff          *domain.Diff
-	comments        []domain.Comment
-	viewport        viewport.Model
-	currentFile     int
-	currentLineIdx  int
+	prDiff         *domain.Diff
+	comments       []domain.Comment
+	viewport       viewport.Model
+	currentFile    int
+	currentLineIdx int
+	// cursorRow is the row of the diff content the cursor's line was rendered on, noCursorRow when
+	// it is not shown.
+	cursorRow int
+	motion    diffMotion
+	search    searchField
+	// diffHeader is the sticky file header above the diff, empty outside the diff.
+	diffHeader      string
 	width           int
 	height          int
 	showComments    bool
@@ -64,6 +71,8 @@ func NewPRInspectView() *PRInspectViewModel {
 
 	return &PRInspectViewModel{
 		commitCursor: newListCursor(),
+		cursorRow:    noCursorRow,
+		search:       newSearchField("text in the diff"),
 		viewport:     vp,
 		currentFile:  0,
 		showComments: false,
@@ -307,42 +316,6 @@ func (m *PRInspectViewModel) PrevLine() {
 	}
 }
 
-func (m *PRInspectViewModel) ensureLineVisible() {
-	if m.diff == nil || len(m.diff.Files) == 0 {
-		return
-	}
-
-	file := m.diff.Files[m.currentFile]
-	linePosition := 3
-	lineIdx := 0
-
-	for _, hunk := range file.Hunks {
-		linePosition += 2
-
-		for range hunk.Lines {
-			if lineIdx == m.currentLineIdx {
-				viewportHeight := m.viewport.Height
-				if viewportHeight <= 0 {
-					return
-				}
-
-				if linePosition > m.viewport.YOffset+viewportHeight-1 {
-					m.viewport.YOffset = linePosition - viewportHeight + 1
-				}
-				if linePosition < m.viewport.YOffset {
-					m.viewport.YOffset = linePosition
-				}
-
-				m.clampViewportOffset()
-				return
-			}
-			lineIdx++
-			linePosition++
-		}
-		linePosition++
-	}
-}
-
 func (m *PRInspectViewModel) clampViewportOffset() {
 	if m.viewport.YOffset < 0 {
 		m.viewport.YOffset = 0
@@ -443,15 +416,17 @@ const (
 	minCommitSubject     = 20
 	allFilesFilteredText = "Every file is hidden by the extension filter (F)."
 	prInspectStatusRows  = 2
-	diffViewModeFull     = "full"
-	diffViewModeCompact  = "compact"
+	// fileHeaderPadding is the file header's padding on both sides.
+	fileHeaderPadding   = 2
+	diffViewModeFull    = "full"
+	diffViewModeCompact = "compact"
 )
 
 var prInspectStatusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 
 // View frames the content in the main window, beside the work items pane when it is open.
 func (m *PRInspectViewModel) View() string {
-	content := m.viewport.View() + "\n\n" + prInspectStatusStyle.Render(m.statusLine())
+	content := m.diffHeader + m.viewport.View() + "\n\n" + prInspectStatusStyle.Render(m.statusLine())
 	if !m.showsWorkItemsPane() {
 		return RenderMainWindow(content, m.width, m.height)
 	}
@@ -477,6 +452,12 @@ func (m *PRInspectViewModel) statusLine() string {
 	if pending := m.GetPendingCommentCount(); pending > 0 {
 		status += fmt.Sprintf(" | %d pending comments", pending)
 	}
+	if motion := m.PendingMotion(); motion != "" {
+		status += " | " + motion
+	}
+	if search := m.search.View(m.searchPosition()); search != "" {
+		status += " | " + search
+	}
 	return status
 }
 
@@ -491,6 +472,8 @@ func (m *PRInspectViewModel) hiddenExtensionNames() []string {
 }
 
 func (m *PRInspectViewModel) updateViewport() {
+	m.diffHeader = m.renderDiffHeader()
+	m.viewport.Height = max(m.height-prInspectStatusRows-strings.Count(m.diffHeader, "\n"), minPaneSize)
 	m.viewport.Width = m.contentWidth()
 	m.mdRenderer.SetWidth(m.viewport.Width)
 
@@ -573,6 +556,30 @@ func (m *PRInspectViewModel) renderPRHeader() string {
 	return b.String()
 }
 
+var fileHeaderStyle = lipgloss.NewStyle().
+	Foreground(lipgloss.Color("#7C3AED")).
+	Bold(true).
+	Background(lipgloss.Color("#1F2937")).
+	Padding(0, 1)
+
+// renderDiffHeader names the shown file (and commit), with a blank row under it. It stays above
+// the scrolling diff, so the file name is always in view.
+func (m *PRInspectViewModel) renderDiffHeader() string {
+	if m.mode != PRInspectModeDiff || m.diff == nil || len(m.diff.Files) == 0 {
+		return ""
+	}
+	width := m.contentWidth()
+	var b strings.Builder
+	if m.viewingCommit != nil {
+		b.WriteString(listTitleStyle.Render(truncateString(fmt.Sprintf(commitHeaderFormat, m.viewingCommit.ShortID(), m.viewingCommit.Subject()), width)))
+		b.WriteString("\n")
+	}
+	header := fmt.Sprintf("File %d/%d: %s", m.currentFile+1, len(m.diff.Files), getFilePath(m.diff.Files[m.currentFile]))
+	b.WriteString(fileHeaderStyle.Render(truncateString(header, max(width-fileHeaderPadding, minPaneSize))))
+	b.WriteString("\n\n")
+	return b.String()
+}
+
 func (m *PRInspectViewModel) renderDiff() string {
 	if m.diff == nil || len(m.diff.Files) == 0 {
 		logger.Log("PRInspectView: renderDiff - No diff available (diff nil: %v, files: %d)", m.diff == nil, 0)
@@ -582,31 +589,12 @@ func (m *PRInspectViewModel) renderDiff() string {
 	logger.Log("PRInspectView: renderDiff - Rendering file %d of %d", m.currentFile+1, len(m.diff.Files))
 
 	var b strings.Builder
-
-	fileHeaderStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#7C3AED")).
-		Bold(true).
-		Background(lipgloss.Color("#1F2937")).
-		Padding(0, 1)
-
 	file := m.diff.Files[m.currentFile]
-
-	if m.viewingCommit != nil {
-		b.WriteString(listTitleStyle.Render(fmt.Sprintf(commitHeaderFormat, m.viewingCommit.ShortID(), m.viewingCommit.Subject())))
-		b.WriteString("\n")
-	}
-
-	header := fmt.Sprintf("File %d/%d: %s",
-		m.currentFile+1,
-		len(m.diff.Files),
-		getFilePath(file),
-	)
-
-	b.WriteString(fileHeaderStyle.Render(header))
-	b.WriteString("\n\n")
 
 	logger.Log("PRInspectView: renderDiff - File has %d hunks", len(file.Hunks))
 
+	m.cursorRow = noCursorRow
+	gutterDigits := diffGutterDigits(file)
 	lineIdx := 0
 	for hunkIdx, hunk := range file.Hunks {
 		hunkHeaderStyle := lipgloss.NewStyle().
@@ -621,11 +609,14 @@ func (m *PRInspectViewModel) renderDiff() string {
 		logger.Log("PRInspectView: renderDiff - Hunk %d has %d lines", hunkIdx+1, len(hunk.Lines))
 
 		for _, line := range hunk.Lines {
-			if m.diffViewMode == DiffViewModeCompact && line.Type == "context" {
+			if !m.isLineShown(line) {
 				lineIdx++
 				continue
 			}
-			b.WriteString(m.renderDiffLine(line, lineIdx))
+			if lineIdx == m.currentLineIdx {
+				m.cursorRow = strings.Count(b.String(), "\n")
+			}
+			b.WriteString(m.renderDiffLine(line, lineIdx, gutterDigits))
 			b.WriteString("\n")
 			lineIdx++
 		}
@@ -644,7 +635,7 @@ func (m *PRInspectViewModel) renderDiff() string {
 	return result
 }
 
-func (m *PRInspectViewModel) renderDiffLine(line domain.DiffLine, lineIdx int) string {
+func (m *PRInspectViewModel) renderDiffLine(line domain.DiffLine, lineIdx, gutterDigits int) string {
 	style := lipgloss.NewStyle()
 
 	switch line.Type {
@@ -654,6 +645,10 @@ func (m *PRInspectViewModel) renderDiffLine(line domain.DiffLine, lineIdx int) s
 		style = style.Foreground(lipgloss.Color("#EF4444"))
 	default:
 		style = style.Foreground(lipgloss.Color("#6B7280"))
+	}
+
+	if m.search.Matches(line.Content) {
+		style = style.Inherit(searchMatchStyle)
 	}
 
 	isCursor := lineIdx == m.currentLineIdx
@@ -674,7 +669,7 @@ func (m *PRInspectViewModel) renderDiffLine(line domain.DiffLine, lineIdx int) s
 		prefix += "💭 "
 	}
 
-	return style.Render(prefix + line.Content)
+	return renderDiffGutter(line, gutterDigits) + style.Render(prefix+line.Content)
 }
 
 func (m *PRInspectViewModel) hasPendingCommentOnLine(line domain.DiffLine) bool {

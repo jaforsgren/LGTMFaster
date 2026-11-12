@@ -3,7 +3,6 @@ package views
 import (
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 	"unicode"
 
@@ -35,25 +34,22 @@ const (
 )
 
 const (
-	newPRDropdownRows      = 6
-	newPRLabelWidth        = 13
-	newPRBoxChromeRows     = 4
-	newPRFixedRows         = 14
-	newPRMinTextareaRows   = 3
-	newPRBoxInset          = 4
-	newPRInputInset        = newPRLabelWidth + 8
-	newPRCharLimit         = 65535
-	newPRTitleCharLimit    = 400
-	branchPathSeparator    = "/"
-	draftLabel             = "[x] draft"
-	readyForReviewLabel    = "[ ] ready for review"
-	newPRHelp              = "tab/shift+tab: field | ↑↓: pick branch | space: draft | ctrl+g: editor | ctrl+s: create | esc: cancel"
-	loadingBranchesText    = "loading branches..."
-	branchWordSeparators   = "-_"
-	newPRTitleText         = "New Pull Request"
-	newPRSourceFormat      = "%s : %s"
-	newPRPushedAgoFormat   = "  (pushed %s)"
-	noMatchingBranchesText = "no matching branch"
+	newPRLabelWidth      = 13
+	newPRBoxChromeRows   = 4
+	newPRFixedRows       = 14
+	newPRMinTextareaRows = 3
+	newPRBoxInset        = 4
+	newPRInputInset      = newPRLabelWidth + 8
+	newPRCharLimit       = 65535
+	newPRTitleCharLimit  = 400
+	branchPathSeparator  = "/"
+	draftLabel           = "[x] draft"
+	readyForReviewLabel  = "[ ] ready for review"
+	newPRHelp            = "tab/shift+tab: field | ↑↓: pick branch | space: draft | ctrl+g: editor | ctrl+s: create | esc: cancel"
+	branchWordSeparators = "-_"
+	newPRTitleText       = "New Pull Request"
+	newPRSourceFormat    = "%s : %s"
+	newPRPushedAgoFormat = "  (pushed %s)"
 )
 
 var (
@@ -68,27 +64,18 @@ var (
 )
 
 type NewPRViewModel struct {
-	branch         domain.PushedBranch
-	branches       domain.RepositoryBranches
-	branchesLoaded bool
-	target         textinput.Model
-	title          textinput.Model
-	description    textarea.Model
-	isDraft        bool
-	focus          newPRField
-	highlighted    int
-	// replaceTarget makes the first character typed into the target field replace the preselected
-	// branch instead of being appended to it.
-	replaceTarget bool
-	active        bool
-	width         int
-	height        int
+	branch      domain.PushedBranch
+	target      branchPicker
+	title       textinput.Model
+	description textarea.Model
+	isDraft     bool
+	focus       newPRField
+	active      bool
+	width       int
+	height      int
 }
 
 func NewNewPRView() *NewPRViewModel {
-	target := textinput.New()
-	target.Prompt = ""
-	target.Placeholder = loadingBranchesText
 	title := textinput.New()
 	title.Prompt = ""
 	title.CharLimit = newPRTitleCharLimit
@@ -97,29 +84,26 @@ func NewNewPRView() *NewPRViewModel {
 	description.CharLimit = newPRCharLimit
 	description.ShowLineNumbers = false
 
-	return &NewPRViewModel{target: target, title: title, description: description}
+	return &NewPRViewModel{target: newBranchPicker(), title: title, description: description}
 }
 
 func (m *NewPRViewModel) SetSize(width, height int) {
 	m.width = width
 	m.height = height
 	inputWidth := max(width-newPRInputInset, minPaneSize)
-	m.target.Width = inputWidth
+	m.target.SetWidth(inputWidth)
 	m.title.Width = inputWidth
 	m.description.SetWidth(max(width-newPRBoxInset*2, minPaneSize))
-	m.description.SetHeight(max(height-newPRFixedRows-newPRDropdownRows, newPRMinTextareaRows))
+	m.description.SetHeight(max(height-newPRFixedRows-branchDropdownRows, newPRMinTextareaRows))
 }
 
 // Activate opens the form for a pull request from branch, with a title made from its name.
 func (m *NewPRViewModel) Activate(branch domain.PushedBranch) {
 	m.branch = branch
-	m.branches = domain.RepositoryBranches{}
-	m.branchesLoaded = false
-	m.target.SetValue("")
+	m.target.Reset(branch.Branch)
 	m.title.SetValue(TitleFromBranch(branch.Branch))
 	m.description.SetValue("")
 	m.isDraft = false
-	m.highlighted = 0
 	m.active = true
 	m.focusField(newPRFieldTitle)
 }
@@ -141,12 +125,7 @@ func (m *NewPRViewModel) Branch() domain.PushedBranch {
 
 // SetBranches fills the target dropdown, preselecting the default branch unless one was typed.
 func (m *NewPRViewModel) SetBranches(branches domain.RepositoryBranches) {
-	m.branches = branches
-	m.branchesLoaded = true
-	m.target.Placeholder = ""
-	if m.target.Value() == "" {
-		m.target.SetValue(branches.Default)
-	}
+	m.target.SetBranches(branches)
 }
 
 func (m *NewPRViewModel) Description() string {
@@ -160,7 +139,7 @@ func (m *NewPRViewModel) SetDescription(description string) {
 // Request validates the form and returns the pull request it describes.
 func (m *NewPRViewModel) Request() (domain.NewPullRequest, error) {
 	title := strings.TrimSpace(m.title.Value())
-	target := strings.TrimSpace(m.target.Value())
+	target := m.target.Value()
 	switch {
 	case title == "":
 		return domain.NewPullRequest{}, errNewPRNoTitle
@@ -168,7 +147,7 @@ func (m *NewPRViewModel) Request() (domain.NewPullRequest, error) {
 		return domain.NewPullRequest{}, errNewPRNoTarget
 	case target == m.branch.Branch:
 		return domain.NewPullRequest{}, errNewPRSameBranch
-	case m.branchesLoaded && !slices.Contains(m.branches.Names, target):
+	case m.target.IsUnknown(target):
 		return domain.NewPullRequest{}, errNewPRUnknownTarget
 	}
 	return domain.NewPullRequest{
@@ -224,58 +203,17 @@ func (m *NewPRViewModel) HandleKey(msg tea.KeyMsg) (NewPRAction, tea.Cmd) {
 }
 
 func (m *NewPRViewModel) handleTargetKey(msg tea.KeyMsg) tea.Cmd {
-	matches := m.targetMatches()
-	switch msg.String() {
-	case "up":
-		m.highlighted = max(m.highlighted-1, 0)
-		return nil
-	case "down":
-		m.highlighted = min(m.highlighted+1, max(len(matches)-1, 0))
-		return nil
-	case "enter":
-		m.acceptHighlightedTarget()
+	accepted, cmd := m.target.HandleKey(msg)
+	if accepted {
 		m.focusField(newPRFieldTitle)
-		return nil
 	}
-	if m.replaceTarget && msg.Type == tea.KeyRunes {
-		m.target.SetValue("")
-	}
-	m.replaceTarget = false
-	var cmd tea.Cmd
-	m.target, cmd = m.target.Update(msg)
-	m.highlighted = 0
 	return cmd
 }
 
-// acceptHighlightedTarget completes a partly typed target to the highlighted dropdown entry.
 func (m *NewPRViewModel) acceptHighlightedTarget() {
-	if m.focus != newPRFieldTarget {
-		return
+	if m.focus == newPRFieldTarget {
+		m.target.AcceptHighlighted()
 	}
-	matches := m.targetMatches()
-	if len(matches) == 0 || slices.Contains(matches, m.target.Value()) && m.highlighted == 0 {
-		return
-	}
-	m.target.SetValue(matches[min(m.highlighted, len(matches)-1)])
-	m.target.CursorEnd()
-}
-
-// targetMatches are the branches containing the typed text, prefix matches first, without the
-// source branch.
-func (m *NewPRViewModel) targetMatches() []string {
-	query := strings.ToLower(strings.TrimSpace(m.target.Value()))
-	var prefixed, contained []string
-	for _, name := range m.branches.Names {
-		lower := strings.ToLower(name)
-		switch {
-		case name == m.branch.Branch:
-		case strings.HasPrefix(lower, query):
-			prefixed = append(prefixed, name)
-		case strings.Contains(lower, query):
-			contained = append(contained, name)
-		}
-	}
-	return append(prefixed, contained...)
 }
 
 func (m *NewPRViewModel) focusField(field newPRField) {
@@ -286,7 +224,6 @@ func (m *NewPRViewModel) focusField(field newPRField) {
 	switch field {
 	case newPRFieldTarget:
 		m.target.Focus()
-		m.replaceTarget = m.target.Value() != ""
 	case newPRFieldTitle:
 		m.title.Focus()
 	case newPRFieldDescription:
@@ -321,11 +258,16 @@ func (m *NewPRViewModel) View() string {
 }
 
 func (m *NewPRViewModel) label(text string, focused bool) string {
+	return renderFormLabel(text, focused, newPRLabelWidth)
+}
+
+// renderFormLabel is a form field's label, highlighted while the field has focus.
+func renderFormLabel(text string, focused bool, width int) string {
 	style := newPRLabelStyle
 	if focused {
 		style = newPRFocusedLabelStyle
 	}
-	return style.Render(padToWidth(text+":", newPRLabelWidth))
+	return style.Render(padToWidth(text+":", width))
 }
 
 func (m *NewPRViewModel) renderDraft() string {
@@ -335,34 +277,11 @@ func (m *NewPRViewModel) renderDraft() string {
 	return detailValueStyle.Render(readyForReviewLabel)
 }
 
-// renderDropdown lists the matching target branches under the field while it has focus, always
-// taking the same rows then so the form does not jump while typing.
 func (m *NewPRViewModel) renderDropdown() string {
 	if m.focus != newPRFieldTarget {
 		return ""
 	}
-	rows := make([]string, newPRDropdownRows)
-	if m.branchesLoaded {
-		matches := m.targetMatches()
-		if len(matches) == 0 {
-			rows[0] = listMutedStyle.Render(noMatchingBranchesText)
-		}
-		start := max(0, m.highlighted-newPRDropdownRows+1)
-		for i := 0; i < newPRDropdownRows && start+i < len(matches); i++ {
-			marker, style := unselectedRowMarker, listRowStyle
-			if start+i == m.highlighted {
-				marker, style = selectedRowMarker, listSelectedRowStyle
-			}
-			rows[i] = style.Render(marker + matches[start+i])
-		}
-	}
-
-	indent := strings.Repeat(" ", newPRLabelWidth)
-	var b strings.Builder
-	for _, row := range rows {
-		b.WriteString(indent + row + "\n")
-	}
-	return b.String()
+	return m.target.Dropdown(newPRLabelWidth)
 }
 
 // TitleFromBranch turns the last segment of a branch name into a sentence: "feature/add-login"

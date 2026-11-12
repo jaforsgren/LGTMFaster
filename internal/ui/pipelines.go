@@ -211,8 +211,9 @@ func tagPipelineRun(run *domain.PipelineRun, patID string, providerType domain.P
 	run.ProviderType = providerType
 }
 
-// startPipelineWatch restarts the auto-refresh for the current pipeline view. Bumping the watch
-// generation also stops the previous loop, which is all that happens while auto-refresh is off.
+// startPipelineWatch restarts the auto-refresh loop, which keeps ticking in every view and refreshes
+// whichever one is on screen. Bumping the watch generation also stops the previous loop, which is
+// all that happens while auto-refresh is off.
 func (m *Model) startPipelineWatch() tea.Cmd {
 	m.pipelineWatchID++
 	settings := m.currentSettings()
@@ -232,7 +233,7 @@ func (m Model) currentSettings() domain.Settings {
 	return settings
 }
 
-// toggleAutoRefresh saves the flipped setting, so it holds for every pipeline view and the next start.
+// toggleAutoRefresh saves the flipped setting, so it holds for every refreshing view and the next start.
 func (m Model) toggleAutoRefresh() (Model, tea.Cmd) {
 	settings := m.currentSettings()
 	settings.PipelineAutoRefreshEnabled = !settings.PipelineAutoRefreshEnabled
@@ -401,6 +402,11 @@ func (m Model) handlePipelineWatchTick(msg PipelineWatchTickMsg) (Model, tea.Cmd
 	nextTick := schedulePipelineWatchTick(msg.watchID, m.currentSettings().PipelineAutoRefreshInterval())
 
 	switch m.state {
+	case ViewPRList:
+		if m.loadingState.IsLoading {
+			return m, nextTick
+		}
+		return m, tea.Batch(m.loadPRsInBackground(), nextTick)
 	case ViewPipelineList:
 		cmds := []tea.Cmd{m.loadPipelinesInBackground(), nextTick}
 		for _, pipeline := range m.pipelineListView.ShownRunPipelines() {
@@ -410,7 +416,7 @@ func (m Model) handlePipelineWatchTick(msg PipelineWatchTickMsg) (Model, tea.Cmd
 	case ViewPipelineRuns:
 		pipeline := m.pipelineRunsView.GetPipeline()
 		if pipeline == nil {
-			return m, nil
+			return m, nextTick
 		}
 		cmds := []tea.Cmd{m.loadPipelineRuns(*pipeline), nextTick}
 		if run := m.pipelineRunsView.GetSelectedRun(); run != nil && m.pipelineRunsView.IsPreviewOpen() {
@@ -422,12 +428,11 @@ func (m Model) handlePipelineWatchTick(msg PipelineWatchTickMsg) (Model, tea.Cmd
 	case ViewPipelineRun:
 		run := m.pipelineRunView.GetRun()
 		if run == nil || run.Status.IsFinished() {
-			logger.Log("UI: Stopping pipeline watch, run is finished")
-			return m, nil
+			return m, nextTick
 		}
 		return m, tea.Batch(m.loadPipelineRun(*run), nextTick)
 	default:
-		return m, nil
+		return m, nextTick
 	}
 }
 
@@ -446,6 +451,8 @@ func (m Model) refreshPipelineView() (Model, tea.Cmd) {
 		if run := m.pipelineRunView.GetRun(); run != nil {
 			return m, m.loadPipelineRun(*run)
 		}
+	case ViewPipelineLog:
+		return m.refreshPipelineLogs()
 	}
 	return m, nil
 }
@@ -529,7 +536,7 @@ func (m Model) pipelineBrowserTarget() (string, string) {
 			return pipeline.URL, "pipeline"
 		}
 		return "", "run"
-	case ViewPipelineRun:
+	case ViewPipelineRun, ViewPipelineLog:
 		if run := m.pipelineRunView.GetRun(); run != nil {
 			return run.URL, "run"
 		}
@@ -672,5 +679,5 @@ func (m Model) toggleFavoritesOnly() (Model, tea.Cmd) {
 }
 
 func isPipelineView(state ViewState) bool {
-	return state == ViewPipelineList || state == ViewPipelineRuns || state == ViewPipelineRun
+	return state == ViewPipelineList || state == ViewPipelineRuns || state == ViewPipelineRun || state == ViewPipelineLog
 }

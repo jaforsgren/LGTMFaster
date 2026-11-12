@@ -16,6 +16,7 @@ const (
 	filterHelp       = "type to filter | enter: apply | esc: close"
 	commandHelp      = "tab: complete | enter: run | esc: cancel"
 	paneFocusHelp    = "j/k: scroll | ←/esc: back to the list"
+	textSearchHelp   = "type to search | enter: keep, then n/N | esc: clear"
 )
 
 type sizedView interface {
@@ -59,7 +60,7 @@ func (m Model) resizeViews() {
 	innerWidth, innerHeight := m.mainWindowContentSize()
 	framed := []sizedView{
 		m.patsView, m.prListView, m.prInspect, m.commentDetailView,
-		m.pipelineListView, m.pipelineRunsView, m.pipelineRunView, m.dashboardView,
+		m.pipelineListView, m.pipelineRunsView, m.pipelineRunView, m.pipelineLogView, m.dashboardView,
 	}
 	for _, view := range framed {
 		view.SetSize(innerWidth, innerHeight)
@@ -68,7 +69,7 @@ func (m Model) resizeViews() {
 	overlays := []sizedView{
 		m.reviewView, m.mergeView, m.inlineCommentView, m.descriptionEditView,
 		m.logsView, m.repoLinkView, m.reposView, m.stageApprovalView, m.newPRView, m.extensionFilterView,
-		m.workItemPickerView,
+		m.workItemPickerView, m.pipelineRetryView, m.pipelineTriggerView, m.fileFinderView,
 	}
 	for _, view := range overlays {
 		view.SetSize(m.width, m.contentHeight())
@@ -94,6 +95,8 @@ func (m Model) renderContent() string {
 		return m.pipelineRunsView.View()
 	case ViewPipelineRun:
 		return m.pipelineRunView.View()
+	case ViewPipelineLog:
+		return m.pipelineLogView.View()
 	case ViewDashboard:
 		return m.dashboardView.View()
 	case ViewPRInspect:
@@ -132,6 +135,12 @@ func (m Model) activeOverlay() (string, bool) {
 		return m.extensionFilterView.View(), true
 	case m.workItemPickerView.IsActive():
 		return m.workItemPickerView.View(), true
+	case m.pipelineRetryView.IsActive():
+		return m.pipelineRetryView.View(), true
+	case m.pipelineTriggerView.IsActive():
+		return m.pipelineTriggerView.View(), true
+	case m.fileFinderView.IsActive():
+		return m.fileFinderView.View(), true
 	}
 	return "", false
 }
@@ -144,6 +153,8 @@ func (m Model) helpLine() string {
 	switch {
 	case m.commandBar.IsActive():
 		return commandHelp
+	case m.isTextSearching():
+		return textSearchHelp
 	case m.isFiltering():
 		return filterHelp
 	case m.isPaneFocused():
@@ -161,5 +172,5 @@ func (m Model) isFiltering() bool {
 	case ViewPipelineRuns:
 		return m.pipelineRunsView.IsFiltering()
 	}
-	return false
+	return m.isTextSearching()
 }

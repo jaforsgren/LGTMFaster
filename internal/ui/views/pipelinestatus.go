@@ -69,13 +69,14 @@ func renderPipelineStatusLabel(status domain.PipelineStatus, width int) string {
 		Render(padToWidth(truncateString(appearance.label, width), width))
 }
 
-func formatRunDuration(run domain.PipelineRun) string {
-	if run.StartedAt.IsZero() {
+// formatElapsed is how long something that started has run: until it finished, else until now.
+func formatElapsed(startedAt, finishedAt time.Time) string {
+	if startedAt.IsZero() {
 		return emptyCellPlaceholder
 	}
-	end := run.FinishedAt
+	end := finishedAt
 	if end.IsZero() {
 		end = time.Now()
 	}
-	return end.Sub(run.StartedAt).Round(time.Second).String()
+	return end.Sub(startedAt).Round(time.Second).String()
 }

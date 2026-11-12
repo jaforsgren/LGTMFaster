@@ -288,7 +288,11 @@ func (m *PipelineRunsViewModel) stagesPane() detailPane {
 	}
 	lines := make([]string, 0, len(stages))
 	for _, stage := range stages {
-		line := renderDetailRow(stage.Status, stage.Name+"  "+PipelineStatusLabel(stage.Status))
+		text := stage.Name + "  " + PipelineStatusLabel(stage.Status)
+		if !stage.StartedAt.IsZero() {
+			text += "  " + formatElapsed(stage.StartedAt, stage.FinishedAt)
+		}
+		line := renderDetailRow(stage.Status, text)
 		if stage.AwaitsApproval() {
 			line += " " + approvalHintStyle.Render("needs approval")
 		}
@@ -307,7 +311,7 @@ func runRow(run domain.PipelineRun, isFavorite bool) listRow {
 			valueOrPlaceholder(run.SourceBranch),
 			valueOrPlaceholder(run.RequestedBy.Username),
 			formatOptionalAge(run.QueuedAt),
-			formatRunDuration(run),
+			formatElapsed(run.StartedAt, run.FinishedAt),
 			runCommitLabel(run),
 		},
 		style: listRowStyle,

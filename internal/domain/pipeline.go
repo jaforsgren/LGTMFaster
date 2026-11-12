@@ -155,11 +155,15 @@ func (r PipelineRun) FavoriteKey() string {
 }
 
 type PipelineStage struct {
-	ID                string
-	Name              string
+	ID   string
+	Name string
+	// RefName is the stage's identifier in the pipeline definition, which retrying it needs.
+	RefName           string
 	Order             int
 	Status            PipelineStatus
 	PendingApprovalID string
+	StartedAt         time.Time
+	FinishedAt        time.Time
 }
 
 func (s PipelineStage) AwaitsApproval() bool {

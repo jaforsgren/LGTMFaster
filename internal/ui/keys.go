@@ -1,5 +1,8 @@
 package ui
 
+// diffCountDigits are the digit keys 0-9, which count a vim motion in the diff.
+const diffCountDigits = 10
+
 // Keys shared by several views mean the same thing in each of them.
 const (
 	keyQuit          = "q"
@@ -53,4 +56,18 @@ const (
 	keyLinkWorkItem  = "l"
 	keyToggleTopBar  = "T"
 	keyComplete      = "tab"
+	keyLogs          = "l"
+	keyFollow        = "F"
+	keyNextMatch     = "n"
+	keyPrevMatch     = "N"
+	keyNextError     = "e"
+	keyPrevError     = "E"
+	keyNextWarning   = "w"
+	keyPrevWarning   = "W"
+	keyTop           = "g"
+	keyBottom        = "G"
+	keyPageUp        = "pgup"
+	keyPageDown      = "pgdown"
+	keyRetry         = "ctrl+r"
+	keyTrigger       = "t"
 )

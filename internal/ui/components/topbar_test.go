@@ -163,7 +163,7 @@ func TestTruncatePathStart_KeepsTheEnd(t *testing.T) {
 	}
 }
 
-func TestTopBarView_ShowsAutoRefreshInPipelineViews(t *testing.T) {
+func TestTopBarView_ShowsAutoRefreshInRefreshingViews(t *testing.T) {
 	m := NewTopBar()
 	m.SetWidth(wideTerminal)
 	m.SetView(ViewNamePipelines)
@@ -184,8 +184,13 @@ func TestTopBarView_ShowsAutoRefreshInPipelineViews(t *testing.T) {
 	}
 
 	m.SetView(ViewNamePRList)
+	if !strings.Contains(m.View(), "Auto-refresh: OFF") {
+		t.Error("expected auto-refresh in the PR list context")
+	}
+
+	m.SetView(ViewNamePATs)
 	if strings.Contains(m.View(), "Auto-refresh") {
-		t.Error("expected no auto-refresh line outside the pipeline views")
+		t.Error("expected no auto-refresh line in the PATs view")
 	}
 }
 

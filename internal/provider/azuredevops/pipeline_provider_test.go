@@ -27,7 +27,51 @@ type mockBuildClient struct {
 	lastGetBuildsArgs build.GetBuildsArgs
 	build             *build.Build
 	timeline          *build.Timeline
+	logLines          []string
+	lastLogLinesArgs  build.GetBuildLogLinesArgs
+	definition        *build.BuildDefinition
+	queued            *build.Build
+	lastQueueArgs     *build.QueueBuildArgs
+	lastUpdateArgs    *build.UpdateBuildArgs
+	lastStageArgs     *build.UpdateStageArgs
 	err               error
+}
+
+func (m *mockBuildClient) GetBuildLogLines(ctx context.Context, args build.GetBuildLogLinesArgs) (*[]string, error) {
+	m.lastLogLinesArgs = args
+	if m.err != nil {
+		return nil, m.err
+	}
+	lines := append([]string(nil), m.logLines...)
+	return &lines, nil
+}
+
+func (m *mockBuildClient) GetDefinition(ctx context.Context, args build.GetDefinitionArgs) (*build.BuildDefinition, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return m.definition, nil
+}
+
+func (m *mockBuildClient) QueueBuild(ctx context.Context, args build.QueueBuildArgs) (*build.Build, error) {
+	m.lastQueueArgs = &args
+	if m.err != nil {
+		return nil, m.err
+	}
+	return m.queued, nil
+}
+
+func (m *mockBuildClient) UpdateBuild(ctx context.Context, args build.UpdateBuildArgs) (*build.Build, error) {
+	m.lastUpdateArgs = &args
+	if m.err != nil {
+		return nil, m.err
+	}
+	return m.build, nil
+}
+
+func (m *mockBuildClient) UpdateStage(ctx context.Context, args build.UpdateStageArgs) error {
+	m.lastStageArgs = &args
+	return m.err
 }
 
 func (m *mockBuildClient) GetDefinitions(ctx context.Context, args build.GetDefinitionsArgs) (*build.GetDefinitionsResponseValue, error) {
@@ -300,6 +344,32 @@ func TestGetPipelineRunStages_AttachesPendingApprovalToStage(t *testing.T) {
 	}
 }
 
+func TestGetPipelineRunStages_CarriesStartAndFinishTimes(t *testing.T) {
+	stage := uuid.New()
+	succeeded := build.TaskResultValues.Succeeded
+	started := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	finished := started.Add(90 * time.Second)
+
+	record := newTimelineRecord(stage, nil, timelineRecordTypeStage, "Build", 1, build.TimelineRecordStateValues.Completed, &succeeded)
+	record.StartTime = &azuredevops.Time{Time: started}
+	record.FinishTime = &azuredevops.Time{Time: finished}
+	record.Identifier = strPtr("build_stage")
+	records := []build.TimelineRecord{record}
+	provider := newPipelineTestProvider(&mockBuildClient{timeline: &build.Timeline{Records: &records}}, nil)
+
+	stages, err := provider.GetPipelineRunStages(context.Background(), domain.PipelineRunIdentifier{Project: testProject, RunID: 1})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if stages[0].RefName != "build_stage" {
+		t.Errorf("expected the stage identifier as ref name, got %q", stages[0].RefName)
+	}
+	if !stages[0].StartedAt.Equal(started) || !stages[0].FinishedAt.Equal(finished) {
+		t.Errorf("expected stage times %s - %s, got %s - %s", started, finished, stages[0].StartedAt, stages[0].FinishedAt)
+	}
+}
+
 func TestGetPipelineRunStages_IgnoresCompletedApprovals(t *testing.T) {
 	stage := uuid.New()
 	checkpoint := uuid.New()
@@ -335,13 +405,13 @@ func TestGetPipelineRunStages_EmptyTimeline(t *testing.T) {
 	}
 }
 
-func TestFindStageAncestor_StopsOnCycle(t *testing.T) {
+func TestFindAncestor_StopsOnCycle(t *testing.T) {
 	a := uuid.New()
 	b := uuid.New()
 	recordA := newTimelineRecord(a, &b, "Checkpoint", "A", 1, build.TimelineRecordStateValues.InProgress, nil)
 	recordB := newTimelineRecord(b, &a, "Checkpoint", "B", 1, build.TimelineRecordStateValues.InProgress, nil)
 
-	_, found := findStageAncestor(recordA, map[uuid.UUID]build.TimelineRecord{a: recordA, b: recordB})
+	_, found := findAncestor(recordA, map[uuid.UUID]build.TimelineRecord{a: recordA, b: recordB}, timelineRecordTypeStage)
 
 	if found {
 		t.Error("expected no stage ancestor for cyclic records")
