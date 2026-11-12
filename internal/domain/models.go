@@ -105,6 +105,8 @@ type Settings struct {
 	PipelineAutoRefreshEnabled bool
 	// RecentBranchMinutes is how far back :pr looks for pushed branches to open a pull request from.
 	RecentBranchMinutes int
+	// TopBarHidden collapses the top bar to give the content its rows; T toggles it.
+	TopBarHidden bool
 }
 
 // WithDefaults fills in the settings that are missing or out of range.

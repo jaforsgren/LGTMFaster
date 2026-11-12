@@ -51,5 +51,6 @@ const (
 	keyPull          = "P"
 	keyLinkRepo      = "L"
 	keyLinkWorkItem  = "l"
+	keyToggleTopBar  = "T"
 	keyComplete      = "tab"
 )

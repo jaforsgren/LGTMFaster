@@ -61,6 +61,12 @@ func (m *PRInspectViewModel) TogglePreview() {
 	m.updateViewport()
 }
 
+// ClosePreview hides the pane, which every pull request opens without.
+func (m *PRInspectViewModel) ClosePreview() {
+	m.split.Close()
+	m.updateViewport()
+}
+
 func (m *PRInspectViewModel) IsPreviewOpen() bool {
 	return m.split.IsOpen()
 }

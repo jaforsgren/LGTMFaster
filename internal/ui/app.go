@@ -85,6 +85,7 @@ type Model struct {
 	stageApprovalView   *views.StageApprovalViewModel
 	newPRView           *views.NewPRViewModel
 	extensionFilterView *views.ExtensionFilterViewModel
+	topBarHidden        bool
 	workItemPickerView  *views.WorkItemPickerViewModel
 	dashboardView       *views.DashboardViewModel
 	// prInspectOrigin is the view a pull request was opened from, which going back returns to.
@@ -118,13 +119,16 @@ func NewModel(repository domain.Repository) Model {
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#7C3AED"))
 
 	prListView := views.NewPRListView()
+	topBarHidden := false
 	if settings, err := repository.GetSettings(); err == nil {
 		prListView.SetSettings(settings)
+		topBarHidden = settings.TopBarHidden
 	}
 
 	m := Model{
 		state:               ViewPATs,
 		topBar:              components.NewTopBar(),
+		topBarHidden:        topBarHidden,
 		statusBar:           components.NewStatusBar(),
 		commandBar:          components.NewCommandBar(),
 		patsView:            views.NewPATsView(),
@@ -776,6 +780,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.prListView.SetSettings(settings)
 		m.pipelineListView.SetSortMode(settings.PipelineSortMode)
+		m.topBarHidden = settings.TopBarHidden
+		m.resizeViews()
 		m.statusBar.SetMessage("Settings reloaded", false)
 		if isPipelineView(m.state) {
 			return m, tea.Batch(m.startPipelineWatch(), clearStatusAfterDelay(4*time.Second))
@@ -848,12 +854,11 @@ func (m Model) View() string {
 		return "Loading..."
 	}
 
-	return lipgloss.JoinVertical(lipgloss.Left,
-		m.topBar.View(),
-		m.renderContent(),
-		m.commandBar.View(),
-		m.statusBar.View(m.helpLine()),
-	)
+	rows := []string{m.renderContent(), m.commandBar.View(), m.statusBar.View(m.helpLine())}
+	if !m.topBarHidden {
+		rows = append([]string{m.topBar.View()}, rows...)
+	}
+	return lipgloss.JoinVertical(lipgloss.Left, rows...)
 }
 
 func (m Model) handleCommand() (tea.Model, tea.Cmd) {

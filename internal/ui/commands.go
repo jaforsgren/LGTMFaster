@@ -333,6 +333,14 @@ func (cr *CommandRegistry) registerKeyBindings() {
 			AvailableIn: splitViewStates,
 		},
 		{
+			Keys:        []string{keyToggleTopBar},
+			Description: "Toggle top bar",
+			ShortHelp:   keyToggleTopBar,
+			Handler:     handleToggleTopBarKey,
+			AvailableIn: allViewStates,
+			Navigation:  true,
+		},
+		{
 			Keys:        []string{keyTogglePane},
 			Description: "Work items pane",
 			ShortHelp:   keyTogglePane,
@@ -759,6 +767,7 @@ func (m Model) inspectPR(pr domain.PullRequest) (Model, tea.Cmd) {
 	}
 	m.state = ViewPRInspect
 	m.topBar.SetCommentThreads(nil)
+	m.prInspect.ClosePreview()
 	m.prInspect.SwitchToDescription()
 	m.topBar.SetContext(pr.Repository.FullName, fmt.Sprintf("%d", pr.Number))
 	m.topBar.SetView(components.ViewNamePRDescription)

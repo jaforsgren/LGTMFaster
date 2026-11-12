@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/johanforsgren/lgtmfaster/internal/domain"
+	"github.com/johanforsgren/lgtmfaster/internal/ui/components"
 )
 
 const (
@@ -118,5 +119,42 @@ func TestPaneFocus_ScrollsPaneInsteadOfMovingCursor(t *testing.T) {
 	}
 	if m.state != ViewPRList {
 		t.Errorf("expected esc to stay in the list while leaving the pane, got %v", m.state)
+	}
+}
+
+func TestView_TopBarTogglesAndTheContentFillsItsRows(t *testing.T) {
+	m := sizedTestModel(t, layoutTestWidth, layoutTestHeight)
+	m.prListView.SetPRs(layoutTestPRs())
+	const topBarHeading = "CONTEXT"
+	if !strings.Contains(m.View(), topBarHeading) {
+		t.Fatal("expected the top bar to be shown at first")
+	}
+
+	m, _ = pressKey(t, m, keyToggleTopBar)
+	if strings.Contains(m.View(), topBarHeading) {
+		t.Error("expected T to hide the top bar")
+	}
+	for _, state := range allViewStates {
+		m.state = state
+		assertFillsTerminal(t, "hidden top bar", m, layoutTestWidth, layoutTestHeight)
+	}
+	settings, _ := m.repository.GetSettings()
+	if !settings.TopBarHidden {
+		t.Error("expected the hidden top bar to be saved")
+	}
+
+	m, _ = pressKey(t, m, keyToggleTopBar)
+	if !strings.Contains(m.View(), topBarHeading) {
+		t.Error("expected T to show the top bar again")
+	}
+}
+
+func TestNewModel_StartsWithTheSavedTopBarSetting(t *testing.T) {
+	m := NewModel(&mockRepository{pats: map[string]*domain.PAT{}, settings: domain.Settings{TopBarHidden: true}})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: layoutTestWidth, Height: layoutTestHeight})
+
+	assertFillsTerminal(t, "saved hidden top bar", updated.(Model), layoutTestWidth, layoutTestHeight)
+	if updated.(Model).contentHeight() != layoutTestHeight-components.CommandBarHeight-components.StatusBarHeight {
+		t.Error("expected the content to take the top bar's rows")
 	}
 }

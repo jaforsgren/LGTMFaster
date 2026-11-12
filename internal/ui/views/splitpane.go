@@ -108,6 +108,12 @@ func (s *splitView) Toggle() {
 	s.ResetScroll()
 }
 
+func (s *splitView) Close() {
+	if s.open {
+		s.Toggle()
+	}
+}
+
 func (s *splitView) IsOpen() bool {
 	return s.open
 }

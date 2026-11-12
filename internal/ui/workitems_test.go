@@ -159,3 +159,14 @@ func TestWorkItemPicker_EscClosesWithoutLinking(t *testing.T) {
 		t.Error("expected esc to close the picker without linking or leaving the description")
 	}
 }
+
+func TestWorkItemsPane_IsClosedWhenAPullRequestIsOpened(t *testing.T) {
+	m, pr := workItemTestModel(t, &mockProvider{})
+	m, _ = pressKey(t, m, keyTogglePane)
+
+	m, _ = m.inspectPR(pr)
+
+	if m.prInspect.IsPreviewOpen() {
+		t.Error("expected a newly opened pull request to hide the work items pane")
+	}
+}

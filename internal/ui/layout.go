@@ -1,7 +1,12 @@
 package ui
 
 import (
+	"fmt"
+	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/johanforsgren/lgtmfaster/internal/logger"
 	"github.com/johanforsgren/lgtmfaster/internal/ui/components"
 	"github.com/johanforsgren/lgtmfaster/internal/ui/views"
 )
@@ -19,7 +24,29 @@ type sizedView interface {
 
 // contentHeight is the rows between the top bar and the command and status bars.
 func (m Model) contentHeight() int {
-	return max(m.height-components.TopBarHeight-components.CommandBarHeight-components.StatusBarHeight, minContentHeight)
+	return max(m.height-m.topBarHeight()-components.CommandBarHeight-components.StatusBarHeight, minContentHeight)
+}
+
+func (m Model) topBarHeight() int {
+	if m.topBarHidden {
+		return 0
+	}
+	return components.TopBarHeight
+}
+
+// handleToggleTopBarKey shows or hides the top bar and saves the choice for the next start.
+func handleToggleTopBarKey(m Model) (Model, tea.Cmd) {
+	m.topBarHidden = !m.topBarHidden
+	m.resizeViews()
+
+	settings := m.currentSettings()
+	settings.TopBarHidden = m.topBarHidden
+	if err := m.repository.SaveSettings(settings); err != nil {
+		logger.LogError("SAVE_TOP_BAR", "storage", err)
+		m.statusBar.SetMessage(fmt.Sprintf("Failed to save the top bar setting: %v", err), true)
+		return m, clearStatusAfterDelay(4 * time.Second)
+	}
+	return m, nil
 }
 
 func (m Model) mainWindowContentSize() (int, int) {
