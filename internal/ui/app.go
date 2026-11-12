@@ -1604,7 +1604,7 @@ func (m Model) handleReposOpenFolder() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	if err := git.OpenFolder(link.LocalPath); err != nil {
+	if err := openFolder(link.LocalPath); err != nil {
 		m.statusBar.SetMessage(fmt.Sprintf("Failed to open folder: %v", err), true)
 		return m, nil
 	}
@@ -1685,7 +1685,7 @@ func (m Model) handleOpenRepoFolder() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	if err := git.OpenFolder(link.LocalPath); err != nil {
+	if err := openFolder(link.LocalPath); err != nil {
 		m.statusBar.SetMessage(fmt.Sprintf("Failed to open folder: %v", err), true)
 		return m, nil
 	}

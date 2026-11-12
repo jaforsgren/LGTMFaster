@@ -455,6 +455,7 @@ func TestHandleOpenBrowserKey_InPRInspect_WorksInBothModes(t *testing.T) {
 	m.prInspect.SetPR(pr)
 
 	m.prInspect.SwitchToDescription()
+	opened := recordOpened(t)
 	_, cmd := handleOpenBrowserKey(m)
 
 	if cmd != nil {
@@ -466,6 +467,9 @@ func TestHandleOpenBrowserKey_InPRInspect_WorksInBothModes(t *testing.T) {
 
 	if cmd2 != nil {
 		t.Error("expected no command to be returned (browser opens synchronously)")
+	}
+	if len(*opened) != 2 || (*opened)[0] != pr.URL || (*opened)[1] != pr.URL {
+		t.Errorf("expected the PR URL opened in both modes, got %v", *opened)
 	}
 }
 

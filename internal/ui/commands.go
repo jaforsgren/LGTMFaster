@@ -13,6 +13,7 @@ import (
 	"github.com/atotto/clipboard"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/johanforsgren/lgtmfaster/internal/domain"
+	"github.com/johanforsgren/lgtmfaster/internal/git"
 	"github.com/johanforsgren/lgtmfaster/internal/logger"
 	"github.com/johanforsgren/lgtmfaster/internal/ui/components"
 	"github.com/johanforsgren/lgtmfaster/internal/ui/views"
@@ -1214,8 +1215,15 @@ func handleEditDescriptionKey(m Model) (Model, tea.Cmd) {
 	return m, nil
 }
 
-// openExternal opens a URL or a file with the system's default application.
-func openExternal(url string) error {
+// openExternal and openFolder hand a URL, file or folder to the system. They are variables so the
+// tests can replace them; otherwise every test of an "open" key launches a real application.
+var (
+	openExternal = openWithSystem
+	openFolder   = git.OpenFolder
+)
+
+// openWithSystem opens a URL or a file with the system's default application.
+func openWithSystem(url string) error {
 	var cmd *exec.Cmd
 
 	switch runtime.GOOS {
