@@ -129,3 +129,28 @@ func TestDiffKeys_SlashSearchesAndNJumpsBetweenMatches(t *testing.T) {
 		t.Errorf("expected n without a search to go to the next file, got %q", cursorLine(m))
 	}
 }
+
+func TestDiffKeys_ChangeJumpKeys(t *testing.T) {
+	keys := map[string][2]tea.KeyMsg{
+		"J/K":      {{Type: tea.KeyRunes, Runes: []rune("J")}, {Type: tea.KeyRunes, Runes: []rune("K")}},
+		"ctrl+j/k": {{Type: tea.KeyCtrlJ}, {Type: tea.KeyCtrlK}},
+		"ctrl+↓/↑": {{Type: tea.KeyCtrlDown}, {Type: tea.KeyCtrlUp}},
+	}
+	for name, pair := range keys {
+		t.Run(name, func(t *testing.T) {
+			m := twoFileDiffModel(t)
+			m = sendKey(m, pair[0])
+			if cursorLine(m) != "+needle" {
+				t.Fatalf("expected the next change in the next file, got %q", cursorLine(m))
+			}
+			m = sendKey(m, pair[0])
+			if !strings.Contains(m.View(), "No more changes") {
+				t.Error("expected a message after the last change")
+			}
+			m = sendKey(m, pair[1])
+			if cursorLine(m) != "+needle" {
+				t.Errorf("expected no earlier change, got %q", cursorLine(m))
+			}
+		})
+	}
+}

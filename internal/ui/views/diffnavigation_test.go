@@ -238,3 +238,50 @@ func TestDiffHeader_ShowsTheViewedCommit(t *testing.T) {
 		t.Errorf("expected the commit and file in view, got:\n%s", view)
 	}
 }
+
+// changesDiffView has a.go with two runs of changes and b.go with one.
+func changesDiffView() *PRInspectViewModel {
+	line := func(lineType, content string) domain.DiffLine {
+		return domain.DiffLine{Type: lineType, Content: content, OldLine: 1, NewLine: 1}
+	}
+	m := NewPRInspectView()
+	m.SetSize(navigationTestWidth, navigationTestHeight)
+	m.SetDiff(&domain.Diff{Files: []domain.FileDiff{
+		{NewPath: "a.go", Hunks: []domain.DiffHunk{{Lines: []domain.DiffLine{
+			line(diffLineTypeCtx, " one"), line(diffLineTypeDelete, "-two"), line(diffLineTypeAdd, "+two"),
+			line(diffLineTypeCtx, " three"), line(diffLineTypeAdd, "+four"),
+		}}}},
+		{NewPath: "b.go", Hunks: []domain.DiffHunk{{Lines: []domain.DiffLine{
+			line(diffLineTypeCtx, " b"), line(diffLineTypeAdd, "+b"),
+		}}}},
+	}})
+	m.SwitchToDiff()
+	return m
+}
+
+func TestDiffChanges_JumpBetweenRunsAcrossFiles(t *testing.T) {
+	m := changesDiffView()
+	for _, want := range []string{"-two", "+four", "+b"} {
+		if !m.NextChange() || cursorContent(m) != want {
+			t.Fatalf("expected the next change to start at %q, got %q", want, cursorContent(m))
+		}
+	}
+	if m.NextChange() || cursorContent(m) != "+b" {
+		t.Error("expected no wrap after the last change")
+	}
+
+	if !m.PrevChange() || m.currentFile != 0 || cursorContent(m) != "+four" {
+		t.Errorf("expected the previous change in the previous file, got %q", cursorContent(m))
+	}
+	m.PrevLine()
+	m.PrevLine()
+	if cursorContent(m) != "+two" {
+		t.Fatalf("setup: expected the cursor inside the first run, got %q", cursorContent(m))
+	}
+	if !m.PrevChange() || cursorContent(m) != "-two" {
+		t.Errorf("expected K inside a run to go to its start, got %q", cursorContent(m))
+	}
+	if m.PrevChange() {
+		t.Error("expected no change before the first")
+	}
+}

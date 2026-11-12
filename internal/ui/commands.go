@@ -497,6 +497,20 @@ func (cr *CommandRegistry) registerKeyBindings() {
 			AvailableIn: []ViewState{ViewPRInspect},
 		},
 		{
+			Keys:        []string{keyNextChange, keyNextChangeCtrl, keyNextChangeArrow},
+			Description: "Next/previous change (run of +/- lines)",
+			ShortHelp:   keyNextChange + "/" + keyPrevChange,
+			Handler:     changeJumpHandler(true),
+			AvailableIn: []ViewState{ViewPRInspect},
+		},
+		{
+			Keys:        []string{keyPrevChange, keyPrevChangeCtrl, keyPrevChangeArrow},
+			Description: "Next/previous change (run of +/- lines)",
+			ShortHelp:   keyNextChange + "/" + keyPrevChange,
+			Handler:     changeJumpHandler(false),
+			AvailableIn: []ViewState{ViewPRInspect},
+		},
+		{
 			Keys:        []string{keyBottom},
 			Description: "Go to line ([n]gg), top (gg), bottom (G)",
 			ShortHelp:   "[n]gg/G",
@@ -747,6 +761,21 @@ func isDiffMotionKey(key string) bool {
 	}
 	digit, err := strconv.Atoi(key)
 	return err == nil && digit >= 0 && digit < diffCountDigits
+}
+
+const noMoreChangesMessage = "No more changes"
+
+func changeJumpHandler(forward bool) KeyHandler {
+	return func(m Model) (Model, tea.Cmd) {
+		if m.prInspect.GetMode() != views.PRInspectModeDiff {
+			return m, nil
+		}
+		jump := m.prInspect.PrevChange
+		if forward {
+			jump = m.prInspect.NextChange
+		}
+		return m.jumpOrReport(jump, noMoreChangesMessage)
+	}
 }
 
 func handleDiffBottomKey(m Model) (Model, tea.Cmd) {

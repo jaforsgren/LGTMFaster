@@ -65,28 +65,34 @@ func (m *PRInspectViewModel) stepMatch(forward, includeCursor bool) bool {
 	if len(matches) == 0 {
 		return false
 	}
-	cursor := m.cursorPosition()
-	target := matches[0]
-	if !forward {
-		target = matches[len(matches)-1]
-	}
-	if forward {
-		for _, match := range matches {
-			if cursor.before(match) || includeCursor && match == cursor {
-				target = match
-				break
-			}
-		}
-	} else {
-		for i := len(matches) - 1; i >= 0; i-- {
-			if matches[i].before(cursor) {
-				target = matches[i]
-				break
-			}
+	target, found := positionFrom(matches, m.cursorPosition(), forward, includeCursor)
+	if !found {
+		target = matches[0]
+		if !forward {
+			target = matches[len(matches)-1]
 		}
 	}
 	m.goToPosition(target)
 	return true
+}
+
+// positionFrom is the first of the ordered positions after the cursor (or at it, when included),
+// or the last one before it going backwards.
+func positionFrom(positions []diffPosition, cursor diffPosition, forward, includeCursor bool) (diffPosition, bool) {
+	if forward {
+		for _, position := range positions {
+			if cursor.before(position) || includeCursor && position == cursor {
+				return position, true
+			}
+		}
+		return diffPosition{}, false
+	}
+	for i := len(positions) - 1; i >= 0; i-- {
+		if positions[i].before(cursor) {
+			return positions[i], true
+		}
+	}
+	return diffPosition{}, false
 }
 
 // diffMatches are the shown lines containing the query, in file order.

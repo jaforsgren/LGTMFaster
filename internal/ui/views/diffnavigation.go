@@ -147,6 +147,44 @@ func (m *PRInspectViewModel) moveCursorTo(index int) {
 	m.ensureLineVisible()
 }
 
+// NextChange and PrevChange move to the start of the next or previous run of added and deleted
+// lines, going on into the other files without wrapping, and report whether there was one. Inside
+// a run, PrevChange goes to its start first, like vim's [c.
+func (m *PRInspectViewModel) NextChange() bool {
+	return m.stepChange(true)
+}
+
+func (m *PRInspectViewModel) PrevChange() bool {
+	return m.stepChange(false)
+}
+
+func (m *PRInspectViewModel) stepChange(forward bool) bool {
+	target, found := positionFrom(m.changeStarts(), m.cursorPosition(), forward, false)
+	if found {
+		m.goToPosition(target)
+	}
+	return found
+}
+
+// changeStarts are the first lines of every run of added and deleted lines, in file order.
+func (m *PRInspectViewModel) changeStarts() []diffPosition {
+	if m.diff == nil {
+		return nil
+	}
+	var starts []diffPosition
+	for fileIndex, file := range m.diff.Files {
+		inChange := false
+		for lineIndex, line := range fileDiffLines(file) {
+			isChange := line.Type == diffLineTypeAdd || line.Type == diffLineTypeDelete
+			if isChange && !inChange {
+				starts = append(starts, diffPosition{file: fileIndex, line: lineIndex})
+			}
+			inChange = isChange
+		}
+	}
+	return starts
+}
+
 // ensureLineVisible scrolls the cursor's row, as the last render placed it, into view.
 func (m *PRInspectViewModel) ensureLineVisible() {
 	if m.cursorRow == noCursorRow || m.viewport.Height <= 0 {
