@@ -107,6 +107,8 @@ type Model struct {
 	editorSource      EditorSource
 	// resume is the stored session still waiting for its PRs or pipelines to load.
 	resume *domain.Session
+	// lastSession is the session saved when the app last quit, which :session resumes.
+	lastSession *domain.Session
 }
 
 func NewModel(repository domain.Repository) Model {
@@ -497,14 +499,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		if selectedCount > 0 && m.isInitialStartup {
 			m.isInitialStartup = false
-			m.state = ViewPRList
-			m.topBar.SetView(components.ViewNamePRList)
+			m.state = ViewDashboard
+			m.topBar.SetView(components.ViewNameDashboard)
 			m.updateShortcuts()
-			if resumed, cmd, ok := m.startResumedView(); ok {
-				logger.Log("UI: Resuming pipeline session with %d selected PAT(s)", selectedCount)
-				return resumed, cmd
-			}
-			logger.Log("UI: Starting in PR list view with %d selected PAT(s)", selectedCount)
+			logger.Log("UI: Starting on the dashboard with %d selected PAT(s)", selectedCount)
 			return m, m.loadPRsStreaming()
 		}
 
@@ -998,10 +996,7 @@ func (m Model) navigateBack() (tea.Model, tea.Cmd) {
 		return m, nil
 	case ViewDashboard:
 		logger.Log("UI: Navigating back from Dashboard to PR List")
-		m.state = ViewPRList
-		m.topBar.SetView(components.ViewNamePRList)
-		m.updateShortcuts()
-		return m, nil
+		return m.showPRList(), nil
 	case ViewPipelineList:
 		logger.Log("UI: Navigating back from Pipelines to PR List")
 		m.state = ViewPRList

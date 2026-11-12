@@ -55,7 +55,7 @@ func TestCaptureSession_RecordsInspectedPRAndOpenPanes(t *testing.T) {
 	}
 }
 
-func TestLoadSession_ReopensPanesAndWaitsToResume(t *testing.T) {
+func TestLoadSession_ReopensPanesAndKeepsTheSessionForResume(t *testing.T) {
 	repository := &mockRepository{
 		pats:    map[string]*domain.PAT{},
 		session: domain.Session{View: domain.SessionViewPRList, PRKey: "key", PipelineRunsPaneOpen: true},
@@ -66,8 +66,60 @@ func TestLoadSession_ReopensPanesAndWaitsToResume(t *testing.T) {
 	if !m.pipelineRunsView.IsPreviewOpen() || m.prListView.IsPreviewOpen() {
 		t.Error("expected only the saved runs pane to be reopened")
 	}
-	if m.resume == nil || m.resume.PRKey != "key" {
-		t.Errorf("expected the session to wait for its PR, got %+v", m.resume)
+	if m.resume != nil {
+		t.Error("expected the app not to resume on its own")
+	}
+	if m.lastSession == nil || m.lastSession.PRKey != "key" {
+		t.Errorf("expected the session kept for :session, got %+v", m.lastSession)
+	}
+}
+
+func TestStartup_OpensTheDashboard(t *testing.T) {
+	repository := &mockRepository{pats: map[string]*domain.PAT{}, session: domain.Session{View: domain.SessionViewPipelines}}
+	m := NewModel(repository)
+
+	updated, cmd := m.Update(PATsLoadedMsg{pats: []domain.PAT{{ID: testPATID, Name: "ado", Provider: domain.ProviderGitHub, IsSelected: true, IsPrimary: true}}})
+	m = updated.(Model)
+
+	if m.state != ViewDashboard || cmd == nil {
+		t.Errorf("expected startup on the dashboard while PRs load, got %v", m.state)
+	}
+}
+
+func TestSessionCommand_ResumesTheInspectedPR(t *testing.T) {
+	m := newPRTestModel(t, &mockProvider{})
+	pr := sessionTestPR()
+	m.prListView.SetPRs([]domain.PullRequest{pr})
+	m.lastSession = &domain.Session{View: domain.SessionViewPRInspect, PRKey: pr.Key()}
+	m.state = ViewDashboard
+
+	m, _ = handleSessionCommand(m, nil)
+
+	if m.state != ViewPRInspect || m.prListView.GetSelectedPR().Key() != pr.Key() {
+		t.Errorf("expected :session to reopen the inspected PR, got %v", m.state)
+	}
+}
+
+func TestSessionCommand_ResumesAPipelineWhosePipelinesAreLoaded(t *testing.T) {
+	pipeline := testPipeline()
+	m := createPipelineTestModel(&mockPipelineProvider{pipelines: []domain.Pipeline{pipeline}})
+	m.pipelineListView.SetPipelines([]domain.Pipeline{pipeline})
+	m.lastSession = &domain.Session{View: domain.SessionViewPipelineRuns, PipelineKey: pipeline.FavoriteKey()}
+
+	m, _ = handleSessionCommand(m, nil)
+
+	if m.state != ViewPipelineRuns {
+		t.Errorf("expected :session to reopen the pipeline's runs, got %v", m.state)
+	}
+}
+
+func TestSessionCommand_WithoutASession(t *testing.T) {
+	m := createTestModel()
+
+	m, _ = handleSessionCommand(m, nil)
+
+	if m.statusBar.Message() != noSessionMessage {
+		t.Errorf("expected %q, got %q", noSessionMessage, m.statusBar.Message())
 	}
 }
 

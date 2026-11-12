@@ -6,6 +6,8 @@ import (
 	"github.com/johanforsgren/lgtmfaster/internal/logger"
 )
 
+const noSessionMessage = "No previous session to resume"
+
 var sessionViews = map[ViewState]domain.SessionView{
 	ViewPATs:         domain.SessionViewPATs,
 	ViewPRList:       domain.SessionViewPRList,
@@ -81,9 +83,32 @@ func (m Model) loadSession() Model {
 	}
 
 	if session.View != "" && session.View != domain.SessionViewPATs {
-		m.resume = &session
+		m.lastSession = &session
 	}
 	return m
+}
+
+// handleSessionCommand resumes the session saved when the app last quit, like postOffice's
+// :session; the app itself always starts on the dashboard.
+func handleSessionCommand(m Model, args []string) (Model, tea.Cmd) {
+	if m.lastSession == nil {
+		m.statusBar.SetMessage(noSessionMessage, true)
+		return m, nil
+	}
+	session := *m.lastSession
+	m.resume = &session
+
+	if resumed, cmd, ok := m.startResumedView(); ok {
+		if !resumed.pipelineListView.HasPipelines() {
+			return resumed, cmd
+		}
+		resumed, resumeCmd := resumed.resumePipelines()
+		return resumed, tea.Batch(cmd, resumeCmd)
+	}
+	if len(m.prListView.AllPRs()) == 0 {
+		return m, m.loadPRsWithCache()
+	}
+	return m.resumePRs(true)
 }
 
 // startResumedView opens the view family of the session being resumed, once the PATs are loaded.
@@ -114,6 +139,7 @@ func (m Model) resumePRs(loadingDone bool) (Model, tea.Cmd) {
 
 	inspect := m.resume.View == domain.SessionViewPRInspect
 	m.resume = nil
+	m = m.showPRList()
 	if inspect {
 		return handleEnterKey(m)
 	}

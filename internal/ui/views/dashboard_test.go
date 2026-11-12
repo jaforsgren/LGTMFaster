@@ -5,7 +5,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/johanforsgren/lgtmfaster/internal/domain"
+)
+
+const (
+	sectionReview = iota
+	sectionCreated
+	sectionFailing
+	sectionReady
 )
 
 func dashboardPR(number int, title string, category domain.PRCategory, edit func(pr *domain.PullRequest)) domain.PullRequest {
@@ -35,75 +43,119 @@ func dashboardTestPRs() []domain.PullRequest {
 	}
 }
 
-func dashboardTitles(m *DashboardViewModel) []string {
+func sectionTitles(m *DashboardViewModel, section int) string {
 	var titles []string
-	for _, entry := range m.entries {
-		titles = append(titles, entry.pr.Title)
+	for _, pr := range m.sections[section] {
+		titles = append(titles, pr.Title)
 	}
-	return titles
+	return strings.Join(titles, ",")
 }
 
-func TestDashboard_SortsPullRequestsIntoSections(t *testing.T) {
+// loadedDashboard has the checks of Broken build failing and of the other own PRs passing.
+func loadedDashboard() *DashboardViewModel {
 	m := NewDashboardView()
 	m.SetSize(160, 40)
 	m.SetPRs(dashboardTestPRs())
-
-	pending := m.PendingChecks()
-	if len(pending) != 3 {
-		t.Fatalf("expected checks for the three authored PRs only, got %d", len(pending))
-	}
-	if len(m.PendingChecks()) != 0 {
-		t.Error("expected checks in flight not to be requested again")
-	}
-	if got := strings.Join(dashboardTitles(m), ","); got != "Needs my eyes" {
-		t.Errorf("expected only the review section before checks load, got %s", got)
-	}
-
-	for _, pr := range pending {
+	for _, pr := range m.PendingChecks() {
 		state := domain.CheckStatePassing
 		if pr.Number == 4 {
 			state = domain.CheckStateFailing
 		}
 		m.SetChecks(pr.Key(), domain.SummarizeChecks([]domain.Check{{Name: "ci", State: state}}))
 	}
+	return m
+}
 
-	if got := strings.Join(dashboardTitles(m), ","); got != "Needs my eyes,Broken build,Good to go" {
-		t.Errorf("unexpected sections %s", got)
+func TestDashboard_SortsPullRequestsIntoPanes(t *testing.T) {
+	m := NewDashboardView()
+	m.SetSize(160, 40)
+	m.SetPRs(dashboardTestPRs())
+
+	if pending := m.PendingChecks(); len(pending) != 3 {
+		t.Fatalf("expected checks for the three own PRs only, got %d", len(pending))
 	}
-	if counts := m.SectionCounts(); counts[0] != 1 || counts[1] != 1 || counts[2] != 1 {
-		t.Errorf("expected one PR per section, got %v", counts)
+	if len(m.PendingChecks()) != 0 {
+		t.Error("expected checks in flight not to be requested again")
+	}
+	if sectionTitles(m, sectionCreated) != "Broken build,Good to go,Not approved" {
+		t.Errorf("expected every own PR under Created by you, got %s", sectionTitles(m, sectionCreated))
+	}
+
+	m = loadedDashboard()
+	expected := map[int]string{
+		sectionReview:  "Needs my eyes",
+		sectionCreated: "Broken build,Good to go,Not approved",
+		sectionFailing: "Broken build",
+		sectionReady:   "Good to go",
+	}
+	for section, titles := range expected {
+		if got := sectionTitles(m, section); got != titles {
+			t.Errorf("section %d: expected %s, got %s", section, titles, got)
+		}
 	}
 	view := m.View()
-	for _, expected := range []string{"Waiting for your review (1)", "Failing checks (1)", "Ready to merge (1)", "Broken build  (failing: ci)"} {
-		if !strings.Contains(view, expected) {
-			t.Errorf("expected %q in the dashboard", expected)
+	for _, title := range []string{"Waiting for your review (1)", "Created by you (3)", "Failing checks (1)", "Ready to merge (1)", "(failing: ci)"} {
+		if !strings.Contains(view, title) {
+			t.Errorf("expected %q in the dashboard", title)
 		}
 	}
 }
 
-func TestDashboard_KeepsTheSelectionWhenChecksArrive(t *testing.T) {
-	m := NewDashboardView()
-	m.SetSize(160, 40)
-	m.SetPRs(dashboardTestPRs())
-	pending := m.PendingChecks()
-	m.SetChecks(pending[1].Key(), domain.SummarizeChecks([]domain.Check{{State: domain.CheckStatePassing}}))
-	m.MoveDown()
-	if m.GetSelectedPR().Title != "Good to go" {
-		t.Fatalf("expected Good to go selected, got %s", m.GetSelectedPR().Title)
-	}
+func TestDashboard_FillsTheMainWindowExactly(t *testing.T) {
+	m := loadedDashboard()
+	main := RenderMainWindow("", m.width, m.height)
 
-	m.SetChecks(pending[0].Key(), domain.SummarizeChecks([]domain.Check{{State: domain.CheckStateFailing}}))
+	view := m.View()
 
-	if m.GetSelectedPR().Title != "Good to go" {
-		t.Errorf("expected the selection to stay on Good to go, got %s", m.GetSelectedPR().Title)
+	if lipgloss.Width(view) != lipgloss.Width(main) || lipgloss.Height(view) != lipgloss.Height(main) {
+		t.Errorf("expected the panes to be %dx%d, got %dx%d",
+			lipgloss.Width(main), lipgloss.Height(main), lipgloss.Width(view), lipgloss.Height(view))
 	}
 }
 
-func TestDashboard_EmptySectionsSaySo(t *testing.T) {
+func TestDashboard_EachPaneHasItsOwnCursor(t *testing.T) {
+	m := loadedDashboard()
+	if m.focus != sectionReview {
+		t.Fatalf("expected the first filled pane focused, got %d", m.focus)
+	}
+
+	m.FocusNext()
+	m.MoveDown()
+	if m.GetSelectedPR().Title != "Good to go" {
+		t.Fatalf("expected the second own PR selected, got %s", m.GetSelectedPR().Title)
+	}
+
+	m.FocusRight()
+	if m.focus != sectionReady || m.GetSelectedPR().Title != "Good to go" {
+		t.Errorf("expected → to move to the Ready to merge pane, got %d", m.focus)
+	}
+	m.FocusLeft()
+	m.FocusPrev()
+	if m.focus != sectionReview || m.GetSelectedPR().Title != "Needs my eyes" {
+		t.Errorf("expected focus back on the review pane, got %d", m.focus)
+	}
+	m.FocusNext()
+	if m.GetSelectedPR().Title != "Good to go" {
+		t.Error("expected the Created by you pane to keep its cursor")
+	}
+}
+
+func TestDashboard_FocusStaysWhereTheUserPutIt(t *testing.T) {
+	m := loadedDashboard()
+	m.FocusRight()
+
+	m.SetPRs(dashboardTestPRs()[3:])
+
+	if m.focus != sectionFailing {
+		t.Errorf("expected the chosen pane to stay focused, got %d", m.focus)
+	}
+}
+
+func TestDashboard_EmptyPanesSaySo(t *testing.T) {
 	m := NewDashboardView()
 	m.SetSize(160, 40)
 
 	if strings.Count(m.View(), dashboardEmptySection) != len(dashboardSections) {
-		t.Error("expected every empty section to say so")
+		t.Error("expected every empty pane to say so")
 	}
 }

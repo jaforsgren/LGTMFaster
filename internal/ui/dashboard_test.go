@@ -66,3 +66,19 @@ func TestDashboard_StaysOpenWhenPullRequestsReload(t *testing.T) {
 		t.Error("expected the dashboard to be saved in the session")
 	}
 }
+
+func TestDashboardKeys_MoveBetweenPanes(t *testing.T) {
+	m, _ := dashboardTestModel(t)
+	m, _ = m.openDashboard()
+
+	for _, key := range []string{keyTogglePane, keyFocusPaneIn, keyFocusPaneOut, keyPrevPane} {
+		var handled bool
+		m, _, handled = m.commandRegistry.HandleKey(m, key)
+		if !handled {
+			t.Errorf("expected %q to be handled on the dashboard", key)
+		}
+	}
+	if help := m.commandRegistry.NavigationHelp(ViewDashboard); !strings.Contains(help, "tab: next pane") || !strings.Contains(help, "→/←: pane beside") {
+		t.Errorf("expected the pane keys in the status bar help, got %q", help)
+	}
+}

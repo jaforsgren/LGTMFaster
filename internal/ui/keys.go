@@ -19,6 +19,7 @@ const (
 	keyAutoRefresh   = "R"
 	keyOpenBrowser   = "ctrl+o"
 	keyTogglePane    = "tab"
+	keyPrevPane      = "shift+tab"
 	keyFocusPaneIn   = "right"
 	keyFocusPaneOut  = "left"
 	keyFavorite      = "f"

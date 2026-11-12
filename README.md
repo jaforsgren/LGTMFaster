@@ -4,14 +4,14 @@ Fast, keyboard-driven TUI for reviewing pull requests and following pipelines on
 
 ## Features
 
-- **Dashboard**: PRs waiting for your review, your PRs with failing checks, and your PRs ready to merge
+- **Dashboard** (the start screen): PRs waiting for your review, your PRs, your PRs with failing checks, and your PRs ready to merge
 - **Pull requests across accounts**: list, filter and inspect PRs from several PATs at once, categorised as yours, assigned to you, or other
 - **Reviews**: read diffs (full or changed lines only, without whitespace changes, filtered by file extension), browse commits, comment on lines, approve, request changes, merge, edit the description
 - **Create pull requests**: `:pr` suggests the branches you pushed recently and opens a form with target branch, title, draft flag and description
 - **Comments**: every comment with the code it is about; votes shown as "approved", "rejected", …; export them all as markdown
 - **Pipelines** (Azure DevOps): every pipeline of every project in one foldable list with favorites, runs, stages and approvals, with optional auto-refresh
 - **Local repositories**: link a repo to a folder, then check out a PR's branch or pull from the TUI
-- **Session resume**: reopens the view, PR, pipeline or run you were on when you quit
+- **Session resume**: `:session` reopens the view, PR, pipeline or run you were on when you quit
 
 ### Provider support
 
@@ -43,7 +43,7 @@ Or with Go directly: `go build -o lgtmfaster ./cmd/lgtmfaster`.
 2. Press `a` to add a PAT and fill in the name, token, provider (`github` or `azuredevops`), your username and, for Azure DevOps, the organization.
 3. Press `space` to select the PATs to use (several can be selected; one is primary) and `enter` to load their pull requests.
 
-On later starts the selected PATs load straight away, in the view you were on when you quit.
+On later starts the selected PATs load straight away and the app opens on the dashboard; `:session` takes you back to where you were when you quit.
 
 ## The screen
 
@@ -75,6 +75,7 @@ On later starts the selected PATs load straight away, in the view you were on wh
 | `:pr <repository>:<branch>` | | Create a pull request from a branch |
 | `:dashboard` | `:dash`, `:d` | Dashboard |
 | `:pipelines` | `:pl`, `:pipes` | Pipelines (Azure DevOps) |
+| `:session` | `:resume` | Go back to where you were when you last quit |
 | `:merge` | `:m` | Merge the inspected PR |
 | `:link [path]` | `:l` | Link the PR's repository to a local folder |
 | `:repos` | | Manage linked repositories |
@@ -102,13 +103,14 @@ Keys mean the same thing in every list.
 
 ### Dashboard
 
-`:dashboard` (or `D` in the PR list) sorts the loaded PRs into three sections:
+The app starts on the dashboard; `:dashboard` (or `D` in the PR list) brings you back. It shows four panes:
 
-- **Waiting for your review**: assigned to you, not reviewed by you yet, not draft
-- **Failing checks**: your PRs whose latest builds or checks failed (the failing ones are named)
-- **Ready to merge**: your PRs that are approved, mergeable, not draft, with passing or no checks
+| | |
+|---|---|
+| **Waiting for your review**: assigned to you, not reviewed by you yet, not draft | **Failing checks**: your PRs whose latest builds or checks failed (the failing ones are named) |
+| **Created by you**: all your open PRs, with their check status | **Ready to merge**: your PRs that are approved, mergeable, not draft, with passing or no checks |
 
-Checks are fetched for your own PRs when the dashboard opens (Azure DevOps: the latest build of each pipeline on the PR's merge ref). `enter` inspects a PR and going back returns to the dashboard; `r` reloads.
+Each pane has its own cursor: `tab` / `shift+tab` move to the next / previous pane, `→` / `←` to the pane beside, `j`/`k` within the focused (yellow) pane. Checks are fetched for your own PRs when the dashboard opens (Azure DevOps: the latest build of each pipeline on the PR's merge ref). `enter` inspects a PR and going back returns to the dashboard; `r` reloads.
 
 ### Pull request list
 

@@ -61,9 +61,33 @@ func (m Model) showPRResults() (Model, tea.Cmd) {
 	if m.state == ViewDashboard {
 		return m, m.loadDashboardChecks()
 	}
+	return m.showPRList(), nil
+}
+
+func (m Model) showPRList() Model {
 	m.state = ViewPRList
 	m.topBar.SetView(components.ViewNamePRList)
 	m.updateShortcuts()
+	return m
+}
+
+func handleDashboardNextPaneKey(m Model) (Model, tea.Cmd) {
+	m.dashboardView.FocusNext()
+	return m, nil
+}
+
+func handleDashboardPrevPaneKey(m Model) (Model, tea.Cmd) {
+	m.dashboardView.FocusPrev()
+	return m, nil
+}
+
+func handleDashboardRightKey(m Model) (Model, tea.Cmd) {
+	m.dashboardView.FocusRight()
+	return m, nil
+}
+
+func handleDashboardLeftKey(m Model) (Model, tea.Cmd) {
+	m.dashboardView.FocusLeft()
 	return m, nil
 }
 
