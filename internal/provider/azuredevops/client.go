@@ -277,132 +277,24 @@ func (c *Client) GetPullRequestIterationChanges(ctx context.Context, projectID s
 	processedFiles := 0
 	skippedFiles := 0
 
-	for idx, change := range *changes.ChangeEntries {
-		itemMap, ok := change.Item.(map[string]interface{})
-		if !ok || itemMap == nil {
-			logger.Log("AzureDevOps: Change %d/%d - skipped (item is not a map or is nil)", idx+1, len(*changes.ChangeEntries))
-			skippedFiles++
-			continue
-		}
-
-		path, _ := itemMap["path"].(string)
-		if path == "" {
-			logger.Log("AzureDevOps: Change %d/%d - skipped (path is empty)", idx+1, len(*changes.ChangeEntries))
-			skippedFiles++
-			continue
-		}
-
-		isFolder, _ := itemMap["isFolder"].(bool)
-		if isFolder {
-			logger.Log("AzureDevOps: Change %d/%d - skipped folder: %s", idx+1, len(*changes.ChangeEntries), path)
-			skippedFiles++
-			continue
-		}
-
-		objectId, _ := itemMap["objectId"].(string)
-
-		originalObjectId, _ := itemMap["originalObjectId"].(string)
-
-		changeType := 0
-		changeTypeStr := ""
+	for _, change := range *changes.ChangeEntries {
+		changeType := ""
 		if change.ChangeType != nil {
-			changeTypeStr = string(*change.ChangeType)
-			switch changeTypeStr {
-			case "add", "1":
-				changeType = 1
-			case "edit", "2":
-				changeType = 2
-			case "delete", "16":
-				changeType = 16
-			}
+			changeType = string(*change.ChangeType)
 		}
-
-		logger.Log("AzureDevOps: Change %d/%d - path=%s, changeType=%s (%d), objectId=%s, originalObjectId=%s",
-			idx+1, len(*changes.ChangeEntries), path, changeTypeStr, changeType, objectId, originalObjectId)
-
-		const (
-			changeTypeAdd    = 1
-			changeTypeEdit   = 2
-			changeTypeDelete = 16
-		)
-
-		switch changeType {
-		case changeTypeAdd:
-			if objectId == "" {
-				logger.Log("AzureDevOps: Change %d/%d - skipped ADD (objectId is empty)", idx+1, len(*changes.ChangeEntries))
-				skippedFiles++
-				continue
-			}
-			content, err := c.getFileContent(ctx, projectID, repoID, objectId)
-			if err != nil {
-				logger.LogError("AZURE_GET_FILE_CONTENT", fmt.Sprintf("path=%s objectId=%s", path, objectId), err)
-				skippedFiles++
-				continue
-			}
-			processedFiles++
-			diffText += fmt.Sprintf("diff --git a%s b%s\n", path, path)
-			diffText += "--- /dev/null\n"
-			diffText += fmt.Sprintf("+++ b%s\n", path)
-			diffText += fmt.Sprintf("@@ -0,0 +1,%d @@\n", len(content))
-			for _, line := range content {
-				diffText += "+" + line + "\n"
-			}
-
-		case changeTypeDelete:
-			if originalObjectId == "" {
-				logger.Log("AzureDevOps: Change %d/%d - skipped DELETE (originalObjectId is empty)", idx+1, len(*changes.ChangeEntries))
-				skippedFiles++
-				continue
-			}
-			content, err := c.getFileContent(ctx, projectID, repoID, originalObjectId)
-			if err != nil {
-				logger.LogError("AZURE_GET_FILE_CONTENT", fmt.Sprintf("path=%s originalObjectId=%s", path, originalObjectId), err)
-				skippedFiles++
-				continue
-			}
-			processedFiles++
-			diffText += fmt.Sprintf("diff --git a%s b%s\n", path, path)
-			diffText += fmt.Sprintf("--- a%s\n", path)
-			diffText += "+++ /dev/null\n"
-			diffText += fmt.Sprintf("@@ -1,%d +0,0 @@\n", len(content))
-			for _, line := range content {
-				diffText += "-" + line + "\n"
-			}
-
-		case changeTypeEdit:
-			if objectId == "" || originalObjectId == "" {
-				logger.Log("AzureDevOps: Change %d/%d - skipped EDIT (objectId=%s, originalObjectId=%s)",
-					idx+1, len(*changes.ChangeEntries), objectId, originalObjectId)
-				skippedFiles++
-				continue
-			}
-
-			newContent, err := c.getFileContent(ctx, projectID, repoID, objectId)
-			if err != nil {
-				logger.LogError("AZURE_GET_FILE_CONTENT", fmt.Sprintf("path=%s objectId=%s (new)", path, objectId), err)
-				skippedFiles++
-				continue
-			}
-			oldContent, err := c.getFileContent(ctx, projectID, repoID, originalObjectId)
-			if err != nil {
-				logger.LogError("AZURE_GET_FILE_CONTENT", fmt.Sprintf("path=%s originalObjectId=%s (old)", path, originalObjectId), err)
-				skippedFiles++
-				continue
-			}
-			processedFiles++
-
-			diffText += fmt.Sprintf("diff --git a%s b%s\n", path, path)
-			diffText += fmt.Sprintf("--- a%s\n", path)
-			diffText += fmt.Sprintf("+++ b%s\n", path)
-
-			unifiedDiff := generateUnifiedDiff(oldContent, newContent)
-			diffText += unifiedDiff
-
-		default:
-			logger.Log("AzureDevOps: Change %d/%d - skipped UNKNOWN changeType=%s (%d) for path=%s",
-				idx+1, len(*changes.ChangeEntries), changeTypeStr, changeType, path)
+		file, ok := parseFileChange(changeType, change.Item)
+		if !ok {
 			skippedFiles++
+			continue
 		}
+		fileDiff, err := c.fileDiffText(ctx, projectID, repoID, file)
+		if err != nil {
+			logger.LogError("AZURE_GET_FILE_CONTENT", file.path, err)
+			skippedFiles++
+			continue
+		}
+		processedFiles++
+		diffText += fileDiff
 	}
 
 	logger.Log("AzureDevOps: Processed %d file(s), skipped %d file(s) for PR #%d", processedFiles, skippedFiles, pullRequestID)

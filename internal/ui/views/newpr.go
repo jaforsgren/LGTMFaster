@@ -80,9 +80,9 @@ type NewPRViewModel struct {
 	// replaceTarget makes the first character typed into the target field replace the preselected
 	// branch instead of being appended to it.
 	replaceTarget bool
-	active         bool
-	width          int
-	height         int
+	active        bool
+	width         int
+	height        int
 }
 
 func NewNewPRView() *NewPRViewModel {

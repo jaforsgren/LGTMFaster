@@ -3,18 +3,18 @@ package ui
 import "github.com/charmbracelet/lipgloss"
 
 var (
-	primaryColor   = lipgloss.Color("#7C3AED")
-	secondaryColor = lipgloss.Color("#10B981")
-	errorColor     = lipgloss.Color("#EF4444")
-	warningColor   = lipgloss.Color("#F59E0B")
-	infoColor      = lipgloss.Color("#3B82F6")
-	mutedColor     = lipgloss.Color("#6B7280")
+	primaryColor    = lipgloss.Color("#7C3AED")
+	secondaryColor  = lipgloss.Color("#10B981")
+	errorColor      = lipgloss.Color("#EF4444")
+	warningColor    = lipgloss.Color("#F59E0B")
+	infoColor       = lipgloss.Color("#3B82F6")
+	mutedColor      = lipgloss.Color("#6B7280")
 	backgroundColor = lipgloss.Color("#1F2937")
 	foregroundColor = lipgloss.Color("#F9FAFB")
 
-	authoredColor  = lipgloss.Color("#10B981")
-	assignedColor  = lipgloss.Color("#F59E0B")
-	otherColor     = lipgloss.Color("#6B7280")
+	authoredColor = lipgloss.Color("#10B981")
+	assignedColor = lipgloss.Color("#F59E0B")
+	otherColor    = lipgloss.Color("#6B7280")
 )
 
 var (

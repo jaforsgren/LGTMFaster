@@ -186,3 +186,27 @@ func (c *Client) MergePullRequest(ctx context.Context, owner, repo string, numbe
 
 	return nil
 }
+
+func (c *Client) ListPullRequestCommits(ctx context.Context, owner, repo string, number int) ([]*github.RepositoryCommit, error) {
+	var commits []*github.RepositoryCommit
+	opts := &github.ListOptions{PerPage: listPageSize}
+	for {
+		page, resp, err := c.client.PullRequests.ListCommits(ctx, owner, repo, number, opts)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list commits: %w", err)
+		}
+		commits = append(commits, page...)
+		if resp.NextPage == 0 {
+			return commits, nil
+		}
+		opts.Page = resp.NextPage
+	}
+}
+
+func (c *Client) GetCommitDiff(ctx context.Context, owner, repo, sha string) (string, error) {
+	diff, _, err := c.client.Repositories.GetCommitRaw(ctx, owner, repo, sha, github.RawOptions{Type: github.Diff})
+	if err != nil {
+		return "", fmt.Errorf("failed to get commit diff: %w", err)
+	}
+	return diff, nil
+}

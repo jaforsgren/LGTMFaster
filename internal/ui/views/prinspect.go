@@ -17,6 +17,9 @@ type PRInspectMode int
 const (
 	PRInspectModeDescription PRInspectMode = iota
 	PRInspectModeDiff
+	// PRInspectModeCommits lists the pull request's commits; opening one shows its diff in
+	// PRInspectModeDiff with viewingCommit set.
+	PRInspectModeCommits
 )
 
 type DiffViewMode int
@@ -33,24 +36,31 @@ type PRInspectViewModel struct {
 	diff             *domain.Diff
 	hiddenExtensions map[string]bool
 	ignoreWhitespace bool
-	comments         []domain.Comment
-	viewport         viewport.Model
-	currentFile      int
-	currentLineIdx   int
-	width            int
-	height           int
-	showComments     bool
-	mode             PRInspectMode
-	diffViewMode     DiffViewMode
-	pendingComments  []domain.Comment
-	contentLines     int
-	mdRenderer       *markdown.Renderer
+	commits          []domain.Commit
+	commitsLoaded    bool
+	commitCursor     listCursor
+	viewingCommit    *domain.Commit
+	// prDiff keeps the pull request's diff while a commit's diff is the source.
+	prDiff          *domain.Diff
+	comments        []domain.Comment
+	viewport        viewport.Model
+	currentFile     int
+	currentLineIdx  int
+	width           int
+	height          int
+	showComments    bool
+	mode            PRInspectMode
+	diffViewMode    DiffViewMode
+	pendingComments []domain.Comment
+	contentLines    int
+	mdRenderer      *markdown.Renderer
 }
 
 func NewPRInspectView() *PRInspectViewModel {
 	vp := viewport.New(0, 0)
 
 	return &PRInspectViewModel{
+		commitCursor: newListCursor(),
 		viewport:     vp,
 		currentFile:  0,
 		showComments: false,
@@ -64,16 +74,27 @@ func (m *PRInspectViewModel) SetSize(width, height int) {
 	m.height = height
 	m.viewport.Width = width
 	m.viewport.Height = max(height-prInspectStatusRows, minPaneSize)
+	m.commitCursor.SetVisibleRows(height - listChromeRows)
 	m.mdRenderer.SetWidth(width)
 }
 
 func (m *PRInspectViewModel) SetPR(pr *domain.PullRequest) {
+	if m.pr == nil || pr == nil || m.pr.Key() != pr.Key() {
+		m.commits = nil
+		m.commitsLoaded = false
+		m.viewingCommit = nil
+		m.commitCursor.Reset()
+	}
 	m.pr = pr
 	m.mode = PRInspectModeDescription
 	m.updateViewport()
 }
 
 func (m *PRInspectViewModel) SetDiff(diff *domain.Diff) {
+	if m.viewingCommit != nil {
+		m.prDiff = diff
+		return
+	}
 	m.sourceDiff = diff
 	m.diff = filterDiff(diff, m.hiddenExtensions, m.ignoreWhitespace)
 	m.currentFile = 0
@@ -103,9 +124,69 @@ func (m *PRInspectViewModel) GetComments() []domain.Comment {
 	return m.comments
 }
 
-// GetDiff is the pull request's whole diff, whatever the filters hide.
+// GetDiff is the pull request's whole diff, whatever the filters hide or which commit is open.
 func (m *PRInspectViewModel) GetDiff() *domain.Diff {
+	if m.viewingCommit != nil {
+		return m.prDiff
+	}
 	return m.sourceDiff
+}
+
+func (m *PRInspectViewModel) ShowCommits() {
+	m.mode = PRInspectModeCommits
+	m.updateViewport()
+}
+
+func (m *PRInspectViewModel) HasCommits() bool {
+	return m.commitsLoaded
+}
+
+func (m *PRInspectViewModel) SetCommits(commits []domain.Commit) {
+	m.commits = commits
+	m.commitsLoaded = true
+	m.commitCursor.Clamp(len(commits))
+	m.updateViewport()
+}
+
+func (m *PRInspectViewModel) SelectedCommit() *domain.Commit {
+	if index := m.commitCursor.Index(); index < len(m.commits) {
+		return &m.commits[index]
+	}
+	return nil
+}
+
+func (m *PRInspectViewModel) MoveCommitUp() {
+	m.commitCursor.MoveUp()
+	m.updateViewport()
+}
+
+func (m *PRInspectViewModel) MoveCommitDown() {
+	m.commitCursor.MoveDown(len(m.commits))
+	m.updateViewport()
+}
+
+// ShowCommitDiff makes the commit's diff the one shown and filtered, keeping the pull request's.
+func (m *PRInspectViewModel) ShowCommitDiff(commit domain.Commit, diff *domain.Diff) {
+	if m.viewingCommit == nil {
+		m.prDiff = m.sourceDiff
+	}
+	m.viewingCommit = &commit
+	m.sourceDiff = diff
+	m.mode = PRInspectModeDiff
+	m.applyFilters()
+}
+
+// LeaveCommit goes back from a commit's diff to the commit list, restoring the pull request's diff.
+func (m *PRInspectViewModel) LeaveCommit() {
+	m.sourceDiff = m.prDiff
+	m.prDiff = nil
+	m.viewingCommit = nil
+	m.mode = PRInspectModeCommits
+	m.applyFilters()
+}
+
+func (m *PRInspectViewModel) ViewingCommit() *domain.Commit {
+	return m.viewingCommit
 }
 
 func (m *PRInspectViewModel) ToggleIgnoreWhitespace() {
@@ -349,6 +430,14 @@ func (m *PRInspectViewModel) Update(msg tea.Msg) tea.Cmd {
 }
 
 const (
+	commitHeaderFormat   = "Commit %s: %s"
+	commitsTitle         = "Commits"
+	loadingCommitsText   = "Loading commits..."
+	noCommitsText        = "This pull request has no commits."
+	commitIDWidth        = 9
+	commitAuthorWidth    = 18
+	commitAgeWidth       = 14
+	minCommitSubject     = 20
 	allFilesFilteredText = "Every file is hidden by the extension filter (F)."
 	prInspectStatusRows  = 2
 	diffViewModeFull     = "full"
@@ -401,6 +490,8 @@ func (m *PRInspectViewModel) updateViewport() {
 		if m.pr != nil {
 			b.WriteString(m.renderPRHeader())
 		}
+	case PRInspectModeCommits:
+		b.WriteString(m.renderCommits())
 	case PRInspectModeDiff:
 		if m.diff != nil && len(m.diff.Files) > 0 {
 			b.WriteString(m.renderDiff())
@@ -488,6 +579,11 @@ func (m *PRInspectViewModel) renderDiff() string {
 		Padding(0, 1)
 
 	file := m.diff.Files[m.currentFile]
+
+	if m.viewingCommit != nil {
+		b.WriteString(listTitleStyle.Render(fmt.Sprintf(commitHeaderFormat, m.viewingCommit.ShortID(), m.viewingCommit.Subject())))
+		b.WriteString("\n")
+	}
 
 	header := fmt.Sprintf("File %d/%d: %s",
 		m.currentFile+1,
@@ -687,4 +783,37 @@ func getFilePath(file domain.FileDiff) string {
 		return file.NewPath
 	}
 	return file.OldPath
+}
+
+func (m *PRInspectViewModel) renderCommits() string {
+	var b strings.Builder
+	title := commitsTitle
+	if m.pr != nil {
+		title = fmt.Sprintf("#%d %s / %s", m.pr.Number, m.pr.Title, commitsTitle)
+	}
+	b.WriteString(renderListTitle(title))
+	b.WriteString("\n\n")
+
+	switch {
+	case !m.commitsLoaded:
+		b.WriteString(listMutedStyle.Render(loadingCommitsText))
+	case len(m.commits) == 0:
+		b.WriteString(listMutedStyle.Render(noCommitsText))
+	default:
+		columns := []listColumn{
+			{"Commit", commitIDWidth},
+			{"Message", flexColumnWidth(m.width, commitIDWidth+commitAuthorWidth+commitAgeWidth+3, minCommitSubject)},
+			{"Author", commitAuthorWidth},
+			{"Age", commitAgeWidth},
+		}
+		b.WriteString(renderListRows(columns, len(m.commits), m.commitCursor, func(i int) listRow {
+			commit := m.commits[i]
+			return listRow{
+				icon:   renderListIcon("●", lipgloss.Color("214")),
+				values: []string{commit.ShortID(), commit.Subject(), commit.Author.Username, formatOptionalAge(commit.Date)},
+				style:  listRowStyle,
+			}
+		}))
+	}
+	return b.String()
 }

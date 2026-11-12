@@ -25,6 +25,10 @@ type mockGitClient struct {
 	lastPushesArgs   *git.GetPushesArgs
 	threads          *[]git.GitPullRequestCommentThread
 	createdThreads   []git.GitPullRequestCommentThread
+	commitChanges    *git.GitCommitChanges
+	commit           *git.GitCommit
+	itemObjectIDs    map[string]string
+	prCommits        *git.GetPullRequestCommitsResponseValue
 }
 
 func (m *mockGitClient) GetRepositories(ctx context.Context, args git.GetRepositoriesArgs) (*[]git.GitRepository, error) {
@@ -40,7 +44,7 @@ func (m *mockGitClient) GetPullRequest(ctx context.Context, args git.GetPullRequ
 }
 
 func (m *mockGitClient) GetPullRequestCommits(ctx context.Context, args git.GetPullRequestCommitsArgs) (*git.GetPullRequestCommitsResponseValue, error) {
-	return nil, nil
+	return m.prCommits, nil
 }
 
 func (m *mockGitClient) GetPullRequestIterations(ctx context.Context, args git.GetPullRequestIterationsArgs) (*[]git.GitPullRequestIteration, error) {
@@ -102,6 +106,23 @@ func (m *mockGitClient) GetRefs(ctx context.Context, args git.GetRefsArgs) (*git
 	page := m.refPages[0]
 	m.refPages = m.refPages[1:]
 	return page, nil
+}
+
+func (m *mockGitClient) GetChanges(ctx context.Context, args git.GetChangesArgs) (*git.GitCommitChanges, error) {
+	return m.commitChanges, nil
+}
+
+func (m *mockGitClient) GetCommit(ctx context.Context, args git.GetCommitArgs) (*git.GitCommit, error) {
+	return m.commit, nil
+}
+
+// GetItem serves itemObjectIDs by "path@commit".
+func (m *mockGitClient) GetItem(ctx context.Context, args git.GetItemArgs) (*git.GitItem, error) {
+	objectID, ok := m.itemObjectIDs[*args.Path+"@"+*args.VersionDescriptor.Version]
+	if !ok {
+		return nil, nil
+	}
+	return &git.GitItem{ObjectId: &objectID}, nil
 }
 
 func (m *mockGitClient) GetRepository(ctx context.Context, args git.GetRepositoryArgs) (*git.GitRepository, error) {

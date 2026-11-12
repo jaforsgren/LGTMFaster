@@ -116,6 +116,7 @@ The details pane (`tab`) shows the PR's info and description. Rows are marked `�
 | `enter` | Write a review comment, posting the queued comments without voting |
 | `a` / `r` | Approve / request changes, posting the queued comments too |
 | `ctrl+s` | Submit the review |
+| `C` | Commits; `enter` opens a commit's diff, `q` steps back (commit → commits → PR diff → description) |
 | `c` | Comments view; `ctrl+o` there opens all comments as markdown |
 | `e` | Edit the description (`ctrl+g` opens `$EDITOR`) |
 | `m` | Merge |

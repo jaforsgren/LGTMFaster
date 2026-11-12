@@ -25,4 +25,7 @@ type GitClientInterface interface {
 	GetPushes(ctx context.Context, args git.GetPushesArgs) (*[]git.GitPush, error)
 	GetRefs(ctx context.Context, args git.GetRefsArgs) (*git.GetRefsResponseValue, error)
 	GetRepository(ctx context.Context, args git.GetRepositoryArgs) (*git.GitRepository, error)
+	GetChanges(ctx context.Context, args git.GetChangesArgs) (*git.GitCommitChanges, error)
+	GetCommit(ctx context.Context, args git.GetCommitArgs) (*git.GitCommit, error)
+	GetItem(ctx context.Context, args git.GetItemArgs) (*git.GitItem, error)
 }

@@ -15,6 +15,8 @@ const (
 	ViewNamePRDescription = "PR Description"
 	ViewNamePRDiff        = "PR Diff"
 	ViewNamePRInspect     = "PR Inspect"
+	ViewNamePRCommits     = "PR Commits"
+	ViewNamePRCommit      = "PR Commit"
 	ViewNamePipelines     = "Pipelines"
 	ViewNamePipelineRuns  = "Pipeline Runs"
 	ViewNamePipelineRun   = "Pipeline Run"
@@ -263,7 +265,11 @@ func contextLine(emoji, label, value string) string {
 }
 
 func (m *TopBarModel) isPRView() bool {
-	return m.currentView == ViewNamePRDescription || m.currentView == ViewNamePRDiff || m.currentView == ViewNamePRInspect
+	switch m.currentView {
+	case ViewNamePRDescription, ViewNamePRDiff, ViewNamePRInspect, ViewNamePRCommits, ViewNamePRCommit:
+		return true
+	}
+	return false
 }
 
 func (m *TopBarModel) isPipelineView() bool {

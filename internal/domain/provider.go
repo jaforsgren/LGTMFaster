@@ -31,6 +31,11 @@ type Provider interface {
 
 	CreatePullRequest(ctx context.Context, pr NewPullRequest) (*PullRequest, error)
 
+	// ListCommits returns the pull request's commits, oldest first.
+	ListCommits(ctx context.Context, identifier PRIdentifier) ([]Commit, error)
+
+	GetCommitDiff(ctx context.Context, identifier PRIdentifier, commitID string) (*Diff, error)
+
 	ValidateCredentials(ctx context.Context) error
 }
 

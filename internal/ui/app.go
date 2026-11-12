@@ -783,6 +783,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case PullRequestCreatedMsg:
 		return m.handlePullRequestCreated(msg)
 
+	case CommitsLoadedMsg:
+		return m.handleCommitsLoaded(msg)
+
+	case CommitDiffLoadedMsg:
+		return m.handleCommitDiffLoaded(msg)
+
 	case PipelineRunsFailedMsg:
 		return m.handlePipelineRunsFailed(msg)
 
@@ -967,12 +973,8 @@ func (m Model) navigateBack() (tea.Model, tea.Cmd) {
 		m.updateShortcuts()
 		return m, nil
 	case ViewPRInspect:
-		if m.prInspect.GetMode() == views.PRInspectModeDiff {
-			logger.Log("UI: Navigating back from PR Diff to PR Description")
-			m.prInspect.SwitchToDescription()
-			m.topBar.SetView(components.ViewNamePRDescription)
-			m.updateShortcuts()
-			return m, nil
+		if stepped, ok := m.stepBackInPRInspect(); ok {
+			return stepped, nil
 		}
 		logger.Log("UI: Navigating back from PR Inspect to PR List")
 		m.state = ViewPRList

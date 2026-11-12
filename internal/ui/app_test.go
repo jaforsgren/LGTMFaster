@@ -166,6 +166,8 @@ type mockProvider struct {
 	branches           domain.RepositoryBranches
 	createdPR          *domain.PullRequest
 	lastNewPR          *domain.NewPullRequest
+	commits            []domain.Commit
+	commitDiffs        map[string]*domain.Diff
 }
 
 func (m *mockProvider) ListPullRequests(ctx context.Context, username string) ([]domain.PullRequest, error) {
@@ -217,6 +219,14 @@ func (m *mockProvider) ListBranches(ctx context.Context, repositoryFullName stri
 func (m *mockProvider) CreatePullRequest(ctx context.Context, pr domain.NewPullRequest) (*domain.PullRequest, error) {
 	m.lastNewPR = &pr
 	return m.createdPR, nil
+}
+
+func (m *mockProvider) ListCommits(ctx context.Context, identifier domain.PRIdentifier) ([]domain.Commit, error) {
+	return m.commits, nil
+}
+
+func (m *mockProvider) GetCommitDiff(ctx context.Context, identifier domain.PRIdentifier, commitID string) (*domain.Diff, error) {
+	return m.commitDiffs[commitID], nil
 }
 
 func (m *mockProvider) GetType() domain.ProviderType {

@@ -354,6 +354,13 @@ func (cr *CommandRegistry) registerKeyBindings() {
 			AvailableIn: []ViewState{ViewPRInspect},
 		},
 		{
+			Keys:        []string{keyCommits},
+			Description: "Commits",
+			ShortHelp:   keyCommits,
+			Handler:     handleCommitsKey,
+			AvailableIn: []ViewState{ViewPRInspect},
+		},
+		{
 			Keys:        []string{keyWhitespace},
 			Description: "Hide/show whitespace changes",
 			ShortHelp:   keyWhitespace,
@@ -707,13 +714,6 @@ func handleQuitKey(m Model) (Model, tea.Cmd) {
 		return m.quit()
 	}
 
-	if m.state == ViewPRInspect && m.prInspect.GetMode() == views.PRInspectModeDiff {
-		m.prInspect.SwitchToDescription()
-		m.topBar.SetView(components.ViewNamePRDescription)
-		m.updateShortcuts()
-		return m, nil
-	}
-
 	newModel, cmd := m.navigateBack()
 	return newModel.(Model), cmd
 }
@@ -736,7 +736,14 @@ func handleEnterKey(m Model) (Model, tea.Cmd) {
 			return m.inspectPR(*pr)
 		}
 	case ViewPRInspect:
-		if m.prInspect.GetMode() == views.PRInspectModeDiff {
+		switch m.prInspect.GetMode() {
+		case views.PRInspectModeCommits:
+			return m.openSelectedCommit()
+		case views.PRInspectModeDiff:
+			if m.prInspect.ViewingCommit() != nil {
+				m.statusBar.SetMessage(commitCommentsBlockedMessage, true)
+				return m, nil
+			}
 			m.reviewView.Activate(views.ReviewModeComment)
 		}
 		return m, nil
@@ -777,6 +784,10 @@ func handleUpKey(m Model) (Model, tea.Cmd) {
 	case ViewPRList:
 		m.prListView.MoveUp()
 	case ViewPRInspect:
+		if m.prInspect.GetMode() == views.PRInspectModeCommits {
+			m.prInspect.MoveCommitUp()
+			return m, nil
+		}
 		if m.prInspect.GetMode() == views.PRInspectModeDiff {
 			m.prInspect.PrevLine()
 			return m, nil
@@ -805,6 +816,10 @@ func handleDownKey(m Model) (Model, tea.Cmd) {
 	case ViewPRList:
 		m.prListView.MoveDown()
 	case ViewPRInspect:
+		if m.prInspect.GetMode() == views.PRInspectModeCommits {
+			m.prInspect.MoveCommitDown()
+			return m, nil
+		}
 		if m.prInspect.GetMode() == views.PRInspectModeDiff {
 			m.prInspect.NextLine()
 			return m, nil
@@ -1075,6 +1090,10 @@ func handleRejectStageKey(m Model) (Model, tea.Cmd) {
 
 func handleInlineCommentKey(m Model) (Model, tea.Cmd) {
 	if m.state == ViewPRInspect && m.prInspect.GetMode() == views.PRInspectModeDiff {
+		if m.prInspect.ViewingCommit() != nil {
+			m.statusBar.SetMessage(commitCommentsBlockedMessage, true)
+			return m, nil
+		}
 		if target, ok := m.prInspect.CurrentCommentTarget(); ok {
 			m.inlineCommentView.Activate(target)
 		}

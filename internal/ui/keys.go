@@ -31,6 +31,7 @@ const (
 	keyNextFile      = "n"
 	keyPrevFile      = "p"
 	keyComments      = "c"
+	keyCommits       = "C"
 	keyApprove       = "a"
 	keyReject        = "x"
 	keyRequestChange = "r"
