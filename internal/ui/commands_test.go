@@ -28,6 +28,7 @@ func createTestModel() Model {
 		stageApprovalView:   views.NewStageApprovalView(),
 		newPRView:           views.NewNewPRView(),
 		extensionFilterView: views.NewExtensionFilterView(),
+		dashboardView:       views.NewDashboardView(),
 		commandRegistry:     NewCommandRegistry(),
 		repository:          &mockRepository{pats: map[string]*domain.PAT{}},
 	}

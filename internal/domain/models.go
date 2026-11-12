@@ -83,8 +83,10 @@ type PullRequest struct {
 	URL            string
 	IsDraft        bool
 	Mergeable      bool
-	ProviderType   ProviderType
-	PATID          string
+	// ReviewedByMe is set once the current user voted on or reviewed the pull request.
+	ReviewedByMe bool
+	ProviderType ProviderType
+	PATID        string
 }
 
 const (

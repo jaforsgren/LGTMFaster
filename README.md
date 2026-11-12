@@ -4,8 +4,9 @@ Fast, keyboard-driven TUI for reviewing pull requests and following pipelines on
 
 ## Features
 
+- **Dashboard**: PRs waiting for your review, your PRs with failing checks, and your PRs ready to merge
 - **Pull requests across accounts**: list, filter and inspect PRs from several PATs at once, categorised as yours, assigned to you, or other
-- **Reviews**: read diffs (full or changed lines only), comment on lines, approve, request changes, merge, edit the description
+- **Reviews**: read diffs (full or changed lines only, without whitespace changes, filtered by file extension), browse commits, comment on lines, approve, request changes, merge, edit the description
 - **Create pull requests**: `:pr` suggests the branches you pushed recently and opens a form with target branch, title, draft flag and description
 - **Comments**: every comment with the code it is about; votes shown as "approved", "rejected", …; export them all as markdown
 - **Pipelines** (Azure DevOps): every pipeline of every project in one foldable list with favorites, runs, stages and approvals, with optional auto-refresh
@@ -72,6 +73,7 @@ On later starts the selected PATs load straight away, in the view you were on wh
 | `:pats` | `:p`, `:pat` | Manage PATs |
 | `:pr` | `:prs`, `:pulls` | List pull requests |
 | `:pr <repository>:<branch>` | | Create a pull request from a branch |
+| `:dashboard` | `:dash`, `:d` | Dashboard |
 | `:pipelines` | `:pl`, `:pipes` | Pipelines (Azure DevOps) |
 | `:merge` | `:m` | Merge the inspected PR |
 | `:link [path]` | `:l` | Link the PR's repository to a local folder |
@@ -97,6 +99,16 @@ Keys mean the same thing in every list.
 | `h`, `backspace`, `esc` | Back |
 | `q` | Back; quits from the PAT list |
 | `ctrl+c` | Quit from anywhere |
+
+### Dashboard
+
+`:dashboard` (or `D` in the PR list) sorts the loaded PRs into three sections:
+
+- **Waiting for your review**: assigned to you, not reviewed by you yet, not draft
+- **Failing checks**: your PRs whose latest builds or checks failed (the failing ones are named)
+- **Ready to merge**: your PRs that are approved, mergeable, not draft, with passing or no checks
+
+Checks are fetched for your own PRs when the dashboard opens (Azure DevOps: the latest build of each pipeline on the PR's merge ref). `enter` inspects a PR and going back returns to the dashboard; `r` reloads.
 
 ### Pull request list
 

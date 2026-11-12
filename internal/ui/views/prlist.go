@@ -253,6 +253,11 @@ func (m *PRListViewModel) CommentThreadsFailed(prKey string) {
 	delete(m.commentsPending, prKey)
 }
 
+// AllPRs is every loaded pull request, before filtering.
+func (m *PRListViewModel) AllPRs() []domain.PullRequest {
+	return m.sourcePRs
+}
+
 func (m *PRListViewModel) TogglePreview() {
 	m.split.Toggle()
 }
@@ -278,6 +283,11 @@ func (m *PRListViewModel) ScrollPane(delta int) {
 }
 
 func (m *PRListViewModel) columns() []listColumn {
+	return prColumns(m.split.ListWidth(m.width), m.split.IsOpen())
+}
+
+// prColumns lays out pull request rows: compact leaves out the repository and author.
+func prColumns(listWidth int, compact bool) []listColumn {
 	const (
 		approvalWidth = 1
 		repoWidth     = 40
@@ -286,8 +296,7 @@ func (m *PRListViewModel) columns() []listColumn {
 		ageWidth      = 14
 		minTitleWidth = 20
 	)
-	listWidth := m.split.ListWidth(m.width)
-	if m.split.IsOpen() {
+	if compact {
 		const columnSpacing = 3
 		return []listColumn{
 			{"", approvalWidth},

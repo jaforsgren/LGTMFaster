@@ -18,6 +18,7 @@ const (
 	ViewNamePRInspect     = "PR Inspect"
 	ViewNamePRCommits     = "PR Commits"
 	ViewNamePRCommit      = "PR Commit"
+	ViewNameDashboard     = "Dashboard"
 	ViewNamePipelines     = "Pipelines"
 	ViewNamePipelineRuns  = "Pipeline Runs"
 	ViewNamePipelineRun   = "Pipeline Run"

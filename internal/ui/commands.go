@@ -44,7 +44,7 @@ type KeyBinding struct {
 
 const helpSeparator = " | "
 
-var allViewStates = []ViewState{ViewPATs, ViewPRList, ViewPRInspect, ViewPipelineList, ViewPipelineRuns, ViewPipelineRun}
+var allViewStates = []ViewState{ViewPATs, ViewPRList, ViewPRInspect, ViewPipelineList, ViewPipelineRuns, ViewPipelineRun, ViewDashboard}
 
 var pipelineViewStates = []ViewState{ViewPipelineList, ViewPipelineRuns, ViewPipelineRun}
 
@@ -91,6 +91,14 @@ func (cr *CommandRegistry) registerCommands() {
 			Description: "List pipelines (Azure DevOps)",
 			ShortHelp:   ":pl",
 			Handler:     handlePipelinesCommand,
+			AvailableIn: allViewStates,
+		},
+		{
+			Name:        "dashboard",
+			Aliases:     []string{"dash", "d"},
+			Description: "PRs waiting for your review, failing checks, ready to merge",
+			ShortHelp:   ":d",
+			Handler:     handleDashboardCommand,
 			AvailableIn: allViewStates,
 		},
 		{
@@ -174,7 +182,7 @@ func (cr *CommandRegistry) registerKeyBindings() {
 			Description: "select",
 			ShortHelp:   keyEnter,
 			Handler:     handleEnterKey,
-			AvailableIn: []ViewState{ViewPATs, ViewPRList, ViewPRInspect, ViewPipelineList, ViewPipelineRuns},
+			AvailableIn: []ViewState{ViewPATs, ViewPRList, ViewPRInspect, ViewPipelineList, ViewPipelineRuns, ViewDashboard},
 			Navigation:  true,
 		},
 		{
@@ -189,7 +197,7 @@ func (cr *CommandRegistry) registerKeyBindings() {
 			Description: "back",
 			ShortHelp:   keyBack,
 			Handler:     handleBackKey,
-			AvailableIn: []ViewState{ViewPRList, ViewPRInspect, ViewPipelineList, ViewPipelineRuns, ViewPipelineRun},
+			AvailableIn: []ViewState{ViewPRList, ViewPRInspect, ViewPipelineList, ViewPipelineRuns, ViewPipelineRun, ViewDashboard},
 			Navigation:  true,
 		},
 		{
@@ -270,6 +278,13 @@ func (cr *CommandRegistry) registerKeyBindings() {
 			AvailableIn: []ViewState{ViewPATs},
 		},
 		{
+			Keys:        []string{keyDashboard},
+			Description: "Dashboard",
+			ShortHelp:   keyDashboard,
+			Handler:     handleDashboardKey,
+			AvailableIn: []ViewState{ViewPRList},
+		},
+		{
 			Keys:        []string{keyTogglePane},
 			Description: "Toggle details pane",
 			ShortHelp:   keyTogglePane,
@@ -281,14 +296,14 @@ func (cr *CommandRegistry) registerKeyBindings() {
 			Description: "Refresh",
 			ShortHelp:   keyRefresh,
 			Handler:     handleRefreshKey,
-			AvailableIn: []ViewState{ViewPRList, ViewPipelineList, ViewPipelineRuns, ViewPipelineRun},
+			AvailableIn: []ViewState{ViewPRList, ViewPipelineList, ViewPipelineRuns, ViewPipelineRun, ViewDashboard},
 		},
 		{
 			Keys:        []string{keyOpenBrowser},
 			Description: "Open in browser",
 			ShortHelp:   keyOpenBrowser,
 			Handler:     handleOpenBrowserKey,
-			AvailableIn: []ViewState{ViewPRList, ViewPRInspect, ViewPipelineList, ViewPipelineRuns, ViewPipelineRun},
+			AvailableIn: []ViewState{ViewPRList, ViewPRInspect, ViewPipelineList, ViewPipelineRuns, ViewPipelineRun, ViewDashboard},
 		},
 		{
 			Keys:        []string{keyNextFile, keyFocusPaneIn},
@@ -684,6 +699,9 @@ func handlePRCommand(m Model, args []string) (Model, tea.Cmd) {
 
 // inspectPR opens a pull request in the inspect view and loads its details, diff and comments.
 func (m Model) inspectPR(pr domain.PullRequest) (Model, tea.Cmd) {
+	if m.state != ViewPRInspect {
+		m.prInspectOrigin = m.state
+	}
 	m.state = ViewPRInspect
 	m.topBar.SetCommentThreads(nil)
 	m.prInspect.SwitchToDescription()
@@ -736,6 +754,10 @@ func handleEnterKey(m Model) (Model, tea.Cmd) {
 		if pr := m.prListView.GetSelectedPR(); pr != nil {
 			return m.inspectPR(*pr)
 		}
+	case ViewDashboard:
+		if pr := m.dashboardView.GetSelectedPR(); pr != nil {
+			return m.inspectPR(*pr)
+		}
 	case ViewPRInspect:
 		switch m.prInspect.GetMode() {
 		case views.PRInspectModeCommits:
@@ -785,6 +807,8 @@ func handleUpKey(m Model) (Model, tea.Cmd) {
 	case ViewPRList:
 		m.prListView.MoveUp()
 		cmd = m.loadPRListComments()
+	case ViewDashboard:
+		m.dashboardView.MoveUp()
 	case ViewPRInspect:
 		if m.prInspect.GetMode() == views.PRInspectModeCommits {
 			m.prInspect.MoveCommitUp()
@@ -818,6 +842,8 @@ func handleDownKey(m Model) (Model, tea.Cmd) {
 	case ViewPRList:
 		m.prListView.MoveDown()
 		cmd = m.loadPRListComments()
+	case ViewDashboard:
+		m.dashboardView.MoveDown()
 	case ViewPRInspect:
 		if m.prInspect.GetMode() == views.PRInspectModeCommits {
 			m.prInspect.MoveCommitDown()
@@ -877,6 +903,9 @@ func handleRefreshKey(m Model) (Model, tea.Cmd) {
 	}
 	if isPipelineView(m.state) {
 		return m.refreshPipelineView()
+	}
+	if m.state == ViewDashboard {
+		return m.refreshDashboard()
 	}
 	return m, nil
 }
@@ -1032,6 +1061,10 @@ func handleOpenBrowserKey(m Model) (Model, tea.Cmd) {
 	case ViewPRInspect:
 		pr := m.prInspect.GetPR()
 		if pr != nil {
+			url = pr.URL
+		}
+	case ViewDashboard:
+		if pr := m.dashboardView.GetSelectedPR(); pr != nil {
 			url = pr.URL
 		}
 	case ViewPipelineList, ViewPipelineRuns, ViewPipelineRun:

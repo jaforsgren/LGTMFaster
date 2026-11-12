@@ -44,6 +44,7 @@ func (p *Provider) ListPullRequests(ctx context.Context, username string) ([]dom
 			reviews, err := p.client.ListReviews(ctx, owner, repo, ghPR.GetNumber())
 			if err == nil {
 				pr.ApprovalStatus = p.calculateApprovalStatus(reviews)
+				pr.ReviewedByMe = reviewedBy(reviews, username)
 			}
 		}
 
@@ -73,6 +74,7 @@ func (p *Provider) GetPullRequest(ctx context.Context, identifier domain.PRIdent
 	reviews, err := p.client.ListReviews(ctx, owner, repo, identifier.Number)
 	if err == nil {
 		pr.ApprovalStatus = p.calculateApprovalStatus(reviews)
+		pr.ReviewedByMe = reviewedBy(reviews, p.username)
 	}
 
 	logger.Log("GitHub: Retrieved PR #%d: %s", identifier.Number, *ghPR.Title)

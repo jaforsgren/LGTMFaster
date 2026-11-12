@@ -373,6 +373,7 @@ func convertPullRequest(adoPR *git.GitPullRequest, currentUser string) domain.Pu
 		Status:         mapPRStatus(adoPR.Status, adoPR.MergeStatus),
 		Category:       determinePRCategory(adoPR, currentUser),
 		ApprovalStatus: calculateApprovalStatus(adoPR),
+		ReviewedByMe:   votedBy(adoPR, currentUser),
 		CreatedAt:      adoPR.CreationDate.Time,
 		UpdatedAt:      getUpdateTime(adoPR),
 		URL:            buildPRWebURL(adoPR),
@@ -466,6 +467,20 @@ func mapPRStatus(status *git.PullRequestStatus, mergeStatus *git.PullRequestAsyn
 	default:
 		return domain.PRStatusOpen
 	}
+}
+
+// votedBy reports whether the user is a reviewer who has voted.
+func votedBy(pr *git.GitPullRequest, currentUser string) bool {
+	if pr.Reviewers == nil {
+		return false
+	}
+	for _, reviewer := range *pr.Reviewers {
+		identity := webapi.IdentityRef{Id: reviewer.Id, DisplayName: reviewer.DisplayName, UniqueName: reviewer.UniqueName}
+		if matchesUser(&identity, currentUser) && reviewer.Vote != nil && *reviewer.Vote != 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func determinePRCategory(pr *git.GitPullRequest, currentUser string) domain.PRCategory {

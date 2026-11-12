@@ -30,6 +30,7 @@ const (
 	ViewPipelineList
 	ViewPipelineRuns
 	ViewPipelineRun
+	ViewDashboard
 )
 
 const prCacheTTL = 30 * time.Second
@@ -84,8 +85,11 @@ type Model struct {
 	stageApprovalView   *views.StageApprovalViewModel
 	newPRView           *views.NewPRViewModel
 	extensionFilterView *views.ExtensionFilterViewModel
-	recentBranches      recentBranches
-	pipelineWatchID     int
+	dashboardView       *views.DashboardViewModel
+	// prInspectOrigin is the view a pull request was opened from, which going back returns to.
+	prInspectOrigin ViewState
+	recentBranches  recentBranches
+	pipelineWatchID int
 	// pipelineRunOrigin is the view the open run was entered from, which going back returns to.
 	pipelineRunOrigin ViewState
 	repository        domain.Repository
@@ -137,6 +141,7 @@ func NewModel(repository domain.Repository) Model {
 		stageApprovalView:   views.NewStageApprovalView(),
 		newPRView:           views.NewNewPRView(),
 		extensionFilterView: views.NewExtensionFilterView(),
+		dashboardView:       views.NewDashboardView(),
 		repository:          repository,
 		providers:           make(map[string]domain.Provider),
 		ctx:                 context.Background(),
@@ -524,9 +529,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			AccumulatedGroups: []domain.PRGroup{},
 			FailedPATs:        []string{},
 		}
-		m.state = ViewPRList
-		m.topBar.SetView(components.ViewNamePRList)
-		m.updateShortcuts()
+		m, _ = m.showPRResults()
 		m.statusBar.SetMessage(fmt.Sprintf("%s Loading PRs (0/%d PATs)...",
 			m.spinner.View(), msg.TotalPATs), false)
 		return m, m.spinner.Tick
@@ -548,9 +551,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if len(m.loadingState.AccumulatedGroups) > 0 {
 			m.prListView.SetPRGroups(m.loadingState.AccumulatedGroups)
 		}
-		var resumeCmd tea.Cmd
+		var resumeCmd, dashboardCmd tea.Cmd
 		m, resumeCmd = m.resumePRs(m.loadingState.LoadedPATs >= m.loadingState.TotalPATs)
-		resumeCmd = tea.Batch(resumeCmd, m.loadPRListComments())
+		m.dashboardView.SetPRs(m.prListView.AllPRs())
+		if m.state == ViewDashboard {
+			dashboardCmd = m.loadDashboardChecks()
+		}
+		resumeCmd = tea.Batch(resumeCmd, m.loadPRListComments(), dashboardCmd)
 
 		totalPRs := 0
 		repoMap := make(map[string]bool)
@@ -637,14 +644,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.topBar.SetStats(len(msg.prs), len(repoMap))
 		m.topBar.SetPRBreakdown(authored, assigned, other)
-		m.topBar.SetView(components.ViewNamePRList)
-
-		m.state = ViewPRList
-		m.updateShortcuts()
+		var resultsCmd, resumeCmd tea.Cmd
+		m, resultsCmd = m.showPRResults()
 		m.statusBar.SetMessage(fmt.Sprintf("Loaded %d pull requests", len(msg.prs)), false)
-		var resumeCmd tea.Cmd
 		m, resumeCmd = m.resumePRs(true)
-		return m, tea.Batch(clearStatusAfterDelay(4*time.Second), resumeCmd)
+		return m, tea.Batch(clearStatusAfterDelay(4*time.Second), resultsCmd, resumeCmd)
 
 	case PRDetailLoadedMsg:
 		m.prInspect.SetPR(msg.pr)
@@ -785,6 +789,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case PullRequestCreatedMsg:
 		return m.handlePullRequestCreated(msg)
+
+	case DashboardChecksLoadedMsg:
+		return m.handleDashboardChecksLoaded(msg)
 
 	case CommitsLoadedMsg:
 		return m.handleCommitsLoaded(msg)
@@ -979,9 +986,19 @@ func (m Model) navigateBack() (tea.Model, tea.Cmd) {
 		if stepped, ok := m.stepBackInPRInspect(); ok {
 			return stepped, nil
 		}
+		if m.prInspectOrigin == ViewDashboard {
+			logger.Log("UI: Navigating back from PR Inspect to Dashboard")
+			return m.openDashboard()
+		}
 		logger.Log("UI: Navigating back from PR Inspect to PR List")
 		m.state = ViewPRList
 		m.topBar.SetContext("", "")
+		m.topBar.SetView(components.ViewNamePRList)
+		m.updateShortcuts()
+		return m, nil
+	case ViewDashboard:
+		logger.Log("UI: Navigating back from Dashboard to PR List")
+		m.state = ViewPRList
 		m.topBar.SetView(components.ViewNamePRList)
 		m.updateShortcuts()
 		return m, nil

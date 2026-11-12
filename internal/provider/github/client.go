@@ -210,3 +210,19 @@ func (c *Client) GetCommitDiff(ctx context.Context, owner, repo, sha string) (st
 	}
 	return diff, nil
 }
+
+func (c *Client) GetCombinedStatus(ctx context.Context, owner, repo, sha string) (*github.CombinedStatus, error) {
+	status, _, err := c.client.Repositories.GetCombinedStatus(ctx, owner, repo, sha, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get commit status: %w", err)
+	}
+	return status, nil
+}
+
+func (c *Client) ListCheckRuns(ctx context.Context, owner, repo, sha string) ([]*github.CheckRun, error) {
+	result, _, err := c.client.Checks.ListCheckRunsForRef(ctx, owner, repo, sha, &github.ListCheckRunsOptions{ListOptions: github.ListOptions{PerPage: listPageSize}})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list check runs: %w", err)
+	}
+	return result.CheckRuns, nil
+}

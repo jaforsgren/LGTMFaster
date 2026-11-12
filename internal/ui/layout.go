@@ -32,7 +32,7 @@ func (m Model) resizeViews() {
 	innerWidth, innerHeight := m.mainWindowContentSize()
 	framed := []sizedView{
 		m.patsView, m.prListView, m.prInspect, m.commentDetailView,
-		m.pipelineListView, m.pipelineRunsView, m.pipelineRunView,
+		m.pipelineListView, m.pipelineRunsView, m.pipelineRunView, m.dashboardView,
 	}
 	for _, view := range framed {
 		view.SetSize(innerWidth, innerHeight)
@@ -66,6 +66,8 @@ func (m Model) renderContent() string {
 		return m.pipelineRunsView.View()
 	case ViewPipelineRun:
 		return m.pipelineRunView.View()
+	case ViewDashboard:
+		return m.dashboardView.View()
 	case ViewPRInspect:
 		return views.RenderMainWindow(m.prInspect.View(), innerWidth, innerHeight)
 	default:

@@ -12,6 +12,7 @@ const (
 	SessionViewPipelines    SessionView = "pipelines"
 	SessionViewPipelineRuns SessionView = "pipeline_runs"
 	SessionViewPipelineRun  SessionView = "pipeline_run"
+	SessionViewDashboard    SessionView = "dashboard"
 )
 
 // Session is where the UI was when it last quit, so the next start can resume there.

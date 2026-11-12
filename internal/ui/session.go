@@ -13,6 +13,7 @@ var sessionViews = map[ViewState]domain.SessionView{
 	ViewPipelineList: domain.SessionViewPipelines,
 	ViewPipelineRuns: domain.SessionViewPipelineRuns,
 	ViewPipelineRun:  domain.SessionViewPipelineRun,
+	ViewDashboard:    domain.SessionViewDashboard,
 }
 
 // captureSession records the view, its selection and which details panes are open.
@@ -99,6 +100,10 @@ func (m Model) startResumedView() (Model, tea.Cmd, bool) {
 func (m Model) resumePRs(loadingDone bool) (Model, tea.Cmd) {
 	if m.resume == nil || m.resume.IsPipelineView() {
 		return m, nil
+	}
+	if m.resume.View == domain.SessionViewDashboard {
+		m.resume = nil
+		return m.openDashboard()
 	}
 	if !m.prListView.SelectPR(m.resume.PRKey) {
 		if loadingDone {

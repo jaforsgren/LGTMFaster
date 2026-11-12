@@ -36,6 +36,9 @@ type Provider interface {
 
 	GetCommitDiff(ctx context.Context, identifier PRIdentifier, commitID string) (*Diff, error)
 
+	// GetChecks returns the latest builds or checks that ran for the pull request.
+	GetChecks(ctx context.Context, identifier PRIdentifier) (Checks, error)
+
 	ValidateCredentials(ctx context.Context) error
 }
 
