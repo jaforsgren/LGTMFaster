@@ -169,6 +169,9 @@ type mockProvider struct {
 	commits            []domain.Commit
 	commitDiffs        map[string]*domain.Diff
 	checks             map[int]domain.Checks
+	linkedWorkItems    []domain.WorkItem
+	assignedWorkItems  []domain.WorkItem
+	linkedWorkItemID   int
 }
 
 func (m *mockProvider) ListPullRequests(ctx context.Context, username string) ([]domain.PullRequest, error) {
@@ -232,6 +235,19 @@ func (m *mockProvider) GetCommitDiff(ctx context.Context, identifier domain.PRId
 
 func (m *mockProvider) GetChecks(ctx context.Context, identifier domain.PRIdentifier) (domain.Checks, error) {
 	return m.checks[identifier.Number], nil
+}
+
+func (m *mockProvider) ListLinkedWorkItems(ctx context.Context, identifier domain.PRIdentifier) ([]domain.WorkItem, error) {
+	return m.linkedWorkItems, nil
+}
+
+func (m *mockProvider) ListAssignedWorkItems(ctx context.Context, identifier domain.PRIdentifier) ([]domain.WorkItem, error) {
+	return m.assignedWorkItems, nil
+}
+
+func (m *mockProvider) LinkWorkItem(ctx context.Context, identifier domain.PRIdentifier, workItemID int) error {
+	m.linkedWorkItemID = workItemID
+	return nil
 }
 
 func (m *mockProvider) GetType() domain.ProviderType {

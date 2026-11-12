@@ -2,6 +2,7 @@ package ui
 
 import (
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/johanforsgren/lgtmfaster/internal/ui/views"
 )
 
 const paneScrollStep = 1
@@ -24,6 +25,10 @@ func (m Model) activeSplitList() (splitList, bool) {
 		return m.pipelineListView, true
 	case ViewPipelineRuns:
 		return m.pipelineRunsView, true
+	case ViewPRInspect:
+		if m.prInspect.GetMode() == views.PRInspectModeDescription {
+			return m.prInspect, true
+		}
 	}
 	return nil, false
 }
@@ -40,8 +45,11 @@ func handleTogglePreviewKey(m Model) (Model, tea.Cmd) {
 	}
 	list.TogglePreview()
 	m.statusBar.ClearMessage()
-	if m.state == ViewPRList {
+	switch m.state {
+	case ViewPRList:
 		return m, m.loadPRListComments()
+	case ViewPRInspect:
+		return m, m.loadInspectWorkItems()
 	}
 	return m, m.loadPipelinePreview()
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/microsoft/azure-devops-go-api/azuredevops/v7/core"
 	"github.com/microsoft/azure-devops-go-api/azuredevops/v7/git"
 	"github.com/microsoft/azure-devops-go-api/azuredevops/v7/pipelinesapproval"
+	"github.com/microsoft/azure-devops-go-api/azuredevops/v7/workitemtracking"
 	"github.com/sergi/go-diff/diffmatchpatch"
 )
 
@@ -20,6 +21,7 @@ type Client struct {
 	gitClient      GitClientInterface
 	buildClient    BuildClientInterface
 	approvalClient ApprovalClientInterface
+	workItemClient WorkItemClientInterface
 	organization   string
 	username       string
 	userID         string
@@ -49,12 +51,18 @@ func NewClient(token string, organization string, username string) (*Client, err
 		return nil, fmt.Errorf("failed to create pipelines approval client: %w", err)
 	}
 
+	workItemClient, err := workitemtracking.NewClient(context.Background(), connection)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create work item tracking client: %w", err)
+	}
+
 	client := &Client{
 		connection:     connection,
 		coreClient:     coreClient,
 		gitClient:      gitClient,
 		buildClient:    buildClient,
 		approvalClient: approvalClient,
+		workItemClient: workItemClient,
 		organization:   organization,
 		username:       username,
 	}

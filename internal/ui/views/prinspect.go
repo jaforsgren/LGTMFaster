@@ -54,6 +54,9 @@ type PRInspectViewModel struct {
 	pendingComments []domain.Comment
 	contentLines    int
 	mdRenderer      *markdown.Renderer
+	split           splitView
+	workItems       []domain.WorkItem
+	workItemsState  workItemsState
 }
 
 func NewPRInspectView() *PRInspectViewModel {
@@ -72,10 +75,9 @@ func NewPRInspectView() *PRInspectViewModel {
 func (m *PRInspectViewModel) SetSize(width, height int) {
 	m.width = width
 	m.height = height
-	m.viewport.Width = width
 	m.viewport.Height = max(height-prInspectStatusRows, minPaneSize)
 	m.commitCursor.SetVisibleRows(height - listChromeRows)
-	m.mdRenderer.SetWidth(width)
+	m.updateViewport()
 }
 
 func (m *PRInspectViewModel) SetPR(pr *domain.PullRequest) {
@@ -84,6 +86,7 @@ func (m *PRInspectViewModel) SetPR(pr *domain.PullRequest) {
 		m.commitsLoaded = false
 		m.viewingCommit = nil
 		m.commitCursor.Reset()
+		m.resetWorkItems()
 	}
 	m.pr = pr
 	m.mode = PRInspectModeDescription
@@ -446,8 +449,13 @@ const (
 
 var prInspectStatusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 
+// View frames the content in the main window, beside the work items pane when it is open.
 func (m *PRInspectViewModel) View() string {
-	return m.viewport.View() + "\n\n" + prInspectStatusStyle.Render(m.statusLine())
+	content := m.viewport.View() + "\n\n" + prInspectStatusStyle.Render(m.statusLine())
+	if !m.showsWorkItemsPane() {
+		return RenderMainWindow(content, m.width, m.height)
+	}
+	return m.split.Render(content, m.workItemPanes(), m.width, m.height)
 }
 
 // statusLine reports the diff state the key hints in the top bar cannot show.
@@ -483,6 +491,9 @@ func (m *PRInspectViewModel) hiddenExtensionNames() []string {
 }
 
 func (m *PRInspectViewModel) updateViewport() {
+	m.viewport.Width = m.contentWidth()
+	m.mdRenderer.SetWidth(m.viewport.Width)
+
 	var b strings.Builder
 
 	switch m.mode {
@@ -552,7 +563,7 @@ func (m *PRInspectViewModel) renderPRHeader() string {
 
 	if m.pr.Description != "" {
 		dividerStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#374151"))
-		divider := strings.Repeat("─", m.width-4)
+		divider := strings.Repeat("─", max(m.viewport.Width-4, 0))
 		b.WriteString("\n")
 		b.WriteString(dividerStyle.Render(divider))
 		b.WriteString("\n\n")

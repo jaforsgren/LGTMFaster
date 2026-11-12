@@ -85,6 +85,7 @@ type Model struct {
 	stageApprovalView   *views.StageApprovalViewModel
 	newPRView           *views.NewPRViewModel
 	extensionFilterView *views.ExtensionFilterViewModel
+	workItemPickerView  *views.WorkItemPickerViewModel
 	dashboardView       *views.DashboardViewModel
 	// prInspectOrigin is the view a pull request was opened from, which going back returns to.
 	prInspectOrigin ViewState
@@ -143,6 +144,7 @@ func NewModel(repository domain.Repository) Model {
 		stageApprovalView:   views.NewStageApprovalView(),
 		newPRView:           views.NewNewPRView(),
 		extensionFilterView: views.NewExtensionFilterView(),
+		workItemPickerView:  views.NewWorkItemPickerView(),
 		dashboardView:       views.NewDashboardView(),
 		repository:          repository,
 		providers:           make(map[string]domain.Provider),
@@ -193,6 +195,9 @@ func (m Model) isInInputMode() bool {
 		return true
 	}
 	if m.extensionFilterView.IsActive() {
+		return true
+	}
+	if m.workItemPickerView.IsActive() {
 		return true
 	}
 	if m.isFiltering() {
@@ -327,6 +332,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			if m.extensionFilterView.IsActive() {
 				return m.handleExtensionFilterKey(msg)
+			}
+
+			if m.workItemPickerView.IsActive() {
+				return m.handleWorkItemPickerKey(msg)
 			}
 
 			if m.descriptionEditView.IsActive() {
@@ -654,7 +663,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.topBar.SetPRApproval(string(msg.pr.ApprovalStatus))
 		m.updateLinkedRepoInfo(msg.pr)
 		m.updateShortcuts()
-		return m, nil
+		return m, m.loadInspectWorkItems()
 
 	case DiffLoadedMsg:
 		logger.Log("UI: DiffLoadedMsg received - diff has %d files", len(msg.diff.Files))
@@ -793,6 +802,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case CommitsLoadedMsg:
 		return m.handleCommitsLoaded(msg)
+
+	case WorkItemsLoadedMsg:
+		return m.handleWorkItemsLoaded(msg)
+
+	case AssignedWorkItemsLoadedMsg:
+		return m.handleAssignedWorkItemsLoaded(msg)
+
+	case WorkItemLinkedMsg:
+		return m.handleWorkItemLinked(msg)
 
 	case CommitDiffLoadedMsg:
 		return m.handleCommitDiffLoaded(msg)

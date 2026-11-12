@@ -333,6 +333,20 @@ func (cr *CommandRegistry) registerKeyBindings() {
 			AvailableIn: splitViewStates,
 		},
 		{
+			Keys:        []string{keyTogglePane},
+			Description: "Work items pane",
+			ShortHelp:   keyTogglePane,
+			Handler:     handleTogglePreviewKey,
+			AvailableIn: []ViewState{ViewPRInspect},
+		},
+		{
+			Keys:        []string{keyLinkWorkItem},
+			Description: "Link work item",
+			ShortHelp:   keyLinkWorkItem,
+			Handler:     handleLinkWorkItemKey,
+			AvailableIn: []ViewState{ViewPRInspect},
+		},
+		{
 			Keys:        []string{keyRefresh},
 			Description: "Refresh",
 			ShortHelp:   keyRefresh,
@@ -972,18 +986,30 @@ func handleViewDiffKey(m Model) (Model, tea.Cmd) {
 	return m, nil
 }
 
+// handleNextFileKey also serves → in PR inspect, which beside the description focuses the work
+// items pane instead.
 func handleNextFileKey(m Model) (Model, tea.Cmd) {
-	if m.state == ViewPRInspect && m.prInspect.GetMode() == views.PRInspectModeDiff {
-		m.prInspect.NextFile()
+	if m.state != ViewPRInspect {
 		return m, nil
+	}
+	switch m.prInspect.GetMode() {
+	case views.PRInspectModeDiff:
+		m.prInspect.NextFile()
+	case views.PRInspectModeDescription:
+		return handleFocusPaneInKey(m)
 	}
 	return m, nil
 }
 
 func handlePrevFileKey(m Model) (Model, tea.Cmd) {
-	if m.state == ViewPRInspect && m.prInspect.GetMode() == views.PRInspectModeDiff {
-		m.prInspect.PrevFile()
+	if m.state != ViewPRInspect {
 		return m, nil
+	}
+	switch m.prInspect.GetMode() {
+	case views.PRInspectModeDiff:
+		m.prInspect.PrevFile()
+	case views.PRInspectModeDescription:
+		return handleFocusPaneOutKey(m)
 	}
 	return m, nil
 }

@@ -5,6 +5,7 @@ import (
 	"io"
 
 	"github.com/microsoft/azure-devops-go-api/azuredevops/v7/git"
+	"github.com/microsoft/azure-devops-go-api/azuredevops/v7/webapi"
 )
 
 // GitClientInterface defines the subset of git.Client methods we use
@@ -14,6 +15,7 @@ type GitClientInterface interface {
 	GetPullRequests(ctx context.Context, args git.GetPullRequestsArgs) (*[]git.GitPullRequest, error)
 	GetPullRequest(ctx context.Context, args git.GetPullRequestArgs) (*git.GitPullRequest, error)
 	GetPullRequestCommits(ctx context.Context, args git.GetPullRequestCommitsArgs) (*git.GetPullRequestCommitsResponseValue, error)
+	GetPullRequestWorkItemRefs(ctx context.Context, args git.GetPullRequestWorkItemRefsArgs) (*[]webapi.ResourceRef, error)
 	GetPullRequestIterations(ctx context.Context, args git.GetPullRequestIterationsArgs) (*[]git.GitPullRequestIteration, error)
 	GetPullRequestIterationChanges(ctx context.Context, args git.GetPullRequestIterationChangesArgs) (*git.GitPullRequestIterationChanges, error)
 	GetBlobContent(ctx context.Context, args git.GetBlobContentArgs) (io.ReadCloser, error)

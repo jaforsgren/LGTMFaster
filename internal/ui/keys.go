@@ -50,5 +50,6 @@ const (
 	keyOpenFolder    = "o"
 	keyPull          = "P"
 	keyLinkRepo      = "L"
+	keyLinkWorkItem  = "l"
 	keyComplete      = "tab"
 )

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/microsoft/azure-devops-go-api/azuredevops/v7/git"
+	"github.com/microsoft/azure-devops-go-api/azuredevops/v7/webapi"
 )
 
 type mockGitClient struct {
@@ -29,6 +30,7 @@ type mockGitClient struct {
 	commit           *git.GitCommit
 	itemObjectIDs    map[string]string
 	prCommits        *git.GetPullRequestCommitsResponseValue
+	workItemRefs     *[]webapi.ResourceRef
 }
 
 func (m *mockGitClient) GetRepositories(ctx context.Context, args git.GetRepositoriesArgs) (*[]git.GitRepository, error) {
@@ -45,6 +47,10 @@ func (m *mockGitClient) GetPullRequest(ctx context.Context, args git.GetPullRequ
 
 func (m *mockGitClient) GetPullRequestCommits(ctx context.Context, args git.GetPullRequestCommitsArgs) (*git.GetPullRequestCommitsResponseValue, error) {
 	return m.prCommits, nil
+}
+
+func (m *mockGitClient) GetPullRequestWorkItemRefs(ctx context.Context, args git.GetPullRequestWorkItemRefsArgs) (*[]webapi.ResourceRef, error) {
+	return m.workItemRefs, nil
 }
 
 func (m *mockGitClient) GetPullRequestIterations(ctx context.Context, args git.GetPullRequestIterationsArgs) (*[]git.GitPullRequestIteration, error) {

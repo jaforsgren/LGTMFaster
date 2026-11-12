@@ -39,6 +39,16 @@ type Provider interface {
 	// GetChecks returns the latest builds or checks that ran for the pull request.
 	GetChecks(ctx context.Context, identifier PRIdentifier) (Checks, error)
 
+	// ListLinkedWorkItems returns the work items linked to the pull request (GitHub: the issues its
+	// description closes).
+	ListLinkedWorkItems(ctx context.Context, identifier PRIdentifier) ([]WorkItem, error)
+
+	// ListAssignedWorkItems returns the user's open bugs, tasks and user stories (GitHub: the open
+	// issues assigned to the user in the pull request's repository).
+	ListAssignedWorkItems(ctx context.Context, identifier PRIdentifier) ([]WorkItem, error)
+
+	LinkWorkItem(ctx context.Context, identifier PRIdentifier, workItemID int) error
+
 	ValidateCredentials(ctx context.Context) error
 }
 

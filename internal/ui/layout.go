@@ -41,6 +41,7 @@ func (m Model) resizeViews() {
 	overlays := []sizedView{
 		m.reviewView, m.mergeView, m.inlineCommentView, m.descriptionEditView,
 		m.logsView, m.repoLinkView, m.reposView, m.stageApprovalView, m.newPRView, m.extensionFilterView,
+		m.workItemPickerView,
 	}
 	for _, view := range overlays {
 		view.SetSize(m.width, m.contentHeight())
@@ -69,7 +70,7 @@ func (m Model) renderContent() string {
 	case ViewDashboard:
 		return m.dashboardView.View()
 	case ViewPRInspect:
-		return views.RenderMainWindow(m.prInspect.View(), innerWidth, innerHeight)
+		return m.prInspect.View()
 	default:
 		return views.RenderMainWindow(m.patsView.View(), innerWidth, innerHeight)
 	}
@@ -102,6 +103,8 @@ func (m Model) activeOverlay() (string, bool) {
 		return m.newPRView.View(), true
 	case m.extensionFilterView.IsActive():
 		return m.extensionFilterView.View(), true
+	case m.workItemPickerView.IsActive():
+		return m.workItemPickerView.View(), true
 	}
 	return "", false
 }
