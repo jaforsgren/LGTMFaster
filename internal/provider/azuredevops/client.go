@@ -496,7 +496,17 @@ func (c *Client) UpdatePullRequestDescription(ctx context.Context, projectID str
 	return nil
 }
 
+// CompletePullRequest sends the pull request's current source commit along, which Azure DevOps
+// requires so it never completes a pull request that changed since it was last read.
 func (c *Client) CompletePullRequest(ctx context.Context, projectID string, repoID string, pullRequestID int, mergeMethod string, deleteBranch bool) error {
+	pr, err := c.GetPullRequest(ctx, projectID, repoID, pullRequestID)
+	if err != nil {
+		return err
+	}
+	if pr == nil || pr.LastMergeSourceCommit == nil || pr.LastMergeSourceCommit.CommitId == nil {
+		return fmt.Errorf("pull request %d has no source commit to complete", pullRequestID)
+	}
+
 	completionOptions := &git.GitPullRequestCompletionOptions{
 		DeleteSourceBranch: &deleteBranch,
 	}
@@ -514,11 +524,12 @@ func (c *Client) CompletePullRequest(ctx context.Context, projectID string, repo
 
 	status := git.PullRequestStatusValues.Completed
 	updateRequest := git.GitPullRequest{
-		Status:            &status,
-		CompletionOptions: completionOptions,
+		Status:                &status,
+		CompletionOptions:     completionOptions,
+		LastMergeSourceCommit: &git.GitCommitRef{CommitId: pr.LastMergeSourceCommit.CommitId},
 	}
 
-	_, err := c.gitClient.UpdatePullRequest(ctx, git.UpdatePullRequestArgs{
+	_, err = c.gitClient.UpdatePullRequest(ctx, git.UpdatePullRequestArgs{
 		RepositoryId:           &repoID,
 		PullRequestId:          &pullRequestID,
 		Project:                &projectID,

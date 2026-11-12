@@ -32,6 +32,8 @@ type mockGitClient struct {
 	itemObjectIDs    map[string]string
 	prCommits        *git.GetPullRequestCommitsResponseValue
 	workItemRefs     *[]webapi.ResourceRef
+	pullRequest      *git.GitPullRequest
+	lastUpdateArgs   *git.UpdatePullRequestArgs
 }
 
 func (m *mockGitClient) GetRepositories(ctx context.Context, args git.GetRepositoriesArgs) (*[]git.GitRepository, error) {
@@ -43,7 +45,7 @@ func (m *mockGitClient) GetPullRequests(ctx context.Context, args git.GetPullReq
 }
 
 func (m *mockGitClient) GetPullRequest(ctx context.Context, args git.GetPullRequestArgs) (*git.GitPullRequest, error) {
-	return nil, nil
+	return m.pullRequest, nil
 }
 
 func (m *mockGitClient) GetPullRequestCommits(ctx context.Context, args git.GetPullRequestCommitsArgs) (*git.GetPullRequestCommitsResponseValue, error) {
@@ -138,6 +140,7 @@ func (m *mockGitClient) GetRepository(ctx context.Context, args git.GetRepositor
 }
 
 func (m *mockGitClient) UpdatePullRequest(ctx context.Context, args git.UpdatePullRequestArgs) (*git.GitPullRequest, error) {
+	m.lastUpdateArgs = &args
 	return nil, nil
 }
 
