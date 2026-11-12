@@ -146,6 +146,10 @@ type Comment struct {
 	Side      string
 	// IsSystem marks comments the provider wrote itself, such as vote changes.
 	IsSystem bool
+	// ThreadID groups a comment with its replies; ThreadState is that thread's resolution, empty
+	// when the provider does not report one.
+	ThreadID    string
+	ThreadState ThreadState
 }
 
 type DiffLine struct {

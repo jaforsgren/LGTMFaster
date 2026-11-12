@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/johanforsgren/lgtmfaster/internal/domain"
 )
 
 const (
@@ -185,5 +186,17 @@ func TestTopBarView_ShowsAutoRefreshInPipelineViews(t *testing.T) {
 	m.SetView(ViewNamePRList)
 	if strings.Contains(m.View(), "Auto-refresh") {
 		t.Error("expected no auto-refresh line outside the pipeline views")
+	}
+}
+
+func TestTopBarView_CommentThreadsInPRContext(t *testing.T) {
+	m := NewTopBar()
+	m.SetWidth(wideTerminal)
+	m.SetView(ViewNamePRDiff)
+	m.SetContext("Proj/api", "3")
+
+	m.SetCommentThreads(&domain.CommentThreads{Total: 3})
+	if !strings.Contains(m.View(), "💬 Comments: 3") || strings.Contains(m.View(), "resolved") {
+		t.Error("expected only the count when resolution is unknown")
 	}
 }

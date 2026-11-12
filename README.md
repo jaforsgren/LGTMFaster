@@ -100,7 +100,7 @@ Keys mean the same thing in every list.
 
 ### Pull request list
 
-The details pane (`tab`) shows the PR's info and description. Rows are marked `✎` yours, `→` assigned to you, `○` other; `✓`/`✗`/`◯` is the review state.
+The details pane (`tab`) shows the PR's info, including how many comment threads are resolved (`💬 1/3 resolved`, also in the top bar while inspecting), and its description. Rows are marked `✎` yours, `→` assigned to you, `○` other; `✓`/`✗`/`◯` is the review state.
 
 ### Inspecting a pull request
 

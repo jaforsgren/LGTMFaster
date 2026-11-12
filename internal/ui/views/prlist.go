@@ -13,13 +13,14 @@ import (
 )
 
 const (
-	prListTitle        = "Pull Requests"
-	prInfoPaneTitle    = "Info"
-	prDescriptionTitle = "Description"
-	noDescriptionText  = "No description provided."
-	noPRSelectedText   = "No pull request selected."
-	prDetailLabelWidth = 11
-	hoursPerDay        = 24
+	prListTitle         = "Pull Requests"
+	prInfoPaneTitle     = "Info"
+	prDescriptionTitle  = "Description"
+	noDescriptionText   = "No description provided."
+	noPRSelectedText    = "No pull request selected."
+	loadingCommentsText = "loading..."
+	prDetailLabelWidth  = 11
+	hoursPerDay         = 24
 )
 
 type prCategoryAppearance struct {
@@ -67,18 +68,23 @@ type PRListViewModel struct {
 	// Derived view data (filtered + sorted)
 	visiblePRs []domain.PullRequest
 
-	cursor   listCursor
-	filter   listFilter
-	split    splitView
-	settings domain.Settings
-	width    int
-	height   int
+	// commentThreads caches each PR's thread summary for the Info pane, fetched while it is shown.
+	commentThreads  map[string]domain.CommentThreads
+	commentsPending map[string]bool
+	cursor          listCursor
+	filter          listFilter
+	split           splitView
+	settings        domain.Settings
+	width           int
+	height          int
 }
 
 func NewPRListView() *PRListViewModel {
 	return &PRListViewModel{
-		cursor: newListCursor(),
-		filter: newListFilter("Filter by title, author, or PR number..."),
+		commentThreads:  make(map[string]domain.CommentThreads),
+		commentsPending: make(map[string]bool),
+		cursor:          newListCursor(),
+		filter:          newListFilter("Filter by title, author, or PR number..."),
 	}
 }
 
@@ -222,6 +228,31 @@ func (m *PRListViewModel) GetFilterText() string {
 	return m.filter.Text()
 }
 
+// PendingCommentRequest returns the selected PR when the open Info pane needs its comment threads
+// counted, and marks the request in flight so cursor movement does not refetch it.
+func (m *PRListViewModel) PendingCommentRequest() *domain.PullRequest {
+	pr := m.GetSelectedPR()
+	if !m.split.IsOpen() || pr == nil {
+		return nil
+	}
+	key := pr.Key()
+	if _, loaded := m.commentThreads[key]; loaded || m.commentsPending[key] {
+		return nil
+	}
+	m.commentsPending[key] = true
+	return pr
+}
+
+func (m *PRListViewModel) SetCommentThreads(prKey string, threads domain.CommentThreads) {
+	delete(m.commentsPending, prKey)
+	m.commentThreads[prKey] = threads
+}
+
+// CommentThreadsFailed forgets the request so the count is fetched again next time.
+func (m *PRListViewModel) CommentThreadsFailed(prKey string) {
+	delete(m.commentsPending, prKey)
+}
+
 func (m *PRListViewModel) TogglePreview() {
 	m.split.Toggle()
 }
@@ -328,12 +359,12 @@ func (m *PRListViewModel) detailPanes() []detailPane {
 		return []detailPane{{title: prInfoPaneTitle, lines: empty, fitContent: true}, {title: prDescriptionTitle, lines: empty}}
 	}
 	return []detailPane{
-		{title: fmt.Sprintf("#%d %s", pr.Number, pr.Title), lines: prInfoLines(*pr), fitContent: true},
+		{title: fmt.Sprintf("#%d %s", pr.Number, pr.Title), lines: m.prInfoLines(*pr), fitContent: true},
 		{title: prDescriptionTitle, lines: m.descriptionLines()},
 	}
 }
 
-func prInfoLines(pr domain.PullRequest) []string {
+func (m *PRListViewModel) prInfoLines(pr domain.PullRequest) []string {
 	status := string(pr.Status)
 	if pr.IsDraft {
 		status += " (draft)"
@@ -350,6 +381,7 @@ func prInfoLines(pr domain.PullRequest) []string {
 		{"Category", string(pr.Category)},
 		{"Created", formatOptionalAge(pr.CreatedAt)},
 		{"Updated", formatOptionalAge(pr.UpdatedAt)},
+		{"Comments", m.commentThreadsText(pr)},
 	}
 	lines := make([]string, 0, len(details))
 	for _, detail := range details {
@@ -375,4 +407,11 @@ func flattenGroups(groups []domain.PRGroup) []domain.PullRequest {
 		out = append(out, g.PRs...)
 	}
 	return out
+}
+
+func (m *PRListViewModel) commentThreadsText(pr domain.PullRequest) string {
+	if threads, loaded := m.commentThreads[pr.Key()]; loaded {
+		return "💬 " + threads.Describe()
+	}
+	return loadingCommentsText
 }

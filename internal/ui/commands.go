@@ -685,6 +685,7 @@ func handlePRCommand(m Model, args []string) (Model, tea.Cmd) {
 // inspectPR opens a pull request in the inspect view and loads its details, diff and comments.
 func (m Model) inspectPR(pr domain.PullRequest) (Model, tea.Cmd) {
 	m.state = ViewPRInspect
+	m.topBar.SetCommentThreads(nil)
 	m.prInspect.SwitchToDescription()
 	m.topBar.SetContext(pr.Repository.FullName, fmt.Sprintf("%d", pr.Number))
 	m.topBar.SetView(components.ViewNamePRDescription)
@@ -783,6 +784,7 @@ func handleUpKey(m Model) (Model, tea.Cmd) {
 		cmd = m.patsView.Update(tea.KeyMsg{Type: tea.KeyUp})
 	case ViewPRList:
 		m.prListView.MoveUp()
+		cmd = m.loadPRListComments()
 	case ViewPRInspect:
 		if m.prInspect.GetMode() == views.PRInspectModeCommits {
 			m.prInspect.MoveCommitUp()
@@ -815,6 +817,7 @@ func handleDownKey(m Model) (Model, tea.Cmd) {
 		cmd = m.patsView.Update(tea.KeyMsg{Type: tea.KeyDown})
 	case ViewPRList:
 		m.prListView.MoveDown()
+		cmd = m.loadPRListComments()
 	case ViewPRInspect:
 		if m.prInspect.GetMode() == views.PRInspectModeCommits {
 			m.prInspect.MoveCommitDown()

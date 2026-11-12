@@ -41,7 +41,7 @@ func handleTogglePreviewKey(m Model) (Model, tea.Cmd) {
 	list.TogglePreview()
 	m.statusBar.ClearMessage()
 	if m.state == ViewPRList {
-		return m, nil
+		return m, m.loadPRListComments()
 	}
 	return m, m.loadPipelinePreview()
 }

@@ -32,6 +32,30 @@ func TestDescribeVote(t *testing.T) {
 	}
 }
 
+func TestGetComments_CarriesTheThreadAndItsResolution(t *testing.T) {
+	activeID, fixedID := 1, 2
+	active, fixed := git.CommentThreadStatusValues.Active, git.CommentThreadStatusValues.Fixed
+	gitClient := &mockGitClient{threads: &[]git.GitPullRequestCommentThread{
+		{Id: &activeID, Status: &active, Comments: &[]git.Comment{
+			testThreadComment(1, "Question", git.CommentTypeValues.Text),
+			testThreadComment(2, "Reply", git.CommentTypeValues.Text),
+		}},
+		{Id: &fixedID, Status: &fixed, Comments: &[]git.Comment{testThreadComment(3, "Done", git.CommentTypeValues.Text)}},
+	}}
+
+	comments, err := newPullRequestTestProvider(gitClient).GetComments(context.Background(), domain.PRIdentifier{Repository: testRepository, Number: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if comments[1].ThreadID != "1" || comments[1].ThreadState != domain.ThreadStateActive {
+		t.Errorf("expected the reply in the active thread 1, got %+v", comments[1])
+	}
+	if summary := domain.SummarizeThreads(comments); summary.Resolved != 1 || summary.Total != 2 {
+		t.Errorf("expected 1 of 2 threads resolved, got %+v", summary)
+	}
+}
+
 func TestGetComments_TranslatesVotesAndNormalisesPositions(t *testing.T) {
 	right, left := 12, 4
 	path := "/src/app.go"

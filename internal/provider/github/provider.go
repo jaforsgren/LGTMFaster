@@ -293,6 +293,11 @@ func convertComment(ghComment *github.PullRequestComment) domain.Comment {
 		FilePath:  ghComment.GetPath(),
 		Line:      ghComment.GetLine(),
 		Side:      ghComment.GetSide(),
+		// GitHub's REST API has no thread resolution, so ThreadState stays unknown.
+		ThreadID: fmt.Sprintf("%d", ghComment.GetID()),
+	}
+	if ghComment.InReplyTo != nil {
+		comment.ThreadID = fmt.Sprintf("%d", ghComment.GetInReplyTo())
 	}
 
 	if ghComment.User != nil {

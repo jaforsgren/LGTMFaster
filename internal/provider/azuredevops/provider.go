@@ -195,6 +195,11 @@ func (p *Provider) GetComments(ctx context.Context, identifier domain.PRIdentifi
 		if thread.Comments == nil {
 			continue
 		}
+		threadID := ""
+		if thread.Id != nil {
+			threadID = fmt.Sprintf("%d", *thread.Id)
+		}
+		threadState := threadStateOf(thread.Status)
 
 		for _, comment := range *thread.Comments {
 			isSystem := comment.CommentType != nil && *comment.CommentType == git.CommentTypeValues.System
@@ -203,11 +208,13 @@ func (p *Provider) GetComments(ctx context.Context, identifier domain.PRIdentifi
 				body = describeVote(body)
 			}
 			domainComment := domain.Comment{
-				ID:        fmt.Sprintf("%d", *comment.Id),
-				Body:      body,
-				CreatedAt: comment.PublishedDate.Time,
-				UpdatedAt: comment.LastUpdatedDate.Time,
-				IsSystem:  isSystem,
+				ID:          fmt.Sprintf("%d", *comment.Id),
+				Body:        body,
+				CreatedAt:   comment.PublishedDate.Time,
+				UpdatedAt:   comment.LastUpdatedDate.Time,
+				IsSystem:    isSystem,
+				ThreadID:    threadID,
+				ThreadState: threadState,
 			}
 
 			if comment.Author != nil {

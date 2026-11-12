@@ -550,6 +550,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		var resumeCmd tea.Cmd
 		m, resumeCmd = m.resumePRs(m.loadingState.LoadedPATs >= m.loadingState.TotalPATs)
+		resumeCmd = tea.Batch(resumeCmd, m.loadPRListComments())
 
 		totalPRs := 0
 		repoMap := make(map[string]bool)
@@ -670,8 +671,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case CommentsLoadedMsg:
-		m.prInspect.SetComments(msg.comments)
-		return m, nil
+		return m.handleCommentsLoaded(msg)
+
+	case PRCommentThreadsLoadedMsg:
+		return m.handlePRCommentThreadsLoaded(msg)
 
 	case ErrorMsg:
 		m.statusBar.SetMessage(msg.err.Error(), true)
@@ -1441,7 +1444,7 @@ func (m Model) loadComments(pr domain.PullRequest) tea.Cmd {
 		if err != nil {
 			return ErrorMsg{err: err}
 		}
-		return CommentsLoadedMsg{comments: comments}
+		return CommentsLoadedMsg{prKey: pr.Key(), comments: comments}
 	}
 }
 
@@ -1496,6 +1499,7 @@ type DiffLoadedMsg struct {
 }
 
 type CommentsLoadedMsg struct {
+	prKey    string
 	comments []domain.Comment
 }
 

@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/johanforsgren/lgtmfaster/internal/domain"
 )
 
 const (
@@ -90,6 +91,7 @@ type TopBarModel struct {
 	pipelineName   string
 	pipelineRun    string
 	pipelineCount  int
+	commentThreads *domain.CommentThreads
 	autoRefresh    bool
 	refreshEvery   time.Duration
 	lastRefresh    time.Time
@@ -182,6 +184,12 @@ func (m *TopBarModel) SetAutoRefresh(enabled bool, interval time.Duration) {
 // SetLastRefresh records when pipeline data last arrived, which shows that auto-refresh is working.
 func (m *TopBarModel) SetLastRefresh(at time.Time) {
 	m.lastRefresh = at
+}
+
+// SetCommentThreads shows how many of the inspected PR's comment threads are resolved; nil hides it
+// until they are loaded.
+func (m *TopBarModel) SetCommentThreads(threads *domain.CommentThreads) {
+	m.commentThreads = threads
 }
 
 func (m *TopBarModel) HasLinkedRepo() bool {
@@ -311,6 +319,10 @@ func (m *TopBarModel) buildPRContextInfo() []string {
 			prValue += " " + badge
 		}
 		lines = append(lines, "📋 "+labelOrangeStyle.Render("PR: ")+prValue)
+	}
+
+	if m.commentThreads != nil {
+		lines = append(lines, contextLine("💬", "Comments", m.commentThreads.Describe()))
 	}
 
 	if m.linkedRepoPath != "" {

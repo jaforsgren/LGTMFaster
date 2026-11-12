@@ -123,3 +123,23 @@ func TestDetailPanes_EmptyDescriptionSaysSo(t *testing.T) {
 		t.Error("expected the empty description message")
 	}
 }
+
+func TestPendingCommentRequest_OnlyWhileTheInfoPaneIsOpen(t *testing.T) {
+	m := NewPRListView()
+	m.SetPRs([]domain.PullRequest{{Number: 1}})
+
+	if m.PendingCommentRequest() != nil {
+		t.Fatal("expected no request while the pane is closed")
+	}
+	m.TogglePreview()
+	if m.PendingCommentRequest() == nil {
+		t.Fatal("expected the selected PR to be requested")
+	}
+	if m.PendingCommentRequest() != nil {
+		t.Error("expected an in-flight request not to be repeated")
+	}
+	m.CommentThreadsFailed(m.GetSelectedPR().Key())
+	if m.PendingCommentRequest() == nil {
+		t.Error("expected a failed request to be retried")
+	}
+}

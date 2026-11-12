@@ -97,3 +97,19 @@ func describeVote(content string) string {
 	}
 	return match[1] + " " + description
 }
+
+// resolvedThreadStatuses are the statuses Azure DevOps shows as resolved; active and pending
+// threads still need attention.
+var resolvedThreadStatuses = map[git.CommentThreadStatus]bool{
+	git.CommentThreadStatusValues.Fixed:    true,
+	git.CommentThreadStatusValues.WontFix:  true,
+	git.CommentThreadStatusValues.Closed:   true,
+	git.CommentThreadStatusValues.ByDesign: true,
+}
+
+func threadStateOf(status *git.CommentThreadStatus) domain.ThreadState {
+	if status != nil && resolvedThreadStatuses[*status] {
+		return domain.ThreadStateResolved
+	}
+	return domain.ThreadStateActive
+}
