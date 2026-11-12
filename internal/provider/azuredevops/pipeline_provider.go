@@ -54,10 +54,44 @@ func (p *Provider) ListPipelineRuns(ctx context.Context, identifier domain.Pipel
 		return nil, err
 	}
 
-	runs := make([]domain.PipelineRun, 0, len(builds))
-	for i := range builds {
-		runs = append(runs, p.convertPipelineRun(&builds[i], identifier.Project))
+	return p.convertPipelineRuns(ctx, builds, identifier.Project), nil
+}
+
+// ListActivePipelineRuns queries every project concurrently; projects whose builds cannot be read
+// are skipped, like inaccessible repositories when listing pipelines.
+func (p *Provider) ListActivePipelineRuns(ctx context.Context) ([]domain.PipelineRun, error) {
+	projects, err := p.client.ListProjects(ctx)
+	if err != nil {
+		logger.LogError("AZDO_LIST_ACTIVE_PIPELINE_RUNS", p.client.organization, err)
+		return nil, err
 	}
+	requestedFor := p.client.requestedForUser(ctx)
+
+	runs := []domain.PipelineRun{}
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	for _, project := range *projects {
+		wg.Add(1)
+		go func(projectName string) {
+			defer wg.Done()
+			builds, err := p.client.ListActiveBuildsRequestedFor(ctx, projectName, requestedFor)
+			if err != nil {
+				logger.Log("AzureDevOps: Skipping active runs of inaccessible project %s: %v", projectName, err)
+				return
+			}
+			projectRuns := p.convertPipelineRuns(ctx, builds, projectName)
+			mu.Lock()
+			defer mu.Unlock()
+			for _, run := range projectRuns {
+				if !run.Status.IsFinished() {
+					runs = append(runs, run)
+				}
+			}
+		}(common.GetString(project.Name))
+	}
+	wg.Wait()
+
+	logger.Log("AzureDevOps: Listed %d active pipeline runs requested for %s", len(runs), requestedFor)
 	return runs, nil
 }
 
@@ -71,7 +105,7 @@ func (p *Provider) GetPipelineRun(ctx context.Context, identifier domain.Pipelin
 		return nil, fmt.Errorf("run %d not found in project '%s'", identifier.RunID, identifier.Project)
 	}
 
-	run := p.convertPipelineRun(b, identifier.Project)
+	run := p.convertPipelineRuns(ctx, []build.Build{*b}, identifier.Project)[0]
 	return &run, nil
 }
 
@@ -125,9 +159,11 @@ func (p *Provider) convertPipelineRun(b *build.Build, projectName string) domain
 		Project:      projectName,
 		Status:       mapBuildStatus(b.Status, b.Result),
 		SourceBranch: extractBranchName(b.SourceBranch),
-		QueuedAt:     timeOrZero(b.QueueTime),
-		StartedAt:    timeOrZero(b.StartTime),
-		FinishedAt:   timeOrZero(b.FinishTime),
+		// Only the trigger info is read here; convertPipelineRuns looks up the rest.
+		CommitMessage: triggerCommitMessage(b),
+		QueuedAt:      timeOrZero(b.QueueTime),
+		StartedAt:     timeOrZero(b.StartTime),
+		FinishedAt:    timeOrZero(b.FinishTime),
 	}
 
 	if b.Definition != nil {

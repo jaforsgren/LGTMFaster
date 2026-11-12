@@ -28,6 +28,7 @@ type mockGitClient struct {
 	createdThreads   []git.GitPullRequestCommentThread
 	commitChanges    *git.GitCommitChanges
 	commit           *git.GitCommit
+	commitCalls      int
 	itemObjectIDs    map[string]string
 	prCommits        *git.GetPullRequestCommitsResponseValue
 	workItemRefs     *[]webapi.ResourceRef
@@ -119,6 +120,7 @@ func (m *mockGitClient) GetChanges(ctx context.Context, args git.GetChangesArgs)
 }
 
 func (m *mockGitClient) GetCommit(ctx context.Context, args git.GetCommitArgs) (*git.GitCommit, error) {
+	m.commitCalls++
 	return m.commit, nil
 }
 

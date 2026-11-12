@@ -516,7 +516,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.topBar.SetView(components.ViewNameDashboard)
 			m.updateShortcuts()
 			logger.Log("UI: Starting on the dashboard with %d selected PAT(s)", selectedCount)
-			return m, m.loadPRsStreaming()
+			runs := m.watchDashboardRuns()
+			return m, tea.Batch(m.loadPRsStreaming(), runs)
 		}
 
 		m.isInitialStartup = false
@@ -805,6 +806,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case DashboardChecksLoadedMsg:
 		return m.handleDashboardChecksLoaded(msg)
+
+	case DashboardRunsLoadedMsg:
+		return m.handleDashboardRunsLoaded(msg)
 
 	case CommitsLoadedMsg:
 		return m.handleCommitsLoaded(msg)

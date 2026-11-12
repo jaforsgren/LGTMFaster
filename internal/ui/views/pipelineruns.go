@@ -211,7 +211,7 @@ func (m *PipelineRunsViewModel) columns() []listColumn {
 		queuedWidth    = 14
 		durationWidth  = 10
 		minRunWidth    = 16
-		columnSpacing  = 5
+		columnSpacing  = 7
 	)
 	listWidth := m.split.ListWidth(m.width)
 	if m.split.IsOpen() {
@@ -220,14 +220,17 @@ func (m *PipelineRunsViewModel) columns() []listColumn {
 			{"Status", statusWidth},
 		}
 	}
-	fixed := statusWidth + branchWidth + requesterWidth + queuedWidth + durationWidth + columnSpacing
+	fixed := statusWidth + runStageColumnWidth + branchWidth + requesterWidth + queuedWidth + durationWidth +
+		runCommitColumnWidth + columnSpacing
 	return []listColumn{
 		{"Run", flexColumnWidth(listWidth, fixed, minRunWidth)},
 		{"Status", statusWidth},
+		runStageColumn,
 		{"Branch", branchWidth},
 		{"Requested by", requesterWidth},
 		{"Queued", queuedWidth},
 		{"Duration", durationWidth},
+		runCommitColumn,
 	}
 }
 
@@ -300,10 +303,12 @@ func runRow(run domain.PipelineRun, isFavorite bool) listRow {
 		values: []string{
 			favoritePrefix(isFavorite) + valueOrPlaceholder(run.Number),
 			PipelineStatusLabel(run.Status),
+			runStageLabel(run),
 			valueOrPlaceholder(run.SourceBranch),
 			valueOrPlaceholder(run.RequestedBy.Username),
 			formatOptionalAge(run.QueuedAt),
 			formatRunDuration(run),
+			runCommitLabel(run),
 		},
 		style: listRowStyle,
 	}

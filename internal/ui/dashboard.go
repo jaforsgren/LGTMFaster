@@ -14,6 +14,11 @@ type DashboardChecksLoadedMsg struct {
 	err    error
 }
 
+type DashboardRunsLoadedMsg struct {
+	runs           []domain.PipelineRun
+	failedPATCount int
+}
+
 // openDashboard shows the dashboard over the loaded pull requests, loading them first if needed.
 func (m Model) openDashboard() (Model, tea.Cmd) {
 	if len(m.providers) == 0 && m.provider == nil {
@@ -24,10 +29,43 @@ func (m Model) openDashboard() (Model, tea.Cmd) {
 	m.topBar.SetView(components.ViewNameDashboard)
 	m.updateShortcuts()
 	m.dashboardView.SetPRs(m.prListView.AllPRs())
+	runs := m.watchDashboardRuns()
 	if len(m.prListView.AllPRs()) == 0 && !m.loadingState.IsLoading {
-		return m, m.loadPRsWithCache()
+		return m, tea.Batch(m.loadPRsWithCache(), runs)
 	}
-	return m, m.loadDashboardChecks()
+	return m, tea.Batch(m.loadDashboardChecks(), runs)
+}
+
+// watchDashboardRuns loads the user's active pipeline runs and keeps them fresh with the pipeline
+// auto-refresh while the dashboard is open.
+func (m *Model) watchDashboardRuns() tea.Cmd {
+	return tea.Batch(m.loadDashboardRuns(), m.startPipelineWatch())
+}
+
+// loadDashboardRuns fetches the active runs of every PAT that supports pipelines; without any the
+// pane shows that there are none.
+func (m Model) loadDashboardRuns() tea.Cmd {
+	providers := m.pipelineProviders()
+	ctx := m.ctx
+	return func() tea.Msg {
+		runs, failedPATCount := collectFromPipelineProviders(providers, "LOAD_ACTIVE_PIPELINE_RUNS",
+			func(patID string, provider domain.Provider) ([]domain.PipelineRun, error) {
+				runs, err := provider.(domain.PipelineProvider).ListActivePipelineRuns(ctx)
+				for i := range runs {
+					tagPipelineRun(&runs[i], patID, provider.GetType())
+				}
+				return runs, err
+			})
+		return DashboardRunsLoadedMsg{runs: runs, failedPATCount: failedPATCount}
+	}
+}
+
+func (m Model) handleDashboardRunsLoaded(msg DashboardRunsLoadedMsg) (Model, tea.Cmd) {
+	m.dashboardView.SetActiveRuns(msg.runs)
+	if msg.failedPATCount > 0 {
+		m.statusBar.SetMessage(fmt.Sprintf("Failed to load pipeline runs for %d PAT(s)", msg.failedPATCount), true)
+	}
+	return m, nil
 }
 
 // loadDashboardChecks fetches the checks of the user's pull requests the dashboard has none for.
@@ -95,7 +133,7 @@ func (m Model) refreshDashboard() (Model, tea.Cmd) {
 	m.dashboardView.ResetChecks()
 	m.loadingState = LoadingState{}
 	m.prCache = nil
-	return m, m.loadPRsStreaming()
+	return m, tea.Batch(m.loadPRsStreaming(), m.loadDashboardRuns())
 }
 
 func handleDashboardKey(m Model) (Model, tea.Cmd) {

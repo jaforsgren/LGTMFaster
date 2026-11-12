@@ -10,6 +10,7 @@ import (
 	"github.com/johanforsgren/lgtmfaster/internal/domain"
 	"github.com/microsoft/azure-devops-go-api/azuredevops/v7"
 	"github.com/microsoft/azure-devops-go-api/azuredevops/v7/build"
+	"github.com/microsoft/azure-devops-go-api/azuredevops/v7/core"
 	"github.com/microsoft/azure-devops-go-api/azuredevops/v7/pipelinesapproval"
 	"github.com/microsoft/azure-devops-go-api/azuredevops/v7/webapi"
 )
@@ -498,3 +499,72 @@ func identityRef(displayName string) *webapi.IdentityRef {
 func statusPtr(s build.BuildStatus) *build.BuildStatus { return &s }
 
 func recordStatePtr(s build.TimelineRecordState) *build.TimelineRecordState { return &s }
+
+// mockCoreClient embeds the interface so only GetProjects needs implementing; any other call panics.
+type mockCoreClient struct {
+	core.Client
+	projects []core.TeamProjectReference
+	err      error
+}
+
+func (m *mockCoreClient) GetProjects(ctx context.Context, args core.GetProjectsArgs) (*core.GetProjectsResponseValue, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return &core.GetProjectsResponseValue{Value: m.projects}, nil
+}
+
+func newActiveRunsTestProvider(buildClient *mockBuildClient, coreClient *mockCoreClient) *Provider {
+	provider := newPipelineTestProvider(buildClient, nil)
+	provider.client.coreClient = coreClient
+	provider.client.userID = "user-guid"
+	return provider
+}
+
+func TestListActivePipelineRuns_QueriesUnfinishedRunsRequestedForTheUser(t *testing.T) {
+	succeeded := build.BuildResultValues.Succeeded
+	mock := &mockBuildClient{builds: []build.Build{
+		newTestBuild(1, "20260101.1", build.BuildStatusValues.InProgress, nil),
+		newTestBuild(2, "20260101.2", build.BuildStatusValues.NotStarted, nil),
+		newTestBuild(3, "20260101.3", build.BuildStatusValues.Completed, &succeeded),
+	}}
+	provider := newActiveRunsTestProvider(mock, &mockCoreClient{projects: []core.TeamProjectReference{{Name: strPtr(testProject)}}})
+
+	runs, err := provider.ListActivePipelineRuns(context.Background())
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(runs) != 2 || runs[0].Status != domain.PipelineStatusRunning || runs[1].Status != domain.PipelineStatusQueued {
+		t.Fatalf("expected the running and the queued run, got %+v", runs)
+	}
+	if runs[0].Project != testProject || runs[0].PipelineName != "CI" {
+		t.Errorf("expected the run to carry its project and pipeline, got %+v", runs[0])
+	}
+	args := mock.lastGetBuildsArgs
+	if *args.RequestedFor != "user-guid" || *args.Project != testProject {
+		t.Errorf("expected builds requested for the user in the project, got %+v", args)
+	}
+	if *args.StatusFilter != "notStarted,postponed,inProgress,cancelling" {
+		t.Errorf("expected only unfinished statuses, got %s", *args.StatusFilter)
+	}
+}
+
+func TestListActivePipelineRuns_SkipsProjectsThatFail(t *testing.T) {
+	provider := newActiveRunsTestProvider(&mockBuildClient{err: errors.New("forbidden")},
+		&mockCoreClient{projects: []core.TeamProjectReference{{Name: strPtr(testProject)}}})
+
+	runs, err := provider.ListActivePipelineRuns(context.Background())
+
+	if err != nil || len(runs) != 0 {
+		t.Errorf("expected no runs and no error, got %v, %v", runs, err)
+	}
+}
+
+func TestListActivePipelineRuns_ReturnsProjectListingErrors(t *testing.T) {
+	provider := newActiveRunsTestProvider(&mockBuildClient{}, &mockCoreClient{err: errors.New("unauthorized")})
+
+	if _, err := provider.ListActivePipelineRuns(context.Background()); err == nil {
+		t.Error("expected the project listing error")
+	}
+}

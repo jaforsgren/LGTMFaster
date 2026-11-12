@@ -129,6 +129,10 @@ type PipelineRun struct {
 	Project      string
 	Status       PipelineStatus
 	SourceBranch string
+	// CommitMessage is the first line of the message of the commit the run builds.
+	CommitMessage string
+	// CurrentStage is the stage an unfinished run is at; empty when it is finished or unknown.
+	CurrentStage string
 	RequestedBy  User
 	QueuedAt     time.Time
 	StartedAt    time.Time
@@ -140,6 +144,10 @@ type PipelineRun struct {
 
 func (r PipelineRun) Identifier() PipelineRunIdentifier {
 	return PipelineRunIdentifier{Project: r.Project, RunID: r.ID}
+}
+
+func (r PipelineRun) PipelineIdentifier() PipelineIdentifier {
+	return PipelineIdentifier{Project: r.Project, PipelineID: r.PipelineID}
 }
 
 func (r PipelineRun) FavoriteKey() string {
@@ -156,6 +164,22 @@ type PipelineStage struct {
 
 func (s PipelineStage) AwaitsApproval() bool {
 	return s.PendingApprovalID != ""
+}
+
+// ActiveStage is the stage a run is at: the first one waiting for an approval, else the first one
+// running. Stages are in run order.
+func ActiveStage(stages []PipelineStage) (PipelineStage, bool) {
+	for _, stage := range stages {
+		if stage.AwaitsApproval() {
+			return stage, true
+		}
+	}
+	for _, stage := range stages {
+		if stage.Status == PipelineStatusRunning {
+			return stage, true
+		}
+	}
+	return PipelineStage{}, false
 }
 
 type StageApproval struct {

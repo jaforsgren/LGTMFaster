@@ -155,7 +155,86 @@ func TestDashboard_EmptyPanesSaySo(t *testing.T) {
 	m := NewDashboardView()
 	m.SetSize(160, 40)
 
-	if strings.Count(m.View(), dashboardEmptySection) != len(dashboardSections) {
+	m.SetActiveRuns(nil)
+
+	if strings.Count(m.View(), dashboardEmptySection) != dashboardPaneCount() {
 		t.Error("expected every empty pane to say so")
+	}
+}
+
+func dashboardRun(id int, number string, queuedMinutesAgo int) domain.PipelineRun {
+	return domain.PipelineRun{
+		ID: id, Number: number, PipelineID: 7, PipelineName: "deploy", Project: "Proj",
+		Status: domain.PipelineStatusRunning, QueuedAt: time.Now().Add(-time.Duration(queuedMinutesAgo) * time.Minute),
+	}
+}
+
+func TestDashboard_ShowsActiveRunsNewestFirst(t *testing.T) {
+	m := loadedDashboard()
+	if !strings.Contains(m.View(), dashboardRunsLoading) {
+		t.Error("expected the runs pane to say it is loading")
+	}
+
+	m.SetActiveRuns([]domain.PipelineRun{dashboardRun(1, "older", 30), dashboardRun(2, "newer", 5)})
+
+	if runs := m.ActiveRuns(); runs[0].Number != "newer" || runs[1].Number != "older" {
+		t.Errorf("expected the newest run first, got %+v", runs)
+	}
+	view := m.View()
+	for _, text := range []string{dashboardRunsTitle + " (2)", "deploy", "newer", "older"} {
+		if !strings.Contains(view, text) {
+			t.Errorf("expected %q in the dashboard", text)
+		}
+	}
+}
+
+func TestDashboard_RunsPaneHasItsOwnCursor(t *testing.T) {
+	m := loadedDashboard()
+	m.SetActiveRuns([]domain.PipelineRun{dashboardRun(1, "newer", 5), dashboardRun(2, "older", 30)})
+	if m.GetSelectedRun() != nil {
+		t.Fatal("expected no run selected while a pull request pane is focused")
+	}
+
+	m.FocusPrev()
+	if m.focus != dashboardRunsPane || m.GetSelectedPR() != nil {
+		t.Fatalf("expected shift+tab from the first pane to reach the runs pane, got %d", m.focus)
+	}
+	m.MoveDown()
+	if m.GetSelectedRun().Number != "older" {
+		t.Errorf("expected the second run selected, got %s", m.GetSelectedRun().Number)
+	}
+	m.FocusRight()
+	m.FocusLeft()
+	if m.focus != dashboardRunsPane {
+		t.Errorf("expected ←/→ to keep the full-width runs pane focused, got %d", m.focus)
+	}
+
+	m.SetActiveRuns([]domain.PipelineRun{dashboardRun(3, "newest", 1), dashboardRun(1, "newer", 5), dashboardRun(2, "older", 30)})
+	if m.GetSelectedRun().Number != "older" {
+		t.Errorf("expected a reload to keep the cursor on the same run, got %s", m.GetSelectedRun().Number)
+	}
+	m.FocusNext()
+	if m.focus != sectionReview {
+		t.Errorf("expected tab from the runs pane to wrap to the first pane, got %d", m.focus)
+	}
+}
+
+func TestDashboard_RunRowsShowTheStageAndCommit(t *testing.T) {
+	m := loadedDashboard()
+	run := dashboardRun(1, "20260101.1", 5)
+	run.Status = domain.PipelineStatusWaitingForApproval
+	run.CurrentStage = "Prod"
+	run.CommitMessage = "feature: add login " + strings.Repeat("x", runCommitColumnWidth)
+
+	m.SetActiveRuns([]domain.PipelineRun{run})
+
+	view := m.View()
+	for _, text := range []string{"Prod", "waiting for approval", "feature: add login"} {
+		if !strings.Contains(view, text) {
+			t.Errorf("expected %q in the runs pane", text)
+		}
+	}
+	if strings.Contains(view, run.CommitMessage) {
+		t.Error("expected the commit message to be capped")
 	}
 }

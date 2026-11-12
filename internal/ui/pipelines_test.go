@@ -15,6 +15,8 @@ type mockPipelineProvider struct {
 	mockProvider
 	pipelines     []domain.Pipeline
 	runs          []domain.PipelineRun
+	activeRuns    []domain.PipelineRun
+	activeRunsErr error
 	run           *domain.PipelineRun
 	stages        []domain.PipelineStage
 	listErr       error
@@ -39,6 +41,10 @@ func (m *mockPipelineProvider) ListPipelineRuns(ctx context.Context, identifier 
 func (m *mockPipelineProvider) GetPipelineRun(ctx context.Context, identifier domain.PipelineRunIdentifier) (*domain.PipelineRun, error) {
 	run := *m.run
 	return &run, nil
+}
+
+func (m *mockPipelineProvider) ListActivePipelineRuns(ctx context.Context) ([]domain.PipelineRun, error) {
+	return m.activeRuns, m.activeRunsErr
 }
 
 func (m *mockPipelineProvider) GetPipelineRunStages(ctx context.Context, identifier domain.PipelineRunIdentifier) ([]domain.PipelineStage, error) {

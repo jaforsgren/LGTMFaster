@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	runDetailRows         = 6
+	runDetailRows         = 8
 	stagesHeadingRows     = 2
 	pipelineRunChromeRows = listTitleRows + runDetailRows + stagesHeadingRows + listScrollInfoRows
 	stageStatusWidth      = 22

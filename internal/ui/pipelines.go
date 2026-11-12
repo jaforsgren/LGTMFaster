@@ -113,35 +113,48 @@ func (m Model) loadPipelines() tea.Cmd {
 
 	ctx := m.ctx
 	return func() tea.Msg {
-		type pipelineResult struct {
-			pipelines []domain.Pipeline
-			err       error
-		}
-
-		results := make(chan pipelineResult, len(providers))
-		for patID, provider := range providers {
-			go func(patID string, provider domain.Provider) {
+		pipelines, failedPATCount := collectFromPipelineProviders(providers, "LOAD_PIPELINES",
+			func(patID string, provider domain.Provider) ([]domain.Pipeline, error) {
 				pipelines, err := provider.(domain.PipelineProvider).ListPipelines(ctx)
 				for i := range pipelines {
 					tagPipeline(&pipelines[i], patID, provider.GetType())
 				}
-				if err != nil {
-					logger.LogError("LOAD_PIPELINES", patID, err)
-				}
-				results <- pipelineResult{pipelines: pipelines, err: err}
-			}(patID, provider)
-		}
-
-		msg := PipelinesLoadedMsg{}
-		for range providers {
-			result := <-results
-			if result.err != nil {
-				msg.failedPATCount++
-			}
-			msg.pipelines = append(msg.pipelines, result.pipelines...)
-		}
-		return msg
+				return pipelines, err
+			})
+		return PipelinesLoadedMsg{pipelines: pipelines, failedPATCount: failedPATCount}
 	}
+}
+
+// collectFromPipelineProviders fetches from every provider concurrently and joins the results,
+// counting the PATs whose fetch failed.
+func collectFromPipelineProviders[T any](providers map[string]domain.Provider, logOperation string,
+	fetch func(patID string, provider domain.Provider) ([]T, error)) ([]T, int) {
+	type result struct {
+		items []T
+		err   error
+	}
+
+	results := make(chan result, len(providers))
+	for patID, provider := range providers {
+		go func(patID string, provider domain.Provider) {
+			items, err := fetch(patID, provider)
+			if err != nil {
+				logger.LogError(logOperation, patID, err)
+			}
+			results <- result{items: items, err: err}
+		}(patID, provider)
+	}
+
+	var items []T
+	failedPATCount := 0
+	for range providers {
+		r := <-results
+		if r.err != nil {
+			failedPATCount++
+		}
+		items = append(items, r.items...)
+	}
+	return items, failedPATCount
 }
 
 func (m Model) loadPipelineRuns(pipeline domain.Pipeline) tea.Cmd {
@@ -274,6 +287,10 @@ func (m Model) showPipelineList() (Model, tea.Cmd) {
 // leavePipelineRun goes back to where the run was opened from. Without a pipeline in the runs view
 // that is the pipeline list, so going back can never leave the user stuck in the run.
 func (m Model) leavePipelineRun() (Model, tea.Cmd) {
+	if m.pipelineRunOrigin == ViewDashboard {
+		logger.Log("UI: Navigating back from Pipeline Run to Dashboard")
+		return m.openDashboard()
+	}
 	if m.pipelineRunOrigin == ViewPipelineList || m.pipelineRunsView.GetPipeline() == nil {
 		logger.Log("UI: Navigating back from Pipeline Run to Pipelines")
 		return m.showPipelineList()
@@ -297,8 +314,8 @@ func (m Model) showPipelineRuns() (Model, tea.Cmd) {
 	return m, tea.Batch(m.loadPipelineRuns(*pipeline), watch)
 }
 
-// enterPipelineRun opens a run from the pipeline list or the runs list, and remembers which so
-// going back returns there.
+// enterPipelineRun opens a run from the pipeline list, the runs list or the dashboard, and
+// remembers which so going back returns there.
 func (m Model) enterPipelineRun(run domain.PipelineRun) (Model, tea.Cmd) {
 	m.pipelineRunOrigin = m.state
 	m.state = ViewPipelineRun
@@ -313,7 +330,8 @@ func (m Model) enterPipelineRun(run domain.PipelineRun) (Model, tea.Cmd) {
 
 func (m Model) setPipelineRunContext(run domain.PipelineRun) {
 	repo, pipelineName := run.Project, run.PipelineName
-	if pipeline := m.pipelineRunsView.GetPipeline(); pipeline != nil {
+	// The runs view keeps its last pipeline, which a run opened from the dashboard need not belong to.
+	if pipeline := m.pipelineRunsView.GetPipeline(); pipeline != nil && pipeline.Identifier() == run.PipelineIdentifier() {
 		repo = pipelineRepoLabel(*pipeline)
 		pipelineName = views.PipelineDisplayName(*pipeline)
 	}
@@ -399,6 +417,8 @@ func (m Model) handlePipelineWatchTick(msg PipelineWatchTickMsg) (Model, tea.Cmd
 			cmds = append(cmds, m.loadPipelineRun(*run))
 		}
 		return m, tea.Batch(cmds...)
+	case ViewDashboard:
+		return m, tea.Batch(m.loadDashboardRuns(), nextTick)
 	case ViewPipelineRun:
 		run := m.pipelineRunView.GetRun()
 		if run == nil || run.Status.IsFinished() {

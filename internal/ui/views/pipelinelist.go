@@ -740,12 +740,15 @@ func (m *PipelineListViewModel) columns() []listColumn {
 			{"Last run", lastRunWidth},
 		}
 	}
-	const columnSpacing = 3
+	const columnSpacing = 5
+	fixed := lastRunWidth + runStageColumnWidth + branchWidth + ageWidth + runCommitColumnWidth + columnSpacing
 	return []listColumn{
-		{"Name", flexColumnWidth(listWidth, lastRunWidth+branchWidth+ageWidth+columnSpacing, minNameWidth)},
+		{"Name", flexColumnWidth(listWidth, fixed, minNameWidth)},
 		{"Last run", lastRunWidth},
+		runStageColumn,
 		{"Branch", branchWidth},
 		{"Age", ageWidth},
+		runCommitColumn,
 	}
 }
 
@@ -797,31 +800,33 @@ func (m *PipelineListViewModel) nodeRow(node *PipelineNode) listRow {
 	if node.Kind == PipelineNodePlaceholder {
 		return listRow{
 			icon:   renderListIcon("", ""),
-			values: []string{indent + leafMarker + node.Name, "", "", ""},
+			values: []string{indent + leafMarker + node.Name, "", "", "", "", ""},
 			style:  listMutedStyle,
 		}
 	}
 
 	name := indent + marker + favoritePrefix(m.favorites[node.Key]) + node.Name
-	lastRun, branch, age := emptyCellPlaceholder, emptyCellPlaceholder, emptyCellPlaceholder
+	values := []string{name, emptyCellPlaceholder, emptyCellPlaceholder, emptyCellPlaceholder, emptyCellPlaceholder, emptyCellPlaceholder}
 	switch {
 	case node.IsGroup():
-		name = fmt.Sprintf("%s (%d)", name, node.PipelineCount)
+		values[0] = fmt.Sprintf("%s (%d)", name, node.PipelineCount)
 	case node.Run != nil:
-		lastRun = PipelineStatusLabel(node.Run.Status)
-		branch = valueOrPlaceholder(node.Run.SourceBranch)
-		age = formatOptionalAge(node.Run.QueuedAt)
+		values = append(values[:1], runCells(*node.Run, PipelineStatusLabel(node.Run.Status))...)
 	case node.Pipeline.LatestRun != nil:
-		lastRun = valueOrPlaceholder(node.Pipeline.LatestRun.Number)
-		branch = valueOrPlaceholder(node.Pipeline.LatestRun.SourceBranch)
-		age = formatOptionalAge(node.Pipeline.LatestRun.QueuedAt)
+		latest := *node.Pipeline.LatestRun
+		values = append(values[:1], runCells(latest, valueOrPlaceholder(latest.Number))...)
 	}
 
 	return listRow{
 		icon:   renderPipelineStatusIcon(node.Status),
-		values: []string{name, lastRun, branch, age},
+		values: values,
 		style:  listRowStyle,
 	}
+}
+
+// runCells fills the columns after the name for a run row or a pipeline's latest run.
+func runCells(run domain.PipelineRun, lastRun string) []string {
+	return []string{lastRun, runStageLabel(run), valueOrPlaceholder(run.SourceBranch), formatOptionalAge(run.QueuedAt), runCommitLabel(run)}
 }
 
 func (m *PipelineListViewModel) detailPanes() []detailPane {
@@ -867,8 +872,9 @@ func (m *PipelineListViewModel) previewRunLines(pipeline *domain.Pipeline) []str
 	}
 	lines := make([]string, 0, len(runs))
 	for _, run := range runs {
-		lines = append(lines, renderDetailRow(run.Status, fmt.Sprintf("%s  %s  %s",
-			valueOrPlaceholder(run.Number), valueOrPlaceholder(run.SourceBranch), formatOptionalAge(run.QueuedAt))))
+		lines = append(lines, renderDetailRow(run.Status, fmt.Sprintf("%s  %s  %s  %s",
+			valueOrPlaceholder(run.Number), valueOrPlaceholder(run.SourceBranch), formatOptionalAge(run.QueuedAt),
+			truncateString(run.CommitMessage, runCommitColumnWidth))))
 	}
 	return lines
 }
@@ -879,7 +885,9 @@ func runDetailLines(run domain.PipelineRun) []string {
 		value string
 	}{
 		{"Status", renderPipelineStatusLabel(run.Status, stageStatusWidth)},
+		{"Stage", runStageLabel(run)},
 		{"Branch", valueOrPlaceholder(run.SourceBranch)},
+		{"Commit", truncateString(runCommitLabel(run), runCommitDetailWidth)},
 		{"Requested by", valueOrPlaceholder(run.RequestedBy.Username)},
 		{"Queued", formatOptionalAge(run.QueuedAt)},
 		{"Duration", formatRunDuration(run)},

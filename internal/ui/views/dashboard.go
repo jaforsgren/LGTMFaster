@@ -18,9 +18,16 @@ const (
 	// line under it, the column header and the scroll position.
 	dashboardPaneChromeRows = listTitleRows + listHeaderRows + listScrollInfoRows
 	dashboardColumns        = 2
-	dashboardRows           = 2
-	noCursor                = -1
+	// dashboardRows are the rows of pull request panes; the active runs pane spans a row below them.
+	dashboardRows        = 2
+	dashboardGridRows    = dashboardRows + 1
+	dashboardRunsTitle   = "Your active pipeline runs"
+	dashboardRunsLoading = "Loading pipeline runs..."
+	noCursor             = -1
 )
+
+// dashboardRunsPane is the focus index of the active runs pane, after the pull request panes.
+var dashboardRunsPane = len(dashboardSections)
 
 type dashboardSection struct {
 	title    string
@@ -60,6 +67,9 @@ var checkAppearances = map[domain.CheckState]prCategoryAppearance{
 // with its own cursor. Checks are only fetched for the user's own pull requests.
 type DashboardViewModel struct {
 	prs           []domain.PullRequest
+	runs          []domain.PipelineRun
+	runsLoaded    bool
+	runsCursor    listCursor
 	checks        map[string]domain.Checks
 	checksPending map[string]bool
 	sections      [][]domain.PullRequest
@@ -81,6 +91,7 @@ func NewDashboardView() *DashboardViewModel {
 		checksPending: make(map[string]bool),
 		sections:      make([][]domain.PullRequest, len(dashboardSections)),
 		cursors:       cursors,
+		runsCursor:    newListCursor(),
 	}
 }
 
@@ -91,6 +102,7 @@ func (m *DashboardViewModel) SetSize(width, height int) {
 	for i := range m.cursors {
 		m.cursors[i].SetVisibleRows(layout.heights[i%dashboardRows] - dashboardPaneChromeRows)
 	}
+	m.runsCursor.SetVisibleRows(layout.heights[dashboardRows] - dashboardPaneChromeRows)
 }
 
 func (m *DashboardViewModel) SetPRs(prs []domain.PullRequest) {
@@ -111,6 +123,30 @@ func (m *DashboardViewModel) PendingChecks() []domain.PullRequest {
 		pending = append(pending, pr)
 	}
 	return pending
+}
+
+// SetActiveRuns shows the runs newest first, keeping the cursor on the same run.
+func (m *DashboardViewModel) SetActiveRuns(runs []domain.PipelineRun) {
+	selectedKey := ""
+	if run := m.selectedRun(); run != nil {
+		selectedKey = run.FavoriteKey()
+	}
+
+	sorted := append([]domain.PipelineRun(nil), runs...)
+	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].QueuedAt.After(sorted[j].QueuedAt) })
+	m.runs = sorted
+	m.runsLoaded = true
+
+	m.runsCursor.Clamp(len(sorted))
+	for i, run := range sorted {
+		if run.FavoriteKey() == selectedKey {
+			m.runsCursor.SetIndex(i, len(sorted))
+		}
+	}
+}
+
+func (m *DashboardViewModel) ActiveRuns() []domain.PipelineRun {
+	return m.runs
 }
 
 func (m *DashboardViewModel) SetChecks(prKey string, checks domain.Checks) {
@@ -139,8 +175,12 @@ func (m *DashboardViewModel) SectionCounts() []int {
 	return counts
 }
 
-// GetSelectedPR is the pull request under the cursor of the focused pane.
+// GetSelectedPR is the pull request under the cursor of the focused pane, nil while the runs pane
+// is focused.
 func (m *DashboardViewModel) GetSelectedPR() *domain.PullRequest {
+	if m.focus == dashboardRunsPane {
+		return nil
+	}
 	section := m.sections[m.focus]
 	index := m.cursors[m.focus].Index()
 	if index < 0 || index >= len(section) {
@@ -149,32 +189,64 @@ func (m *DashboardViewModel) GetSelectedPR() *domain.PullRequest {
 	return &section[index]
 }
 
+// GetSelectedRun is the run under the cursor while the runs pane is focused.
+func (m *DashboardViewModel) GetSelectedRun() *domain.PipelineRun {
+	if m.focus != dashboardRunsPane {
+		return nil
+	}
+	return m.selectedRun()
+}
+
+func (m *DashboardViewModel) selectedRun() *domain.PipelineRun {
+	index := m.runsCursor.Index()
+	if index < 0 || index >= len(m.runs) {
+		return nil
+	}
+	return &m.runs[index]
+}
+
 func (m *DashboardViewModel) MoveUp() {
-	m.cursors[m.focus].MoveUp()
+	m.focusedCursor().MoveUp()
 }
 
 func (m *DashboardViewModel) MoveDown() {
+	if m.focus == dashboardRunsPane {
+		m.runsCursor.MoveDown(len(m.runs))
+		return
+	}
 	m.cursors[m.focus].MoveDown(len(m.sections[m.focus]))
 }
 
-// FocusNext and FocusPrev cycle through the panes column by column.
+func (m *DashboardViewModel) focusedCursor() *listCursor {
+	if m.focus == dashboardRunsPane {
+		return &m.runsCursor
+	}
+	return &m.cursors[m.focus]
+}
+
+// FocusNext and FocusPrev cycle through the pull request panes column by column, then the runs pane.
 func (m *DashboardViewModel) FocusNext() {
-	m.setFocus((m.focus + 1) % len(dashboardSections))
+	m.setFocus((m.focus + 1) % dashboardPaneCount())
 }
 
 func (m *DashboardViewModel) FocusPrev() {
-	m.setFocus((m.focus + len(dashboardSections) - 1) % len(dashboardSections))
+	m.setFocus((m.focus + dashboardPaneCount() - 1) % dashboardPaneCount())
 }
 
-// FocusRight and FocusLeft move to the pane beside the focused one.
+func dashboardPaneCount() int {
+	return dashboardRunsPane + 1
+}
+
+// FocusRight and FocusLeft move to the pull request pane beside the focused one; the runs pane
+// spans both columns, so they leave it alone.
 func (m *DashboardViewModel) FocusRight() {
-	if m.focus+dashboardRows < len(dashboardSections) {
+	if m.focus != dashboardRunsPane && m.focus+dashboardRows < len(dashboardSections) {
 		m.setFocus(m.focus + dashboardRows)
 	}
 }
 
 func (m *DashboardViewModel) FocusLeft() {
-	if m.focus >= dashboardRows {
+	if m.focus != dashboardRunsPane && m.focus >= dashboardRows {
 		m.setFocus(m.focus - dashboardRows)
 	}
 }
@@ -222,7 +294,7 @@ func (m *DashboardViewModel) rebuild() {
 }
 
 // dashboardLayout holds the inner sizes of the grid's columns and rows, which together occupy
-// exactly the main window.
+// exactly the main window. The last row is the runs pane, as wide as the window.
 type dashboardLayout struct {
 	widths  []int
 	heights []int
@@ -231,7 +303,7 @@ type dashboardLayout struct {
 func (m *DashboardViewModel) layout() dashboardLayout {
 	return dashboardLayout{
 		widths:  splitEvenly(outerSize(m.width, paneHorizontalPadding), dashboardColumns, paneHorizontalPadding),
-		heights: splitEvenly(outerSize(m.height, paneVerticalPadding), dashboardRows, paneVerticalPadding),
+		heights: splitEvenly(outerSize(m.height, paneVerticalPadding), dashboardGridRows, paneVerticalPadding),
 	}
 }
 
@@ -256,16 +328,85 @@ func (m *DashboardViewModel) View() string {
 		panes := make([]string, dashboardRows)
 		for row := range panes {
 			section := column*dashboardRows + row
-			borderColor := mainWindowBorderColor
-			if section == m.focus {
-				borderColor = focusedPaneBorderColor
-			}
 			width, height := layout.widths[column], layout.heights[row]
-			panes[row] = renderPane(m.renderSection(section, width), width, height, borderColor)
+			panes[row] = renderPane(m.renderSection(section, width), width, height, m.paneBorderColor(section))
 		}
 		columns[column] = lipgloss.JoinVertical(lipgloss.Left, panes...)
 	}
-	return lipgloss.JoinHorizontal(lipgloss.Top, columns...)
+	grid := lipgloss.JoinHorizontal(lipgloss.Top, columns...)
+	runs := renderPane(m.renderRuns(), m.width, layout.heights[dashboardRows], m.paneBorderColor(dashboardRunsPane))
+	return lipgloss.JoinVertical(lipgloss.Left, grid, runs)
+}
+
+func (m *DashboardViewModel) paneBorderColor(pane int) lipgloss.Color {
+	if pane == m.focus {
+		return focusedPaneBorderColor
+	}
+	return mainWindowBorderColor
+}
+
+func (m *DashboardViewModel) renderRuns() string {
+	var b strings.Builder
+	b.WriteString(listTitleStyle.Render(fmt.Sprintf("%s (%d)", dashboardRunsTitle, len(m.runs))))
+	b.WriteString("\n\n")
+	switch {
+	case !m.runsLoaded:
+		b.WriteString(listMutedStyle.Render(dashboardRunsLoading))
+		return b.String()
+	case len(m.runs) == 0:
+		b.WriteString(listMutedStyle.Render(dashboardEmptySection))
+		return b.String()
+	}
+
+	cursor := m.runsCursor
+	if m.focus != dashboardRunsPane {
+		cursor.index = noCursor
+	}
+	b.WriteString(renderListRows(dashboardRunColumns(m.width), len(m.runs), cursor, func(i int) listRow {
+		return dashboardRunRow(m.runs[i])
+	}))
+	return b.String()
+}
+
+func dashboardRunColumns(width int) []listColumn {
+	const (
+		runWidth         = 16
+		statusWidth      = 22
+		branchWidth      = 30
+		queuedWidth      = 14
+		durationWidth    = 10
+		minPipelineWidth = 16
+		columnSpacing    = 7
+	)
+	fixed := runWidth + statusWidth + runStageColumnWidth + branchWidth + queuedWidth + durationWidth +
+		runCommitColumnWidth + columnSpacing
+	return []listColumn{
+		{"Pipeline", flexColumnWidth(width, fixed, minPipelineWidth)},
+		{"Run", runWidth},
+		{"Status", statusWidth},
+		runStageColumn,
+		{"Branch", branchWidth},
+		{"Queued", queuedWidth},
+		{"Duration", durationWidth},
+		runCommitColumn,
+	}
+}
+
+func dashboardRunRow(run domain.PipelineRun) listRow {
+	return listRow{
+		icon: renderPipelineStatusIcon(run.Status),
+		values: []string{
+			valueOrPlaceholder(run.PipelineName),
+			valueOrPlaceholder(run.Number),
+			PipelineStatusLabel(run.Status),
+			runStageLabel(run),
+			valueOrPlaceholder(run.SourceBranch),
+			formatOptionalAge(run.QueuedAt),
+			formatRunDuration(run),
+			runCommitLabel(run),
+		},
+		style: listRowStyle,
+	}
 }
 
 func (m *DashboardViewModel) renderSection(section, width int) string {

@@ -61,6 +61,10 @@ type PipelineProvider interface {
 
 	GetPipelineRun(ctx context.Context, identifier PipelineRunIdentifier) (*PipelineRun, error)
 
+	// ListActivePipelineRuns returns the unfinished runs requested for the authenticated user,
+	// across every project.
+	ListActivePipelineRuns(ctx context.Context) ([]PipelineRun, error)
+
 	GetPipelineRunStages(ctx context.Context, identifier PipelineRunIdentifier) ([]PipelineStage, error)
 
 	SubmitStageApproval(ctx context.Context, approval StageApproval) error

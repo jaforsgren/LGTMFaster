@@ -24,6 +24,27 @@ var pipelineStatusAppearances = map[domain.PipelineStatus]pipelineStatusAppearan
 	domain.PipelineStatusSkipped:            {"»", "skipped", lipgloss.Color("#6B7280")},
 }
 
+const (
+	runStageColumnWidth = 20
+	// runCommitColumnWidth caps the commit message, which goes last so it never pushes other
+	// columns out; runCommitDetailWidth caps it where it has a line of its own.
+	runCommitColumnWidth = 50
+	runCommitDetailWidth = 72
+)
+
+var (
+	runStageColumn  = listColumn{"Stage", runStageColumnWidth}
+	runCommitColumn = listColumn{"Commit", runCommitColumnWidth}
+)
+
+func runStageLabel(run domain.PipelineRun) string {
+	return valueOrPlaceholder(run.CurrentStage)
+}
+
+func runCommitLabel(run domain.PipelineRun) string {
+	return valueOrPlaceholder(run.CommitMessage)
+}
+
 var unknownPipelineStatusAppearance = pipelineStatusAppearance{"?", "unknown", lipgloss.Color("#6B7280")}
 
 func appearanceFor(status domain.PipelineStatus) pipelineStatusAppearance {

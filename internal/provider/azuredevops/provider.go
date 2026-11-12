@@ -25,6 +25,8 @@ type Provider struct {
 	repoCache  map[string]*ResolvedRepository
 	cacheMutex sync.RWMutex
 	cacheTTL   time.Duration
+	// commitMessages maps "repoID@commitID" to the commit's summary line.
+	commitMessages sync.Map
 }
 
 func NewProvider(token string, organization string, username string) (*Provider, error) {

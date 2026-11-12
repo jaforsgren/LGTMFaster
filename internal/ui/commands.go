@@ -544,7 +544,7 @@ func (cr *CommandRegistry) registerKeyBindings() {
 			Description: "Toggle auto-refresh",
 			ShortHelp:   keyAutoRefresh,
 			Handler:     handleAutoRefreshKey,
-			AvailableIn: pipelineViewStates,
+			AvailableIn: []ViewState{ViewPipelineList, ViewPipelineRuns, ViewPipelineRun, ViewDashboard},
 		},
 		{
 			Keys:        []string{keyFoldAll},
@@ -821,6 +821,9 @@ func handleEnterKey(m Model) (Model, tea.Cmd) {
 	case ViewDashboard:
 		if pr := m.dashboardView.GetSelectedPR(); pr != nil {
 			return m.inspectPR(*pr)
+		}
+		if run := m.dashboardView.GetSelectedRun(); run != nil {
+			return m.enterPipelineRun(*run)
 		}
 	case ViewPRInspect:
 		switch m.prInspect.GetMode() {
@@ -1142,6 +1145,9 @@ func handleOpenBrowserKey(m Model) (Model, tea.Cmd) {
 	case ViewDashboard:
 		if pr := m.dashboardView.GetSelectedPR(); pr != nil {
 			url = pr.URL
+		}
+		if run := m.dashboardView.GetSelectedRun(); run != nil {
+			url, target = run.URL, "run"
 		}
 	case ViewPipelineList, ViewPipelineRuns, ViewPipelineRun:
 		url, target = m.pipelineBrowserTarget()

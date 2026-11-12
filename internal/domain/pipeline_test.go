@@ -74,3 +74,19 @@ func TestPipelineSortMode_OrDefault(t *testing.T) {
 		t.Error("expected unknown modes to default to favorites")
 	}
 }
+
+func TestActiveStage_PrefersAStageWaitingForApproval(t *testing.T) {
+	done := PipelineStage{Name: "Build", Status: PipelineStatusSucceeded}
+	running := PipelineStage{Name: "Test", Status: PipelineStatusRunning}
+	waiting := PipelineStage{Name: "Prod", Status: PipelineStatusWaitingForApproval, PendingApprovalID: "id"}
+
+	if stage, found := ActiveStage([]PipelineStage{done, running, waiting}); !found || stage.Name != "Prod" {
+		t.Errorf("expected the stage waiting for approval, got %+v", stage)
+	}
+	if stage, found := ActiveStage([]PipelineStage{done, running}); !found || stage.Name != "Test" {
+		t.Errorf("expected the running stage, got %+v", stage)
+	}
+	if _, found := ActiveStage([]PipelineStage{done}); found {
+		t.Error("expected no active stage when every stage is done")
+	}
+}

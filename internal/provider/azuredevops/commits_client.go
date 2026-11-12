@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/johanforsgren/lgtmfaster/internal/logger"
+	"github.com/johanforsgren/lgtmfaster/internal/provider/common"
 	"github.com/microsoft/azure-devops-go-api/azuredevops/v7/git"
 )
 
@@ -46,6 +47,17 @@ func (c *Client) GetCommitDiff(ctx context.Context, projectID, repoID, commitID 
 		diffText += fileDiff
 	}
 	return diffText, nil
+}
+
+func (c *Client) GetCommitComment(ctx context.Context, projectID, repoID, commitID string) (string, error) {
+	commit, err := c.gitClient.GetCommit(ctx, git.GetCommitArgs{CommitId: &commitID, RepositoryId: &repoID, Project: &projectID})
+	if err != nil {
+		return "", fmt.Errorf("failed to get commit %s: %w", commitID, err)
+	}
+	if commit == nil {
+		return "", fmt.Errorf("commit %s not found in repository '%s'", commitID, repoID)
+	}
+	return common.GetString(commit.Comment), nil
 }
 
 func (c *Client) firstParent(ctx context.Context, projectID, repoID, commitID string) (string, error) {
