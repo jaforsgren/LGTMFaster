@@ -67,6 +67,21 @@ func TestDashboard_StaysOpenWhenPullRequestsReload(t *testing.T) {
 	}
 }
 
+func TestDashboard_PRCommandOpensThePRList(t *testing.T) {
+	m, mine := dashboardTestModel(t)
+	m, _ = m.openDashboard()
+
+	m, _ = handlePRCommand(m, nil)
+	if m.state != ViewPRList {
+		t.Fatalf("expected :pr to open the PR list, got %v", m.state)
+	}
+	updated, _ := m.Update(PRsLoadedMsg{prs: []domain.PullRequest{mine}})
+
+	if updated.(Model).state != ViewPRList {
+		t.Errorf("expected the PR list to stay open once PRs load, got %v", updated.(Model).state)
+	}
+}
+
 func TestDashboardKeys_MoveBetweenPanes(t *testing.T) {
 	m, _ := dashboardTestModel(t)
 	m, _ = m.openDashboard()

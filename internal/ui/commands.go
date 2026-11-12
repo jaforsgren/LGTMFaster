@@ -735,7 +735,7 @@ func handlePRCommand(m Model, args []string) (Model, tea.Cmd) {
 	if len(args) > 0 {
 		return m.startNewPR(strings.Join(args, " "))
 	}
-	return m, m.loadPRsWithCache()
+	return m.showPRList(), m.loadPRsWithCache()
 }
 
 // inspectPR opens a pull request in the inspect view and loads its details, diff and comments.
