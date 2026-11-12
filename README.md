@@ -109,7 +109,9 @@ The details pane (`tab`) shows the PR's info and description. Rows are marked `�
 | `d` | Diff (`q` goes back to the description) |
 | `n`/`p`, `→`/`←` | Next / previous file |
 | `f` | Toggle full file / changed lines only |
-| `y` / `Y` | Copy the file's diff / all diffs |
+| `w` | Hide / show whitespace-only changes |
+| `F` | Choose which file extensions the diff shows |
+| `y` / `Y` | Copy the shown file's diff / all shown diffs (after the `w` and `F` filters) |
 | `i` | Comment on the line under the cursor |
 | `enter` | Write a review comment, posting the queued comments without voting |
 | `a` / `r` | Approve / request changes, posting the queued comments too |

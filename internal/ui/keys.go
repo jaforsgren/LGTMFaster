@@ -38,6 +38,8 @@ const (
 	keyMerge         = "m"
 	keyInlineComment = "i"
 	keyToggleDiff    = "f"
+	keyWhitespace    = "w"
+	keyFileFilter    = "F"
 	keyYankFile      = "y"
 	keyYankAll       = "Y"
 	keySubmitReview  = "ctrl+s"

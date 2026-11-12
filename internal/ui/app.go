@@ -83,6 +83,7 @@ type Model struct {
 	pipelineRunView     *views.PipelineRunViewModel
 	stageApprovalView   *views.StageApprovalViewModel
 	newPRView           *views.NewPRViewModel
+	extensionFilterView *views.ExtensionFilterViewModel
 	recentBranches      recentBranches
 	pipelineWatchID     int
 	// pipelineRunOrigin is the view the open run was entered from, which going back returns to.
@@ -135,6 +136,7 @@ func NewModel(repository domain.Repository) Model {
 		pipelineRunView:     views.NewPipelineRunView(),
 		stageApprovalView:   views.NewStageApprovalView(),
 		newPRView:           views.NewNewPRView(),
+		extensionFilterView: views.NewExtensionFilterView(),
 		repository:          repository,
 		providers:           make(map[string]domain.Provider),
 		ctx:                 context.Background(),
@@ -181,6 +183,9 @@ func (m Model) isInInputMode() bool {
 		return true
 	}
 	if m.newPRView.IsActive() {
+		return true
+	}
+	if m.extensionFilterView.IsActive() {
 		return true
 	}
 	if m.isFiltering() {
@@ -311,6 +316,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			if m.newPRView.IsActive() {
 				return m.handleNewPRKey(msg)
+			}
+
+			if m.extensionFilterView.IsActive() {
+				return m.handleExtensionFilterKey(msg)
 			}
 
 			if m.descriptionEditView.IsActive() {

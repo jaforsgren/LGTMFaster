@@ -27,20 +27,24 @@ const (
 )
 
 type PRInspectViewModel struct {
-	pr              *domain.PullRequest
-	diff            *domain.Diff
-	comments        []domain.Comment
-	viewport        viewport.Model
-	currentFile     int
-	currentLineIdx  int
-	width           int
-	height          int
-	showComments    bool
-	mode            PRInspectMode
-	diffViewMode    DiffViewMode
-	pendingComments []domain.Comment
-	contentLines    int
-	mdRenderer      *markdown.Renderer
+	pr *domain.PullRequest
+	// sourceDiff is the pull request's diff; diff is what is shown of it after the filters.
+	sourceDiff       *domain.Diff
+	diff             *domain.Diff
+	hiddenExtensions map[string]bool
+	ignoreWhitespace bool
+	comments         []domain.Comment
+	viewport         viewport.Model
+	currentFile      int
+	currentLineIdx   int
+	width            int
+	height           int
+	showComments     bool
+	mode             PRInspectMode
+	diffViewMode     DiffViewMode
+	pendingComments  []domain.Comment
+	contentLines     int
+	mdRenderer       *markdown.Renderer
 }
 
 func NewPRInspectView() *PRInspectViewModel {
@@ -70,8 +74,10 @@ func (m *PRInspectViewModel) SetPR(pr *domain.PullRequest) {
 }
 
 func (m *PRInspectViewModel) SetDiff(diff *domain.Diff) {
-	m.diff = diff
+	m.sourceDiff = diff
+	m.diff = filterDiff(diff, m.hiddenExtensions, m.ignoreWhitespace)
 	m.currentFile = 0
+	m.currentLineIdx = 0
 	logger.Log("PRInspectView: SetDiff called with %d files", len(diff.Files))
 	if len(diff.Files) > 0 {
 		for i, file := range diff.Files {
@@ -97,8 +103,55 @@ func (m *PRInspectViewModel) GetComments() []domain.Comment {
 	return m.comments
 }
 
+// GetDiff is the pull request's whole diff, whatever the filters hide.
 func (m *PRInspectViewModel) GetDiff() *domain.Diff {
-	return m.diff
+	return m.sourceDiff
+}
+
+func (m *PRInspectViewModel) ToggleIgnoreWhitespace() {
+	m.ignoreWhitespace = !m.ignoreWhitespace
+	m.applyFilters()
+}
+
+func (m *PRInspectViewModel) IgnoresWhitespace() bool {
+	return m.ignoreWhitespace
+}
+
+// Extensions lists the file extensions of the whole diff, for the extension filter.
+func (m *PRInspectViewModel) Extensions() []ExtensionCount {
+	return DiffExtensions(m.sourceDiff)
+}
+
+func (m *PRInspectViewModel) HiddenExtensions() map[string]bool {
+	hidden := make(map[string]bool, len(m.hiddenExtensions))
+	for extension, isHidden := range m.hiddenExtensions {
+		hidden[extension] = isHidden
+	}
+	return hidden
+}
+
+func (m *PRInspectViewModel) SetHiddenExtensions(hidden map[string]bool) {
+	m.hiddenExtensions = hidden
+	m.applyFilters()
+}
+
+// applyFilters rebuilds the shown diff, staying on the same file when it is still shown.
+func (m *PRInspectViewModel) applyFilters() {
+	currentPath := ""
+	if m.diff != nil && m.currentFile < len(m.diff.Files) {
+		currentPath = getFilePath(m.diff.Files[m.currentFile])
+	}
+	m.diff = filterDiff(m.sourceDiff, m.hiddenExtensions, m.ignoreWhitespace)
+	m.currentFile = 0
+	m.currentLineIdx = 0
+	if m.diff != nil {
+		for i, file := range m.diff.Files {
+			if getFilePath(file) == currentPath {
+				m.currentFile = i
+			}
+		}
+	}
+	m.updateViewport()
 }
 
 func (m *PRInspectViewModel) SwitchToDiff() {
@@ -296,9 +349,10 @@ func (m *PRInspectViewModel) Update(msg tea.Msg) tea.Cmd {
 }
 
 const (
-	prInspectStatusRows = 2
-	diffViewModeFull    = "full"
-	diffViewModeCompact = "compact"
+	allFilesFilteredText = "Every file is hidden by the extension filter (F)."
+	prInspectStatusRows  = 2
+	diffViewModeFull     = "full"
+	diffViewModeCompact  = "compact"
 )
 
 var prInspectStatusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
@@ -317,10 +371,26 @@ func (m *PRInspectViewModel) statusLine() string {
 		viewMode = diffViewModeCompact
 	}
 	status := "Diff view: " + viewMode
+	if m.ignoreWhitespace {
+		status += " | whitespace changes hidden"
+	}
+	if hidden := m.hiddenExtensionNames(); len(hidden) > 0 && m.sourceDiff != nil {
+		status += fmt.Sprintf(" | %d/%d files, hiding %s", len(m.diff.Files), len(m.sourceDiff.Files), strings.Join(hidden, ", "))
+	}
 	if pending := m.GetPendingCommentCount(); pending > 0 {
 		status += fmt.Sprintf(" | %d pending comments", pending)
 	}
 	return status
+}
+
+func (m *PRInspectViewModel) hiddenExtensionNames() []string {
+	var names []string
+	for _, extension := range m.Extensions() {
+		if m.hiddenExtensions[extension.Extension] {
+			names = append(names, extension.Extension)
+		}
+	}
+	return names
 }
 
 func (m *PRInspectViewModel) updateViewport() {
@@ -334,6 +404,8 @@ func (m *PRInspectViewModel) updateViewport() {
 	case PRInspectModeDiff:
 		if m.diff != nil && len(m.diff.Files) > 0 {
 			b.WriteString(m.renderDiff())
+		} else if m.sourceDiff != nil && len(m.sourceDiff.Files) > 0 {
+			b.WriteString(listMutedStyle.Render(allFilesFilteredText))
 		}
 	}
 

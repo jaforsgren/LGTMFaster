@@ -354,6 +354,20 @@ func (cr *CommandRegistry) registerKeyBindings() {
 			AvailableIn: []ViewState{ViewPRInspect},
 		},
 		{
+			Keys:        []string{keyWhitespace},
+			Description: "Hide/show whitespace changes",
+			ShortHelp:   keyWhitespace,
+			Handler:     handleWhitespaceKey,
+			AvailableIn: []ViewState{ViewPRInspect},
+		},
+		{
+			Keys:        []string{keyFileFilter},
+			Description: "Filter files by extension",
+			ShortHelp:   keyFileFilter,
+			Handler:     handleFileFilterKey,
+			AvailableIn: []ViewState{ViewPRInspect},
+		},
+		{
 			Keys:        []string{keyYankFile},
 			Description: "Yank current file diff",
 			ShortHelp:   keyYankFile,
@@ -1279,4 +1293,38 @@ func (m Model) openCommentsMarkdown() (Model, tea.Cmd) {
 	logger.LogFileWrite(file.Name())
 	m.statusBar.SetMessage("Opened comments as markdown: "+file.Name(), false)
 	return m, clearStatusAfterDelay(4 * time.Second)
+}
+
+func handleWhitespaceKey(m Model) (Model, tea.Cmd) {
+	if m.prInspect.GetMode() != views.PRInspectModeDiff {
+		return m, nil
+	}
+	m.prInspect.ToggleIgnoreWhitespace()
+	if m.prInspect.IgnoresWhitespace() {
+		m.statusBar.SetMessage("Hiding whitespace-only changes", false)
+	} else {
+		m.statusBar.SetMessage("Showing whitespace-only changes", false)
+	}
+	return m, clearStatusAfterDelay(4 * time.Second)
+}
+
+func handleFileFilterKey(m Model) (Model, tea.Cmd) {
+	if m.prInspect.GetMode() != views.PRInspectModeDiff || len(m.prInspect.Extensions()) == 0 {
+		return m, nil
+	}
+	m.extensionFilterView.Activate(m.prInspect.Extensions(), m.prInspect.HiddenExtensions())
+	return m, nil
+}
+
+// handleExtensionFilterKey routes keys to the open extension filter; the diff, and with it what
+// y and Y copy, changes when the filter is applied.
+func (m Model) handleExtensionFilterKey(msg tea.KeyMsg) (Model, tea.Cmd) {
+	switch m.extensionFilterView.HandleKey(msg) {
+	case views.ExtensionFilterActionApply:
+		m.prInspect.SetHiddenExtensions(m.extensionFilterView.Hidden())
+		m.extensionFilterView.Deactivate()
+	case views.ExtensionFilterActionCancel:
+		m.extensionFilterView.Deactivate()
+	}
+	return m, nil
 }
