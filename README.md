@@ -21,6 +21,12 @@ Browse Azure DevOps pipelines across projects, track runs and stages, manage app
 ## Install
 
 ```bash
+brew install --cask jaforsgren/tap/lgtmfaster
+```
+
+Or build from source:
+
+```bash
 make build      # build ./lgtmfaster
 make install    # install to $GOPATH/bin
 ```
