@@ -1,4 +1,4 @@
-.PHONY: build clean test lint fmt install help
+.PHONY: build clean test lint fmt install release-check snapshot help
 
 BINARY_NAME=lgtmfaster
 VERSION?=dev
@@ -27,6 +27,12 @@ fmt: ## Format code
 
 install: ## Install the binary
 	go install $(LDFLAGS) ./cmd/lgtmfaster
+
+release-check: ## Validate .goreleaser.yaml (needs goreleaser)
+	goreleaser check
+
+snapshot: ## Build every release archive locally into dist/ without publishing (needs goreleaser)
+	goreleaser release --snapshot --clean
 
 help: ## Display this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-15s\033[0m %s\n", $$1, $$2}'
