@@ -1,0 +1,98 @@
+# GoReleaser OSS configuration. See RELEASING.md for how releases are made.
+# Validate with: goreleaser check
+version: 2
+
+project_name: lgtmfaster
+
+builds:
+  - id: lgtmfaster
+    main: ./cmd/lgtmfaster
+    binary: lgtmfaster
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    # -s -w strips the symbol table and DWARF debug info. The -X flags set the same variables
+    # as `make build`.
+    ldflags:
+      - -s -w
+      - -X github.com/johanforsgren/lgtmfaster/internal/version.Version={{ .Version }}
+      - -X github.com/johanforsgren/lgtmfaster/internal/version.GitCommit={{ .ShortCommit }}
+      - -X github.com/johanforsgren/lgtmfaster/internal/version.BuildDate={{ .Date }}
+    # Reproducible builds: file times come from the commit, not the build machine.
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: lgtmfaster
+    ids:
+      - lgtmfaster
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - README.md
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-snapshot"
+
+changelog:
+  use: github
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^style:"
+      - "^chore:"
+
+release:
+  github:
+    owner: jaforsgren
+    name: LGTMFaster
+  # Tags like v1.2.0-rc1 are published as pre-releases (and skip the tap, see skip_upload below).
+  prerelease: auto
+
+homebrew_casks:
+  - name: lgtmfaster
+    ids:
+      - lgtmfaster
+    binaries:
+      - lgtmfaster
+    homepage: https://github.com/jaforsgren/LGTMFaster
+    description: Keyboard-driven TUI for reviewing pull requests and following pipelines on Azure DevOps and GitHub
+    directory: Casks
+    commit_author:
+      name: goreleaserbot
+      email: bot@goreleaser.com
+    commit_msg_template: "Brew cask update for {{ .ProjectName }} version {{ .Tag }}"
+    skip_upload: auto
+    repository:
+      owner: jaforsgren
+      name: homebrew-tap
+      branch: main
+      # The workflow's own GITHUB_TOKEN cannot push to another repository; see RELEASING.md.
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    # The binaries are not signed or notarized (that needs a paid Apple developer account), so
+    # macOS would quarantine them as downloaded files and refuse to run them. This removes the
+    # quarantine flag after install, as the GoReleaser docs suggest for unsigned casks.
+    hooks:
+      post:
+        install_steps: |
+          on_macos do
+            run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{ .StagedPath }}/lgtmfaster"]
+          end
