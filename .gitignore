@@ -32,7 +32,7 @@ go.work.sum
 # .vscode/
 
 # Binary
-lgtmfaster
+/lgtmfaster
 
 # GoReleaser output
 dist/
