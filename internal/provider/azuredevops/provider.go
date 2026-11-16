@@ -3,7 +3,6 @@ package azuredevops
 import (
 	"context"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
@@ -508,16 +507,7 @@ func determinePRCategory(pr *git.GitPullRequest, currentUser string) domain.PRCa
 }
 
 func matchesUser(identity *webapi.IdentityRef, username string) bool {
-	if identity == nil {
-		return false
-	}
-
-	displayName := common.GetString(identity.DisplayName)
-	uniqueName := common.GetString(identity.UniqueName)
-
-	return displayName == username ||
-		strings.EqualFold(displayName, username) ||
-		strings.HasPrefix(strings.ToLower(uniqueName), strings.ToLower(username)+"@")
+	return identity != nil && identityMatchesUsername(identity.DisplayName, identity.UniqueName, username)
 }
 
 func getUpdateTime(pr *git.GitPullRequest) time.Time {

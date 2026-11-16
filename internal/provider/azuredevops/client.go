@@ -548,22 +548,24 @@ func intPtr(i int) *int {
 }
 
 func (c *Client) matchesUsername(displayName, uniqueName *string) bool {
-	username := strings.ToLower(c.username)
+	return identityMatchesUsername(displayName, uniqueName, c.username)
+}
 
-	if displayName != nil {
-		if strings.EqualFold(*displayName, c.username) {
-			return true
-		}
+// identityMatchesUsername reports whether an ADO identity belongs to username, which may be
+// the display name, the full unique name (usually an email) or the part of the email before the @.
+func identityMatchesUsername(displayName, uniqueName *string, username string) bool {
+	if username == "" {
+		return false
+	}
+
+	if displayName != nil && strings.EqualFold(*displayName, username) {
+		return true
 	}
 
 	if uniqueName != nil {
 		un := strings.ToLower(*uniqueName)
-		if un == username {
-			return true
-		}
-		if strings.HasPrefix(un, username+"@") {
-			return true
-		}
+		lowerUsername := strings.ToLower(username)
+		return un == lowerUsername || strings.HasPrefix(un, lowerUsername+"@")
 	}
 
 	return false
