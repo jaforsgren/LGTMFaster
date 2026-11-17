@@ -494,7 +494,7 @@ func (m *DashboardViewModel) renderSection(section, width int) string {
 		// Only the focused pane shows its cursor; the copy keeps the pane's scroll position.
 		cursor.index = noCursor
 	}
-	b.WriteString(renderListRows(prColumns(width, true), len(members), cursor, func(i int) listRow {
+	b.WriteString(renderListRows(prColumns(width, true, prAgeColumnTitle), len(members), cursor, func(i int) listRow {
 		return m.prRow(members[i])
 	}))
 	return b.String()

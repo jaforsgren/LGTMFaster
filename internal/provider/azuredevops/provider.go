@@ -44,12 +44,37 @@ func (p *Provider) GetType() domain.ProviderType {
 	return domain.ProviderAzureDevOps
 }
 
+// closedPullRequestsPerRepository caps how many of each repository's latest pull requests are read for
+// the closed list; the API has no closed-date filter, so this bounds how far back it reaches.
+const closedPullRequestsPerRepository = 20
+
 func (p *Provider) ListPullRequests(ctx context.Context, username string) ([]domain.PullRequest, error) {
+	return p.listPullRequests(ctx, username, git.PullRequestStatusValues.Active, nil)
+}
+
+// ListClosedPullRequests reads every state in one call per repository and drops the active ones,
+// rather than one call each for completed and abandoned.
+func (p *Provider) ListClosedPullRequests(ctx context.Context, username string) ([]domain.PullRequest, error) {
+	prs, err := p.listPullRequests(ctx, username, git.PullRequestStatusValues.All, intPtr(closedPullRequestsPerRepository))
+	return closedPullRequests(prs), err
+}
+
+func closedPullRequests(prs []domain.PullRequest) []domain.PullRequest {
+	closed := []domain.PullRequest{}
+	for _, pr := range prs {
+		if pr.IsClosed() {
+			closed = append(closed, pr)
+		}
+	}
+	return closed
+}
+
+func (p *Provider) listPullRequests(ctx context.Context, username string, status git.PullRequestStatus, top *int) ([]domain.PullRequest, error) {
 	allPRs := []domain.PullRequest{}
 	var mu sync.Mutex
 
 	err := p.visitRepositories(ctx, func(projectID, projectName, repoID, repoName string) {
-		prs, err := p.client.ListPullRequests(ctx, projectID, repoID)
+		prs, err := p.client.ListPullRequests(ctx, projectID, repoID, status, top)
 		if err != nil {
 			logger.Log("AzureDevOps: Skipping inaccessible repo %s/%s: %v", projectName, repoName, err)
 			return
@@ -390,6 +415,14 @@ func convertPullRequest(adoPR *git.GitPullRequest, currentUser string) domain.Pu
 
 	if adoPR.Repository != nil {
 		pr.Repository = convertRepository(adoPR.Repository)
+	}
+
+	if adoPR.ClosedDate != nil {
+		pr.ClosedAt = adoPR.ClosedDate.Time
+	}
+
+	if pr.Status == domain.PRStatusMerged && adoPR.LastMergeCommit != nil {
+		pr.MergeCommitID = common.GetString(adoPR.LastMergeCommit.CommitId)
 	}
 
 	return pr

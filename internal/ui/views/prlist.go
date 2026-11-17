@@ -14,6 +14,9 @@ import (
 
 const (
 	prListTitle         = "Pull Requests"
+	closedPRListTitle   = "Closed"
+	prAgeColumnTitle    = "Age"
+	prClosedColumnTitle = "Closed"
 	prInfoPaneTitle     = "Info"
 	prDescriptionTitle  = "Description"
 	noDescriptionText   = "No description provided."
@@ -47,6 +50,11 @@ var prApprovalBadges = map[domain.ApprovalStatus]string{
 	domain.ApprovalStatusPending:          "◯",
 }
 
+var prClosedStatusBadges = map[domain.PRStatus]string{
+	domain.PRStatusMerged: "✓",
+	domain.PRStatusClosed: "✗",
+}
+
 var prApprovalLabels = map[domain.ApprovalStatus]string{
 	domain.ApprovalStatusApproved:         "approved",
 	domain.ApprovalStatusChangesRequested: "changes requested",
@@ -64,6 +72,12 @@ type PRListViewModel struct {
 	// Source data (never mutated by sorting/filtering)
 	sourcePRs    []domain.PullRequest
 	sourceGroups []domain.PRGroup
+
+	// closedPRs are listed instead of the open ones while showClosed is set; they are kept apart so
+	// the dashboard, which reads AllPRs, only ever sees open pull requests.
+	closedPRs    []domain.PullRequest
+	closedLoaded bool
+	showClosed   bool
 
 	// Derived view data (filtered + sorted)
 	visiblePRs []domain.PullRequest
@@ -111,6 +125,32 @@ func (m *PRListViewModel) SetPRGroups(groups []domain.PRGroup) {
 	m.rebuild()
 }
 
+func (m *PRListViewModel) SetClosedPRs(prs []domain.PullRequest) {
+	m.closedPRs = append([]domain.PullRequest(nil), prs...)
+	m.closedLoaded = true
+	m.rebuild()
+}
+
+// HasClosedPRs reports whether the closed pull requests were loaded, so showing them needs no fetch.
+func (m *PRListViewModel) HasClosedPRs() bool {
+	return m.closedLoaded
+}
+
+// ShowClosed switches the list between the open and the closed pull requests.
+func (m *PRListViewModel) ShowClosed(show bool) {
+	if m.showClosed == show {
+		return
+	}
+	m.showClosed = show
+	m.cursor.Reset()
+	m.split.ResetScroll()
+	m.rebuild()
+}
+
+func (m *PRListViewModel) IsShowingClosed() bool {
+	return m.showClosed
+}
+
 // rebuild runs source → filter → sort → visible, keeping the cursor on the same PR so streamed
 // results arriving from other PATs do not move the selection.
 func (m *PRListViewModel) rebuild() {
@@ -119,9 +159,13 @@ func (m *PRListViewModel) rebuild() {
 		selectedKey = pr.Key()
 	}
 
-	filtered := m.filterOldOtherPRs(m.sourcePRs)
-	filtered = m.filterPRs(filtered)
-	m.visiblePRs = sortPRs(filtered)
+	if m.showClosed {
+		m.visiblePRs = sortClosedPRs(m.filterPRs(m.closedPRs))
+	} else {
+		filtered := m.filterOldOtherPRs(m.sourcePRs)
+		filtered = m.filterPRs(filtered)
+		m.visiblePRs = sortPRs(filtered)
+	}
 
 	for i, pr := range m.visiblePRs {
 		if pr.Key() == selectedKey {
@@ -139,6 +183,15 @@ func sortPRs(prs []domain.PullRequest) []domain.PullRequest {
 			return prCategoryOrder[out[i].Category] < prCategoryOrder[out[j].Category]
 		}
 		return out[i].UpdatedAt.After(out[j].UpdatedAt)
+	})
+	return out
+}
+
+// sortClosedPRs lists the most recently closed first.
+func sortClosedPRs(prs []domain.PullRequest) []domain.PullRequest {
+	out := append([]domain.PullRequest(nil), prs...)
+	sort.SliceStable(out, func(i, j int) bool {
+		return out[i].ClosedAt.After(out[j].ClosedAt)
 	})
 	return out
 }
@@ -283,11 +336,18 @@ func (m *PRListViewModel) ScrollPane(delta int) {
 }
 
 func (m *PRListViewModel) columns() []listColumn {
-	return prColumns(m.split.ListWidth(m.width), m.split.IsOpen())
+	return prColumns(m.split.ListWidth(m.width), m.split.IsOpen(), m.ageColumnTitle())
+}
+
+func (m *PRListViewModel) ageColumnTitle() string {
+	if m.showClosed {
+		return prClosedColumnTitle
+	}
+	return prAgeColumnTitle
 }
 
 // prColumns lays out pull request rows: compact leaves out the repository and author.
-func prColumns(listWidth int, compact bool) []listColumn {
+func prColumns(listWidth int, compact bool, ageTitle string) []listColumn {
 	const (
 		approvalWidth = 1
 		repoWidth     = 40
@@ -302,7 +362,7 @@ func prColumns(listWidth int, compact bool) []listColumn {
 			{"", approvalWidth},
 			{"Title", flexColumnWidth(listWidth, approvalWidth+numberWidth+ageWidth+columnSpacing, minTitleWidth)},
 			{"#", numberWidth},
-			{"Age", ageWidth},
+			{ageTitle, ageWidth},
 		}
 	}
 	const columnSpacing = 5
@@ -313,13 +373,13 @@ func prColumns(listWidth int, compact bool) []listColumn {
 		{"Repo", repoWidth},
 		{"#", numberWidth},
 		{"Author", authorWidth},
-		{"Age", ageWidth},
+		{ageTitle, ageWidth},
 	}
 }
 
 func (m *PRListViewModel) View() string {
 	var b strings.Builder
-	b.WriteString(renderListTitle(prListTitle))
+	b.WriteString(m.title())
 	b.WriteString("\n\n")
 
 	switch {
@@ -332,6 +392,9 @@ func (m *PRListViewModel) View() string {
 	default:
 		columns := m.columns()
 		b.WriteString(renderListRows(columns, len(m.visiblePRs), m.cursor, func(i int) listRow {
+			if m.showClosed {
+				return closedPRRow(m.visiblePRs[i], m.split.IsOpen())
+			}
 			return prRow(m.visiblePRs[i], m.split.IsOpen())
 		}))
 	}
@@ -344,11 +407,25 @@ func (m *PRListViewModel) View() string {
 	return m.split.Render(b.String(), m.detailPanes(), m.width, m.height)
 }
 
+func (m *PRListViewModel) title() string {
+	if m.showClosed {
+		return renderListTitle(prListTitle, closedPRListTitle)
+	}
+	return renderListTitle(prListTitle)
+}
+
 func prRow(pr domain.PullRequest, compact bool) listRow {
+	return prRowWith(pr, compact, prApprovalBadges[pr.ApprovalStatus], FormatAge(pr.CreatedAt))
+}
+
+// closedPRRow badges whether the pull request was merged or abandoned and dates it by its closing.
+func closedPRRow(pr domain.PullRequest, compact bool) listRow {
+	return prRowWith(pr, compact, prClosedStatusBadges[pr.Status], formatOptionalAge(pr.ClosedAt))
+}
+
+func prRowWith(pr domain.PullRequest, compact bool, badge, age string) listRow {
 	appearance := prCategoryAppearanceFor(pr.Category)
 	number := fmt.Sprintf("#%d", pr.Number)
-	age := FormatAge(pr.CreatedAt)
-	badge := prApprovalBadges[pr.ApprovalStatus]
 
 	values := []string{badge, pr.Title, pr.Repository.FullName, number, pr.Author.Username, age}
 	if compact {
@@ -373,15 +450,17 @@ func (m *PRListViewModel) detailPanes() []detailPane {
 	}
 }
 
+type prDetail struct {
+	label string
+	value string
+}
+
 func (m *PRListViewModel) prInfoLines(pr domain.PullRequest) []string {
 	status := string(pr.Status)
 	if pr.IsDraft {
 		status += " (draft)"
 	}
-	details := []struct {
-		label string
-		value string
-	}{
+	details := []prDetail{
 		{"Repo", pr.Repository.FullName},
 		{"Author", pr.Author.Username},
 		{"Branch", fmt.Sprintf("%s → %s", valueOrPlaceholder(pr.SourceBranch), valueOrPlaceholder(pr.TargetBranch))},
@@ -390,8 +469,15 @@ func (m *PRListViewModel) prInfoLines(pr domain.PullRequest) []string {
 		{"Category", string(pr.Category)},
 		{"Created", formatOptionalAge(pr.CreatedAt)},
 		{"Updated", formatOptionalAge(pr.UpdatedAt)},
-		{"Comments", m.commentThreadsText(pr)},
 	}
+	if pr.IsClosed() {
+		details = append(details,
+			prDetail{"Closed", formatOptionalAge(pr.ClosedAt)},
+			prDetail{"Merged as", pr.MergeCommitID},
+		)
+	}
+	details = append(details, prDetail{"Comments", m.commentThreadsText(pr)})
+
 	lines := make([]string, 0, len(details))
 	for _, detail := range details {
 		lines = append(lines, renderDetailLabel(detail.label, prDetailLabelWidth)+detailValueStyle.Render(valueOrPlaceholder(detail.value)))

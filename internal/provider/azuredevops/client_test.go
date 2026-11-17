@@ -36,14 +36,18 @@ type mockGitClient struct {
 	workItemRefs     *[]webapi.ResourceRef
 	pullRequest      *git.GitPullRequest
 	lastUpdateArgs   *git.UpdatePullRequestArgs
+	repositories     *[]git.GitRepository
+	pullRequests     *[]git.GitPullRequest
+	lastListPRArgs   *git.GetPullRequestsArgs
 }
 
 func (m *mockGitClient) GetRepositories(ctx context.Context, args git.GetRepositoriesArgs) (*[]git.GitRepository, error) {
-	return nil, nil
+	return m.repositories, nil
 }
 
 func (m *mockGitClient) GetPullRequests(ctx context.Context, args git.GetPullRequestsArgs) (*[]git.GitPullRequest, error) {
-	return nil, nil
+	m.lastListPRArgs = &args
+	return m.pullRequests, nil
 }
 
 func (m *mockGitClient) GetPullRequest(ctx context.Context, args git.GetPullRequestArgs) (*git.GitPullRequest, error) {

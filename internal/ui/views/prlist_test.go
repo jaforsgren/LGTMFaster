@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/johanforsgren/lgtmfaster/internal/domain"
 )
 
@@ -141,5 +142,76 @@ func TestPendingCommentRequest_OnlyWhileTheInfoPaneIsOpen(t *testing.T) {
 	m.CommentThreadsFailed(m.GetSelectedPR().Key())
 	if m.PendingCommentRequest() == nil {
 		t.Error("expected a failed request to be retried")
+	}
+}
+
+func closedTestPRs() []domain.PullRequest {
+	now := time.Now()
+	return []domain.PullRequest{
+		{Number: 1, Title: "Older merge", Status: domain.PRStatusMerged, ClosedAt: now.Add(-48 * time.Hour), MergeCommitID: "abc123"},
+		{Number: 2, Title: "Recent abandon", Status: domain.PRStatusClosed, ClosedAt: now.Add(-time.Hour)},
+	}
+}
+
+func TestShowClosed_ListsClosedPRsMostRecentlyClosedFirst(t *testing.T) {
+	m := NewPRListView()
+	m.SetSize(120, 30)
+	m.SetPRs([]domain.PullRequest{{Number: 9, Title: "Still open", Status: domain.PRStatusOpen}})
+	m.SetClosedPRs(closedTestPRs())
+
+	m.ShowClosed(true)
+
+	if len(m.visiblePRs) != 2 || m.visiblePRs[0].Number != 2 || m.visiblePRs[1].Number != 1 {
+		t.Fatalf("expected the closed PRs, most recently closed first, got %+v", m.visiblePRs)
+	}
+	view := m.View()
+	if !strings.Contains(view, "Pull Requests / Closed") || strings.Contains(view, "Still open") {
+		t.Error("expected the closed list title and no open PRs")
+	}
+	if len(m.AllPRs()) != 1 || m.AllPRs()[0].Number != 9 {
+		t.Error("expected AllPRs to keep only the open PRs")
+	}
+}
+
+func TestShowClosed_FalseListsOpenPRsAgain(t *testing.T) {
+	m := NewPRListView()
+	m.SetPRs([]domain.PullRequest{{Number: 9, Status: domain.PRStatusOpen}})
+	m.SetClosedPRs(closedTestPRs())
+	m.ShowClosed(true)
+
+	m.ShowClosed(false)
+
+	if m.IsShowingClosed() || len(m.visiblePRs) != 1 || m.visiblePRs[0].Number != 9 {
+		t.Fatalf("expected the open PRs, got %+v", m.visiblePRs)
+	}
+}
+
+func TestShowClosed_FilterAppliesToClosedPRs(t *testing.T) {
+	m := NewPRListView()
+	m.SetClosedPRs(closedTestPRs())
+	m.ShowClosed(true)
+
+	m.ActivateFilter()
+	for _, r := range "abandon" {
+		m.UpdateFilter(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+
+	if len(m.visiblePRs) != 1 || m.visiblePRs[0].Number != 2 {
+		t.Fatalf("expected only the matching closed PR, got %+v", m.visiblePRs)
+	}
+}
+
+func TestPRInfoLines_ShowsClosingAndMergeCommitOfClosedPRs(t *testing.T) {
+	m := NewPRListView()
+	merged := closedTestPRs()[0]
+
+	info := strings.Join(m.prInfoLines(merged), "\n")
+
+	if !strings.Contains(info, "Closed:") || !strings.Contains(info, "abc123") {
+		t.Errorf("expected the closing age and merge commit, got %q", info)
+	}
+	open := strings.Join(m.prInfoLines(domain.PullRequest{Status: domain.PRStatusOpen}), "\n")
+	if strings.Contains(open, "Merged as") {
+		t.Error("expected no merge commit row for an open PR")
 	}
 }

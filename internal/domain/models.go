@@ -80,13 +80,23 @@ type PullRequest struct {
 	ApprovalStatus ApprovalStatus
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
-	URL            string
-	IsDraft        bool
-	Mergeable      bool
+	// ClosedAt is when the pull request was completed or abandoned; zero while it is open.
+	ClosedAt time.Time
+	// MergeCommitID is the commit the merge left on the target branch (the squash commit when
+	// squashed); empty unless the pull request was merged.
+	MergeCommitID string
+	URL           string
+	IsDraft       bool
+	Mergeable     bool
 	// ReviewedByMe is set once the current user voted on or reviewed the pull request.
 	ReviewedByMe bool
 	ProviderType ProviderType
 	PATID        string
+}
+
+// IsClosed reports whether the pull request was merged or abandoned.
+func (pr PullRequest) IsClosed() bool {
+	return pr.Status == PRStatusMerged || pr.Status == PRStatusClosed
 }
 
 const (

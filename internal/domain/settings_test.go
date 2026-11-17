@@ -33,3 +33,11 @@ func TestPipelineAutoRefreshInterval_DefaultsTo15Seconds(t *testing.T) {
 		t.Errorf("expected an invalid interval to fall back to 15s, got %s", got)
 	}
 }
+
+func TestPullRequestIsClosed_OnlyWhenMergedOrAbandoned(t *testing.T) {
+	for status, closed := range map[PRStatus]bool{PRStatusOpen: false, "": false, PRStatusMerged: true, PRStatusClosed: true} {
+		if got := (PullRequest{Status: status}).IsClosed(); got != closed {
+			t.Errorf("status %q: expected closed %v, got %v", status, closed, got)
+		}
+	}
+}

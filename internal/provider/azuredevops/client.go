@@ -197,15 +197,16 @@ func (c *Client) ListRepositories(ctx context.Context, projectID string) (*[]git
 	return repos, nil
 }
 
-func (c *Client) ListPullRequests(ctx context.Context, projectID string, repoID string) (*[]git.GitPullRequest, error) {
-	status := git.PullRequestStatusValues.Active
-
+// ListPullRequests returns the repository's pull requests in the given state, newest first; a nil top
+// returns them all.
+func (c *Client) ListPullRequests(ctx context.Context, projectID string, repoID string, status git.PullRequestStatus, top *int) (*[]git.GitPullRequest, error) {
 	prs, err := c.gitClient.GetPullRequests(ctx, git.GetPullRequestsArgs{
 		RepositoryId: &repoID,
 		Project:      &projectID,
 		SearchCriteria: &git.GitPullRequestSearchCriteria{
 			Status: &status,
 		},
+		Top: top,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list pull requests for repo '%s' in project '%s': %w", repoID, projectID, err)

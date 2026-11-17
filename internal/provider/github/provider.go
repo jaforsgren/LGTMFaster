@@ -34,6 +34,22 @@ func (p *Provider) ListPullRequests(ctx context.Context, username string) ([]dom
 		return nil, err
 	}
 
+	return p.convertListedPullRequests(ctx, ghPRs, username), nil
+}
+
+func (p *Provider) ListClosedPullRequests(ctx context.Context, username string) ([]domain.PullRequest, error) {
+	logger.Log("GitHub: Listing closed pull requests for user %s", username)
+	ghPRs, err := p.client.ListClosedPullRequests(ctx)
+	if err != nil {
+		logger.LogError("GITHUB_LIST_CLOSED_PRS", username, err)
+		return nil, err
+	}
+
+	return p.convertListedPullRequests(ctx, ghPRs, username), nil
+}
+
+// convertListedPullRequests converts listed pull requests, reading each one's reviews for its approval.
+func (p *Provider) convertListedPullRequests(ctx context.Context, ghPRs []*github.PullRequest, username string) []domain.PullRequest {
 	prs := make([]domain.PullRequest, 0, len(ghPRs))
 	for _, ghPR := range ghPRs {
 		pr := p.convertPullRequest(ghPR, username)
@@ -52,7 +68,7 @@ func (p *Provider) ListPullRequests(ctx context.Context, username string) ([]dom
 	}
 
 	logger.Log("GitHub: Found %d pull requests", len(prs))
-	return prs, nil
+	return prs
 }
 
 func (p *Provider) GetPullRequest(ctx context.Context, identifier domain.PRIdentifier) (*domain.PullRequest, error) {
@@ -255,9 +271,14 @@ func (p *Provider) convertPullRequest(ghPR *github.PullRequest, currentUser stri
 		Category:    category,
 		CreatedAt:   ghPR.GetCreatedAt().Time,
 		UpdatedAt:   ghPR.GetUpdatedAt().Time,
+		ClosedAt:    ghPR.GetClosedAt().Time,
 		URL:         ghPR.GetHTMLURL(),
 		IsDraft:     ghPR.GetDraft(),
 		Mergeable:   ghPR.GetMergeable(),
+	}
+
+	if status == domain.PRStatusMerged {
+		pr.MergeCommitID = ghPR.GetMergeCommitSHA()
 	}
 
 	if ghPR.User != nil {

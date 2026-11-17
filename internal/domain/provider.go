@@ -10,6 +10,9 @@ type Provider interface {
 
 	ListPullRequests(ctx context.Context, username string) ([]PullRequest, error)
 
+	// ListClosedPullRequests returns the most recently merged and abandoned pull requests.
+	ListClosedPullRequests(ctx context.Context, username string) ([]PullRequest, error)
+
 	GetPullRequest(ctx context.Context, identifier PRIdentifier) (*PullRequest, error)
 
 	GetDiff(ctx context.Context, identifier PRIdentifier) (*Diff, error)

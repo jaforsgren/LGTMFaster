@@ -704,6 +704,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m, resumeCmd = m.resumePRs(true)
 		return m, tea.Batch(clearStatusAfterDelay(4*time.Second), resultsCmd, resumeCmd)
 
+	case ClosedPRsLoadedMsg:
+		return m.handleClosedPRsLoaded(msg)
+
 	case PRDetailLoadedMsg:
 		m.prInspect.SetPR(msg.pr)
 		m.topBar.SetPRStatus(string(msg.pr.Status), msg.pr.Mergeable)
@@ -1332,64 +1335,94 @@ func (m Model) loadPRs() tea.Cmd {
 			return PRsLoadedMsg{prs: prs, groups: nil}
 		}
 
-		selectedPATs, err := m.repository.GetSelectedPATs()
+		listed, failedPATCount, err := m.listForSelectedPATs(listOpenPullRequests)
 		if err != nil {
 			return ErrorMsg{err: err}
 		}
 
-		type prResult struct {
-			prs []domain.PullRequest
-			pat domain.PAT
-			err error
-		}
-
-		results := make(chan prResult, len(selectedPATs))
-
-		for _, pat := range selectedPATs {
-			go func(p domain.PAT) {
-				provider := m.providers[p.ID]
-				if provider == nil {
-					results <- prResult{prs: nil, pat: p, err: fmt.Errorf("provider not found for PAT %s", p.Name)}
-					return
-				}
-				prs, err := provider.ListPullRequests(m.ctx, p.Username)
-				results <- prResult{prs: prs, pat: p, err: err}
-			}(pat)
-		}
-
 		var allGroups []domain.PRGroup
 		var allPRs []domain.PullRequest
-		failedPATCount := 0
-
-		for i := 0; i < len(selectedPATs); i++ {
-			result := <-results
-			if result.err != nil {
-				logger.LogError("LOAD_PRS", result.pat.Name, result.err)
-				failedPATCount++
-				continue
-			}
-
-			// Tag each PR with its provider and PAT ID
-			taggedPRs := make([]domain.PullRequest, len(result.prs))
-			for j, pr := range result.prs {
-				pr.ProviderType = result.pat.Provider
-				pr.PATID = result.pat.ID
-				taggedPRs[j] = pr
-			}
-
+		for _, result := range listed {
 			allGroups = append(allGroups, domain.PRGroup{
 				PATName:   result.pat.Name,
 				PATID:     result.pat.ID,
 				Provider:  result.pat.Provider,
 				Username:  result.pat.Username,
 				IsPrimary: result.pat.IsPrimary,
-				PRs:       taggedPRs,
+				PRs:       result.prs,
 			})
-			allPRs = append(allPRs, taggedPRs...)
+			allPRs = append(allPRs, result.prs...)
 		}
 
 		return PRsLoadedMsg{prs: allPRs, groups: allGroups, failedPATCount: failedPATCount}
 	}
+}
+
+// prLister lists the pull requests of one PAT.
+type prLister func(ctx context.Context, provider domain.Provider, pat domain.PAT) ([]domain.PullRequest, error)
+
+func listOpenPullRequests(ctx context.Context, provider domain.Provider, pat domain.PAT) ([]domain.PullRequest, error) {
+	return provider.ListPullRequests(ctx, pat.Username)
+}
+
+func listClosedPullRequests(ctx context.Context, provider domain.Provider, pat domain.PAT) ([]domain.PullRequest, error) {
+	return provider.ListClosedPullRequests(ctx, pat.Username)
+}
+
+type patPullRequests struct {
+	pat domain.PAT
+	prs []domain.PullRequest
+}
+
+// listForSelectedPATs lists every selected PAT's pull requests at once, tagged with their PAT. PATs
+// that fail are logged and counted rather than failing the whole listing.
+func (m Model) listForSelectedPATs(list prLister) ([]patPullRequests, int, error) {
+	selectedPATs, err := m.repository.GetSelectedPATs()
+	if err != nil {
+		return nil, 0, err
+	}
+
+	type listResult struct {
+		patPullRequests
+		err error
+	}
+	results := make(chan listResult, len(selectedPATs))
+
+	for _, pat := range selectedPATs {
+		go func(p domain.PAT) {
+			provider := m.providers[p.ID]
+			if provider == nil {
+				results <- listResult{patPullRequests{pat: p}, fmt.Errorf("provider not found for PAT %s", p.Name)}
+				return
+			}
+			prs, err := list(m.ctx, provider, p)
+			results <- listResult{patPullRequests{pat: p, prs: tagPRs(prs, p)}, err}
+		}(pat)
+	}
+
+	var listed []patPullRequests
+	failedPATCount := 0
+	for range selectedPATs {
+		result := <-results
+		if result.err != nil {
+			logger.LogError("LOAD_PRS", result.pat.Name, result.err)
+			failedPATCount++
+			continue
+		}
+		listed = append(listed, result.patPullRequests)
+	}
+	return listed, failedPATCount, nil
+}
+
+// tagPRs records which provider and PAT each pull request came from.
+func tagPRs(prs []domain.PullRequest, pat domain.PAT) []domain.PullRequest {
+	tagged := make([]domain.PullRequest, len(prs))
+	for i, pr := range prs {
+		pr.ProviderType = pat.Provider
+		pr.PATID = pat.ID
+		tagged[i] = pr
+	}
+	return tagged
 }
 
 // loadPRsInBackground reloads the pull requests for an auto-refresh tick, all PATs at once so the
@@ -1424,12 +1457,7 @@ func (m Model) loadPRsForPAT(pat domain.PAT) tea.Cmd {
 			}
 		}
 
-		taggedPRs := make([]domain.PullRequest, len(prs))
-		for i, pr := range prs {
-			pr.ProviderType = pat.Provider
-			pr.PATID = pat.ID
-			taggedPRs[i] = pr
-		}
+		taggedPRs := tagPRs(prs, pat)
 
 		return PRGroupLoadedMsg{
 			Group: domain.PRGroup{

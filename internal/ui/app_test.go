@@ -50,7 +50,13 @@ func (m *mockRepository) DeletePAT(id string) error {
 }
 
 func (m *mockRepository) GetSelectedPATs() ([]domain.PAT, error) {
-	return nil, nil
+	var selected []domain.PAT
+	for _, pat := range m.pats {
+		if pat.IsSelected {
+			selected = append(selected, *pat)
+		}
+	}
+	return selected, nil
 }
 
 func (m *mockRepository) SetSelectedPATs(ids []string, primaryID string) error {
@@ -172,10 +178,15 @@ type mockProvider struct {
 	linkedWorkItems    []domain.WorkItem
 	assignedWorkItems  []domain.WorkItem
 	linkedWorkItemID   int
+	closedPRs          []domain.PullRequest
 }
 
 func (m *mockProvider) ListPullRequests(ctx context.Context, username string) ([]domain.PullRequest, error) {
 	return nil, nil
+}
+
+func (m *mockProvider) ListClosedPullRequests(ctx context.Context, username string) ([]domain.PullRequest, error) {
+	return m.closedPRs, nil
 }
 
 func (m *mockProvider) GetPullRequest(ctx context.Context, identifier domain.PRIdentifier) (*domain.PullRequest, error) {

@@ -92,6 +92,14 @@ func (cr *CommandRegistry) registerCommands() {
 			AvailableIn: allViewStates,
 		},
 		{
+			Name:        "closed",
+			Aliases:     []string{"merged", "history"},
+			Description: "List merged and abandoned pull requests",
+			ShortHelp:   ":closed",
+			Handler:     handleClosedPRsCommand,
+			AvailableIn: allViewStates,
+		},
+		{
 			Name:        "pipelines",
 			Aliases:     []string{"pl", "pipes"},
 			Description: "List pipelines (Azure DevOps)",
@@ -368,6 +376,13 @@ func (cr *CommandRegistry) registerKeyBindings() {
 			Description: "Dashboard",
 			ShortHelp:   keyDashboard,
 			Handler:     handleDashboardKey,
+			AvailableIn: []ViewState{ViewPRList},
+		},
+		{
+			Keys:        []string{keyClosedPRs},
+			Description: "Open/closed PRs",
+			ShortHelp:   keyClosedPRs,
+			Handler:     handleToggleClosedPRsKey,
 			AvailableIn: []ViewState{ViewPRList},
 		},
 		{
@@ -960,6 +975,7 @@ func handlePRCommand(m Model, args []string) (Model, tea.Cmd) {
 	if len(args) > 0 {
 		return m.startNewPR(strings.Join(args, " "))
 	}
+	m.prListView.ShowClosed(false)
 	return m.showPRList(), m.loadPRsWithCache()
 }
 
@@ -1172,6 +1188,9 @@ func handleDeleteKey(m Model) (Model, tea.Cmd) {
 }
 
 func handleRefreshKey(m Model) (Model, tea.Cmd) {
+	if m.state == ViewPRList && m.prListView.IsShowingClosed() {
+		return m.reloadClosedPRs()
+	}
 	if m.state == ViewPRList {
 		m.loadingState = LoadingState{}
 		m.prCache = nil

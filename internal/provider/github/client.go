@@ -44,17 +44,35 @@ func (c *Client) GetUsername(ctx context.Context) (string, error) {
 	return c.username, nil
 }
 
+const (
+	openPullRequestsLimit   = 100
+	closedPullRequestsLimit = 30
+	searchSortUpdated       = "updated"
+	searchOrderDescending   = "desc"
+)
+
 func (c *Client) ListPullRequests(ctx context.Context) ([]*github.PullRequest, error) {
+	return c.searchPullRequests(ctx, "is:open", openPullRequestsLimit)
+}
+
+// ListClosedPullRequests returns the most recently updated merged and closed pull requests.
+func (c *Client) ListClosedPullRequests(ctx context.Context) ([]*github.PullRequest, error) {
+	return c.searchPullRequests(ctx, "is:closed", closedPullRequestsLimit)
+}
+
+func (c *Client) searchPullRequests(ctx context.Context, stateQualifier string, limit int) ([]*github.PullRequest, error) {
 	username, err := c.GetUsername(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	opts := &github.SearchOptions{
-		ListOptions: github.ListOptions{PerPage: 100},
+		Sort:        searchSortUpdated,
+		Order:       searchOrderDescending,
+		ListOptions: github.ListOptions{PerPage: limit},
 	}
 
-	query := fmt.Sprintf("is:pr is:open involves:%s", username)
+	query := fmt.Sprintf("is:pr %s involves:%s", stateQualifier, username)
 	result, _, err := c.client.Search.Issues(ctx, query, opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to search pull requests: %w", err)
