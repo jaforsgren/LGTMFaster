@@ -85,20 +85,25 @@ type PRListViewModel struct {
 	// commentThreads caches each PR's thread summary for the Info pane, fetched while it is shown.
 	commentThreads  map[string]domain.CommentThreads
 	commentsPending map[string]bool
-	cursor          listCursor
-	filter          listFilter
-	split           splitView
-	settings        domain.Settings
-	width           int
-	height          int
+	// mergeRuns caches the runs that built each merged PR's merge commit, fetched while it is shown.
+	mergeRuns        map[string][]domain.PipelineRun
+	mergeRunsPending map[string]bool
+	cursor           listCursor
+	filter           listFilter
+	split            splitView
+	settings         domain.Settings
+	width            int
+	height           int
 }
 
 func NewPRListView() *PRListViewModel {
 	return &PRListViewModel{
-		commentThreads:  make(map[string]domain.CommentThreads),
-		commentsPending: make(map[string]bool),
-		cursor:          newListCursor(),
-		filter:          newListFilter("Filter by title, author, or PR number..."),
+		commentThreads:   make(map[string]domain.CommentThreads),
+		commentsPending:  make(map[string]bool),
+		mergeRuns:        make(map[string][]domain.PipelineRun),
+		mergeRunsPending: make(map[string]bool),
+		cursor:           newListCursor(),
+		filter:           newListFilter("Filter by title, author, or PR number..."),
 	}
 }
 
@@ -455,6 +460,8 @@ type prDetail struct {
 	value string
 }
 
+// prInfoLines puts what a closed PR closed and merged as right after its status, where it stays in
+// view when the pane is short.
 func (m *PRListViewModel) prInfoLines(pr domain.PullRequest) []string {
 	status := string(pr.Status)
 	if pr.IsDraft {
@@ -465,24 +472,34 @@ func (m *PRListViewModel) prInfoLines(pr domain.PullRequest) []string {
 		{"Author", pr.Author.Username},
 		{"Branch", fmt.Sprintf("%s → %s", valueOrPlaceholder(pr.SourceBranch), valueOrPlaceholder(pr.TargetBranch))},
 		{"Status", status},
-		{"Review", valueOrPlaceholder(prApprovalLabels[pr.ApprovalStatus])},
-		{"Category", string(pr.Category)},
-		{"Created", formatOptionalAge(pr.CreatedAt)},
-		{"Updated", formatOptionalAge(pr.UpdatedAt)},
 	}
 	if pr.IsClosed() {
-		details = append(details,
-			prDetail{"Closed", formatOptionalAge(pr.ClosedAt)},
-			prDetail{"Merged as", pr.MergeCommitID},
-		)
+		details = append(details, m.closedDetails(pr)...)
 	}
-	details = append(details, prDetail{"Comments", m.commentThreadsText(pr)})
+	details = append(details,
+		prDetail{"Review", valueOrPlaceholder(prApprovalLabels[pr.ApprovalStatus])},
+		prDetail{"Category", string(pr.Category)},
+		prDetail{"Created", formatOptionalAge(pr.CreatedAt)},
+		prDetail{"Updated", formatOptionalAge(pr.UpdatedAt)},
+		prDetail{"Comments", m.commentThreadsText(pr)},
+	)
 
 	lines := make([]string, 0, len(details))
 	for _, detail := range details {
 		lines = append(lines, renderDetailLabel(detail.label, prDetailLabelWidth)+detailValueStyle.Render(valueOrPlaceholder(detail.value)))
 	}
 	return lines
+}
+
+func (m *PRListViewModel) closedDetails(pr domain.PullRequest) []prDetail {
+	details := []prDetail{
+		{"Closed", formatOptionalAge(pr.ClosedAt)},
+		{"Merged as", pr.MergeCommitID},
+	}
+	if _, merged := pr.MergeCommit(); merged {
+		details = append(details, prDetail{"Runs", m.mergeRunsText(pr)})
+	}
+	return details
 }
 
 // descriptionLines wraps the selected PR's description to the pane so it scrolls by visual line.

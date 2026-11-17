@@ -2,7 +2,6 @@ package azuredevops
 
 import (
 	"context"
-	"strings"
 	"sync"
 
 	"github.com/johanforsgren/lgtmfaster/internal/domain"
@@ -65,7 +64,7 @@ func (p *Provider) applyActiveStage(ctx context.Context, run *domain.PipelineRun
 }
 
 func triggerCommitMessage(b *build.Build) string {
-	return commitSummary(triggerInfo(b, triggerInfoCIMessage))
+	return common.CommitSummary(triggerInfo(b, triggerInfoCIMessage))
 }
 
 func triggerInfo(b *build.Build, key string) string {
@@ -98,13 +97,7 @@ func (p *Provider) lookupCommitMessage(ctx context.Context, b *build.Build, proj
 		logger.LogError("AZDO_GET_RUN_COMMIT", commitID, err)
 		return ""
 	}
-	message := commitSummary(comment)
+	message := common.CommitSummary(comment)
 	p.commitMessages.Store(cacheKey, message)
 	return message
-}
-
-// commitSummary is the first line of a commit message.
-func commitSummary(message string) string {
-	summary, _, _ := strings.Cut(strings.TrimSpace(message), "\n")
-	return strings.TrimSpace(summary)
 }

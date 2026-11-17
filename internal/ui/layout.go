@@ -69,7 +69,7 @@ func (m Model) resizeViews() {
 	overlays := []sizedView{
 		m.reviewView, m.mergeView, m.inlineCommentView, m.descriptionEditView,
 		m.logsView, m.repoLinkView, m.reposView, m.stageApprovalView, m.newPRView, m.extensionFilterView,
-		m.workItemPickerView, m.pipelineRetryView, m.pipelineTriggerView, m.fileFinderView,
+		m.workItemPickerView, m.mergeRunsView, m.pipelineRetryView, m.pipelineTriggerView, m.fileFinderView,
 	}
 	for _, view := range overlays {
 		view.SetSize(m.width, m.contentHeight())
@@ -135,6 +135,8 @@ func (m Model) activeOverlay() (string, bool) {
 		return m.extensionFilterView.View(), true
 	case m.workItemPickerView.IsActive():
 		return m.workItemPickerView.View(), true
+	case m.mergeRunsView.IsActive():
+		return m.mergeRunsView.View(), true
 	case m.pipelineRetryView.IsActive():
 		return m.pipelineRetryView.View(), true
 	case m.pipelineTriggerView.IsActive():

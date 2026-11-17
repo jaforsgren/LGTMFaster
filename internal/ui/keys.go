@@ -29,6 +29,7 @@ const (
 	keyFavoritesOnly   = "F"
 	keyDashboard       = "D"
 	keyClosedPRs       = "H"
+	keyMergeRuns       = "b"
 	keyFold            = "z"
 	keyFoldAll         = "Z"
 	keyAdd             = "a"

@@ -179,6 +179,9 @@ type mockProvider struct {
 	assignedWorkItems  []domain.WorkItem
 	linkedWorkItemID   int
 	closedPRs          []domain.PullRequest
+	mergeRuns          []domain.PipelineRun
+	mergeRunsErr       error
+	lastMerge          *domain.MergeCommit
 }
 
 func (m *mockProvider) ListPullRequests(ctx context.Context, username string) ([]domain.PullRequest, error) {
@@ -259,6 +262,11 @@ func (m *mockProvider) ListAssignedWorkItems(ctx context.Context, identifier dom
 func (m *mockProvider) LinkWorkItem(ctx context.Context, identifier domain.PRIdentifier, workItemID int) error {
 	m.linkedWorkItemID = workItemID
 	return nil
+}
+
+func (m *mockProvider) ListMergeRuns(ctx context.Context, merge domain.MergeCommit) ([]domain.PipelineRun, error) {
+	m.lastMerge = &merge
+	return append([]domain.PipelineRun(nil), m.mergeRuns...), m.mergeRunsErr
 }
 
 func (m *mockProvider) GetType() domain.ProviderType {

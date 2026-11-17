@@ -49,7 +49,7 @@ func handleTogglePreviewKey(m Model) (Model, tea.Cmd) {
 	m.statusBar.ClearMessage()
 	switch m.state {
 	case ViewPRList:
-		return m, m.loadPRListComments()
+		return m, m.loadPRListDetails()
 	case ViewPRInspect:
 		return m, m.loadInspectWorkItems()
 	}

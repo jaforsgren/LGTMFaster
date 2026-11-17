@@ -292,6 +292,10 @@ func (m Model) leavePipelineRun() (Model, tea.Cmd) {
 		logger.Log("UI: Navigating back from Pipeline Run to Dashboard")
 		return m.openDashboard()
 	}
+	if m.pipelineRunOrigin == ViewPRList {
+		logger.Log("UI: Navigating back from Pipeline Run to PR List")
+		return m.showPRList(), nil
+	}
 	if m.pipelineRunOrigin == ViewPipelineList || m.pipelineRunsView.GetPipeline() == nil {
 		logger.Log("UI: Navigating back from Pipeline Run to Pipelines")
 		return m.showPipelineList()

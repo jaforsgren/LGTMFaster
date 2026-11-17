@@ -427,13 +427,13 @@ func (m *DashboardViewModel) renderRuns() string {
 	if m.focus != dashboardRunsPane {
 		cursor.index = noCursor
 	}
-	b.WriteString(renderListRows(dashboardRunColumns(m.width), len(m.runs), cursor, func(i int) listRow {
-		return dashboardRunRow(m.runs[i])
+	b.WriteString(renderListRows(pipelineRunColumns(m.width), len(m.runs), cursor, func(i int) listRow {
+		return pipelineRunRow(m.runs[i])
 	}))
 	return b.String()
 }
 
-func dashboardRunColumns(width int) []listColumn {
+func pipelineRunColumns(width int) []listColumn {
 	const (
 		runWidth         = 16
 		statusWidth      = 22
@@ -457,7 +457,7 @@ func dashboardRunColumns(width int) []listColumn {
 	}
 }
 
-func dashboardRunRow(run domain.PipelineRun) listRow {
+func pipelineRunRow(run domain.PipelineRun) listRow {
 	return listRow{
 		icon: renderPipelineStatusIcon(run.Status),
 		values: []string{

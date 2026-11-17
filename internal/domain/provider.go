@@ -42,6 +42,10 @@ type Provider interface {
 	// GetChecks returns the latest builds or checks that ran for the pull request.
 	GetChecks(ctx context.Context, identifier PRIdentifier) (Checks, error)
 
+	// ListMergeRuns returns the pipeline runs (GitHub: workflow runs) that built the merge commit,
+	// oldest first.
+	ListMergeRuns(ctx context.Context, merge MergeCommit) ([]PipelineRun, error)
+
 	// ListLinkedWorkItems returns the work items linked to the pull request (GitHub: the issues its
 	// description closes).
 	ListLinkedWorkItems(ctx context.Context, identifier PRIdentifier) ([]WorkItem, error)

@@ -386,6 +386,13 @@ func (cr *CommandRegistry) registerKeyBindings() {
 			AvailableIn: []ViewState{ViewPRList},
 		},
 		{
+			Keys:        []string{keyMergeRuns},
+			Description: "Runs of the merge",
+			ShortHelp:   keyMergeRuns,
+			Handler:     handleMergeRunsKey,
+			AvailableIn: []ViewState{ViewPRList},
+		},
+		{
 			Keys:        []string{keyTogglePane},
 			Description: "Toggle details pane",
 			ShortHelp:   keyTogglePane,
@@ -1092,7 +1099,7 @@ func handleUpKey(m Model) (Model, tea.Cmd) {
 		cmd = m.patsView.Update(tea.KeyMsg{Type: tea.KeyUp})
 	case ViewPRList:
 		m.prListView.MoveUp()
-		cmd = m.loadPRListComments()
+		cmd = m.loadPRListDetails()
 	case ViewDashboard:
 		m.dashboardView.MoveUp()
 	case ViewPRInspect:
@@ -1130,7 +1137,7 @@ func handleDownKey(m Model) (Model, tea.Cmd) {
 		cmd = m.patsView.Update(tea.KeyMsg{Type: tea.KeyDown})
 	case ViewPRList:
 		m.prListView.MoveDown()
-		cmd = m.loadPRListComments()
+		cmd = m.loadPRListDetails()
 	case ViewDashboard:
 		m.dashboardView.MoveDown()
 	case ViewPRInspect:

@@ -92,6 +92,7 @@ type Model struct {
 	extensionFilterView *views.ExtensionFilterViewModel
 	topBarHidden        bool
 	workItemPickerView  *views.WorkItemPickerViewModel
+	mergeRunsView       *views.MergeRunsViewModel
 	dashboardView       *views.DashboardViewModel
 	// prInspectOrigin is the view a pull request was opened from, which going back returns to.
 	prInspectOrigin ViewState
@@ -160,6 +161,7 @@ func NewModel(repository domain.Repository) Model {
 		newPRView:           views.NewNewPRView(),
 		extensionFilterView: views.NewExtensionFilterView(),
 		workItemPickerView:  views.NewWorkItemPickerView(),
+		mergeRunsView:       views.NewMergeRunsView(),
 		dashboardView:       views.NewDashboardView(),
 		repository:          repository,
 		providers:           make(map[string]domain.Provider),
@@ -216,6 +218,9 @@ func (m Model) isInInputMode() bool {
 		return true
 	}
 	if m.workItemPickerView.IsActive() {
+		return true
+	}
+	if m.mergeRunsView.IsActive() {
 		return true
 	}
 	if m.isFiltering() {
@@ -354,6 +359,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			if m.workItemPickerView.IsActive() {
 				return m.handleWorkItemPickerKey(msg)
+			}
+
+			if m.mergeRunsView.IsActive() {
+				return m.handleMergeRunsViewKey(msg)
 			}
 
 			if m.descriptionEditView.IsActive() {
@@ -602,7 +611,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.state == ViewDashboard {
 			dashboardCmd = m.loadDashboardChecks()
 		}
-		resumeCmd = tea.Batch(resumeCmd, m.loadPRListComments(), dashboardCmd)
+		resumeCmd = tea.Batch(resumeCmd, m.loadPRListDetails(), dashboardCmd)
 
 		totalPRs := 0
 		repoMap := make(map[string]bool)
@@ -696,13 +705,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.background {
 			m.topBar.SetLastRefresh(time.Now())
 			m.dashboardView.SetPRs(m.prListView.AllPRs())
-			return m, m.loadPRListComments()
+			return m, m.loadPRListDetails()
 		}
 		var resultsCmd, resumeCmd tea.Cmd
 		m, resultsCmd = m.showPRResults()
 		m.statusBar.SetMessage(fmt.Sprintf("Loaded %d pull requests", len(msg.prs)), false)
 		m, resumeCmd = m.resumePRs(true)
 		return m, tea.Batch(clearStatusAfterDelay(4*time.Second), resultsCmd, resumeCmd)
+
+	case MergeRunsLoadedMsg:
+		return m.handleMergeRunsLoaded(msg)
 
 	case ClosedPRsLoadedMsg:
 		return m.handleClosedPRsLoaded(msg)

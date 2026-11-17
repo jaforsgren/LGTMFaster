@@ -26,7 +26,7 @@ func handleClosedPRsCommand(m Model, args []string) (Model, tea.Cmd) {
 func handleToggleClosedPRsKey(m Model) (Model, tea.Cmd) {
 	if m.prListView.IsShowingClosed() {
 		m.prListView.ShowClosed(false)
-		return m, m.loadPRListComments()
+		return m, m.loadPRListDetails()
 	}
 	return m.showClosedPRs()
 }
@@ -40,7 +40,7 @@ func (m Model) showClosedPRs() (Model, tea.Cmd) {
 	m.prListView.ShowClosed(true)
 	m = m.showPRList()
 	if m.prListView.HasClosedPRs() {
-		return m, m.loadPRListComments()
+		return m, m.loadPRListDetails()
 	}
 	return m.reloadClosedPRs()
 }
@@ -83,5 +83,5 @@ func (m Model) handleClosedPRsLoaded(msg ClosedPRsLoadedMsg) (Model, tea.Cmd) {
 	} else {
 		m.statusBar.SetMessage(fmt.Sprintf("Loaded %d closed pull requests", len(msg.prs)), false)
 	}
-	return m, tea.Batch(clearStatusAfterDelay(closedPRsStatusDelay), m.loadPRListComments())
+	return m, tea.Batch(clearStatusAfterDelay(closedPRsStatusDelay), m.loadPRListDetails())
 }
