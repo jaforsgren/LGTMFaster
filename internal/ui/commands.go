@@ -204,7 +204,7 @@ func (cr *CommandRegistry) registerKeyBindings() {
 			Description: "select",
 			ShortHelp:   keyEnter,
 			Handler:     handleEnterKey,
-			AvailableIn: []ViewState{ViewPATs, ViewPRList, ViewPRInspect, ViewPipelineList, ViewPipelineRuns, ViewDashboard},
+			AvailableIn: []ViewState{ViewPATs, ViewPRList, ViewPipelineList, ViewPipelineRuns, ViewDashboard},
 			Navigation:  true,
 		},
 		{
@@ -488,6 +488,15 @@ func (cr *CommandRegistry) registerKeyBindings() {
 			Description: "Request changes",
 			ShortHelp:   keyRequestChange,
 			Handler:     handleRequestChangesKey,
+			AvailableIn: []ViewState{ViewPRInspect},
+		},
+		{
+			// In the diff enter opens the review box in comment mode, which posts the queued inline
+			// comments without a vote; in the commit list it still opens the selected commit.
+			Keys:        []string{keyEnter},
+			Description: "Post comments (no vote)",
+			ShortHelp:   keyEnter,
+			Handler:     handleEnterKey,
 			AvailableIn: []ViewState{ViewPRInspect},
 		},
 		{

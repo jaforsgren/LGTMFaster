@@ -811,7 +811,7 @@ func TestGetContextualShortcuts_ListsActionsNotNavigation(t *testing.T) {
 
 	shortcuts := registry.GetContextualShortcuts(ViewPRInspect, false)
 
-	for _, description := range []string{"Yank current file diff", "Edit PR description", "Toggle diff view mode", "Open in browser"} {
+	for _, description := range []string{"Yank current file diff", "Edit PR description", "Toggle diff view mode", "Open in browser", "Post comments (no vote)"} {
 		if !containsShortcut(shortcuts, description) {
 			t.Errorf("expected %q in PR inspect shortcuts", description)
 		}
