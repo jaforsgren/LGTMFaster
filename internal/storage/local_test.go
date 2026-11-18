@@ -664,9 +664,32 @@ func TestLoad_WritesTheDefaultAutoRefreshIntervalToTheConfigFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, setting := range []string{`"PipelineAutoRefreshSeconds": 15`, `"RecentBranchMinutes": 60`} {
+	for _, setting := range []string{`"PipelineAutoRefreshSeconds": 15`, `"RecentBranchMinutes": 60`, `"DiffExclusions": []`} {
 		if !strings.Contains(string(written), setting) {
 			t.Errorf("expected %s written to the config file, got %s", setting, written)
 		}
+	}
+}
+
+func TestLoad_KeepsTheConfiguredDiffExclusions(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	configDir := filepath.Join(home, ".lgtmfaster")
+	if err := os.MkdirAll(configDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	config := `{"settings": {"DiffExclusions": ["tests/", "*.test.*"]}}`
+	if err := os.WriteFile(filepath.Join(configDir, "config.json"), []byte(config), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	repo, err := NewLocalRepository()
+	if err != nil {
+		t.Fatalf("Failed to create repository: %v", err)
+	}
+
+	settings, _ := repo.GetSettings()
+	if strings.Join(settings.DiffExclusions, ",") != "tests/,*.test.*" {
+		t.Errorf("expected the configured exclusions, got %q", settings.DiffExclusions)
 	}
 }

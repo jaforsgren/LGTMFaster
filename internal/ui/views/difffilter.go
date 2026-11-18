@@ -45,18 +45,31 @@ func DiffExtensions(diff *domain.Diff) []ExtensionCount {
 	return extensions
 }
 
-// filterDiff returns the diff without the files of hidden extensions and, when ignoreWhitespace is
-// set, without changes that only touch whitespace. The source diff is not modified.
-func filterDiff(diff *domain.Diff, hiddenExtensions map[string]bool, ignoreWhitespace bool) *domain.Diff {
+// diffFilter is what a diff hides of its source; the zero value hides nothing.
+type diffFilter struct {
+	hiddenExtensions map[string]bool
+	exclusions       diffExclusions
+	// hideExcluded applies the exclusions, which X toggles.
+	hideExcluded     bool
+	ignoreWhitespace bool
+}
+
+func (f diffFilter) hidesFile(filePath string) bool {
+	return f.hiddenExtensions[FileExtension(filePath)] || (f.hideExcluded && f.exclusions.excludes(filePath))
+}
+
+// filterDiff returns the diff without the files the filter hides and, when it ignores whitespace,
+// without changes that only touch whitespace. The source diff is not modified.
+func filterDiff(diff *domain.Diff, filter diffFilter) *domain.Diff {
 	if diff == nil {
 		return nil
 	}
 	filtered := &domain.Diff{}
 	for _, file := range diff.Files {
-		if hiddenExtensions[FileExtension(getFilePath(file))] {
+		if filter.hidesFile(getFilePath(file)) {
 			continue
 		}
-		if ignoreWhitespace {
+		if filter.ignoreWhitespace {
 			file = withoutWhitespaceChanges(file)
 		}
 		filtered.Files = append(filtered.Files, file)

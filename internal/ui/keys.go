@@ -48,6 +48,7 @@ const (
 	keyToggleDiff      = "f"
 	keyWhitespace      = "w"
 	keyFileFilter      = "F"
+	keyExcludedFiles   = "X"
 	keyYankFile        = "y"
 	keyYankAll         = "Y"
 	keySubmitReview    = "ctrl+s"

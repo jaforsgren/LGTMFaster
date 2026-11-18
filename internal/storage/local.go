@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sync"
 	"time"
 
@@ -80,7 +81,7 @@ func (r *LocalRepository) load() error {
 		needsSave = true
 	}
 
-	if defaulted := r.config.Settings.WithDefaults(); defaulted != r.config.Settings {
+	if defaulted := r.config.Settings.WithDefaults(); !reflect.DeepEqual(defaulted, r.config.Settings) {
 		logger.Log("Defaulting missing settings: %+v", defaulted)
 		r.config.Settings = defaulted
 		needsSave = true

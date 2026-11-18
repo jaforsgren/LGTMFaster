@@ -118,6 +118,9 @@ type Settings struct {
 	RecentBranchMinutes int
 	// TopBarHidden collapses the top bar to give the content its rows; T toggles it.
 	TopBarHidden bool
+	// DiffExclusions are the patterns of the files X hides from a pull request's diff: "tests/" hides
+	// files under a folder of that name, "*.test.*" files whose name matches, "src/*.props" a path.
+	DiffExclusions []string
 }
 
 // WithDefaults fills in the settings that are missing or out of range.
@@ -130,6 +133,10 @@ func (s Settings) WithDefaults() Settings {
 	}
 	if s.RecentBranchMinutes <= 0 {
 		s.RecentBranchMinutes = DefaultRecentBranchMinutes
+	}
+	if s.DiffExclusions == nil {
+		// An empty list rather than none, so the key is written to config.json, ready to fill in.
+		s.DiffExclusions = []string{}
 	}
 	return s
 }

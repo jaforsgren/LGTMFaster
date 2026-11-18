@@ -563,6 +563,13 @@ func (cr *CommandRegistry) registerKeyBindings() {
 			AvailableIn: []ViewState{ViewPRInspect},
 		},
 		{
+			Keys:        []string{keyExcludedFiles},
+			Description: "Hide/show excluded files",
+			ShortHelp:   keyExcludedFiles,
+			Handler:     handleExcludedFilesKey,
+			AvailableIn: []ViewState{ViewPRInspect},
+		},
+		{
 			Keys:        []string{keyYankFile},
 			Description: "Yank current file diff",
 			ShortHelp:   keyYankFile,
@@ -1575,12 +1582,7 @@ func handleYankAllFilesKey(m Model) (Model, tea.Cmd) {
 		return m, nil
 	}
 
-	diff := m.prInspect.GetDiff()
-	fileCount := 0
-	if diff != nil {
-		fileCount = len(diff.Files)
-	}
-	m.statusBar.SetMessage(fmt.Sprintf("Copied diff from %d files to clipboard", fileCount), false)
+	m.statusBar.SetMessage(fmt.Sprintf("Copied diff from %d files to clipboard", m.prInspect.ShownFileCount()), false)
 	return m, nil
 }
 
@@ -1753,6 +1755,11 @@ func (m Model) openCommentsMarkdown() (Model, tea.Cmd) {
 	return m, clearStatusAfterDelay(4 * time.Second)
 }
 
+const (
+	diffFilterStatusDelay   = 4 * time.Second
+	noDiffExclusionsMessage = "No diff exclusions: add patterns to DiffExclusions in the settings of ~/.lgtmfaster/config.json"
+)
+
 func handleWhitespaceKey(m Model) (Model, tea.Cmd) {
 	if m.prInspect.GetMode() != views.PRInspectModeDiff {
 		return m, nil
@@ -1763,7 +1770,26 @@ func handleWhitespaceKey(m Model) (Model, tea.Cmd) {
 	} else {
 		m.statusBar.SetMessage("Showing whitespace-only changes", false)
 	}
-	return m, clearStatusAfterDelay(4 * time.Second)
+	return m, clearStatusAfterDelay(diffFilterStatusDelay)
+}
+
+// handleExcludedFilesKey hides or shows the files matching Settings.DiffExclusions, which y and Y
+// then leave out as well.
+func handleExcludedFilesKey(m Model) (Model, tea.Cmd) {
+	if m.prInspect.GetMode() != views.PRInspectModeDiff {
+		return m, nil
+	}
+	if !m.prInspect.HasDiffExclusions() {
+		m.statusBar.SetMessage(noDiffExclusionsMessage, true)
+		return m, clearStatusAfterDelay(diffFilterStatusDelay)
+	}
+	m.prInspect.ToggleExcludedFiles()
+	if m.prInspect.HidesExcludedFiles() {
+		m.statusBar.SetMessage("Hiding excluded files", false)
+	} else {
+		m.statusBar.SetMessage("Showing excluded files", false)
+	}
+	return m, clearStatusAfterDelay(diffFilterStatusDelay)
 }
 
 func handleFileFilterKey(m Model) (Model, tea.Cmd) {

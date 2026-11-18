@@ -41,3 +41,13 @@ func TestPullRequestIsClosed_OnlyWhenMergedOrAbandoned(t *testing.T) {
 		}
 	}
 }
+
+func TestSettingsWithDefaults_ListsNoDiffExclusionsUntilConfigured(t *testing.T) {
+	if got := (Settings{}).WithDefaults().DiffExclusions; got == nil || len(got) != 0 {
+		t.Errorf("expected an empty list, got %#v", got)
+	}
+	configured := []string{"tests/"}
+	if got := (Settings{DiffExclusions: configured}).WithDefaults().DiffExclusions; len(got) != 1 || got[0] != "tests/" {
+		t.Errorf("expected the configured exclusions kept, got %q", got)
+	}
+}
