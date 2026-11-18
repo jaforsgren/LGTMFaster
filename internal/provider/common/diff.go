@@ -8,6 +8,8 @@ import (
 	"github.com/johanforsgren/lgtmfaster/internal/domain"
 )
 
+const carriageReturn = "\r"
+
 var hunkHeaderRegex = regexp.MustCompile(`^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@`)
 
 func ParseUnifiedDiff(diffText string) *domain.Diff {
@@ -22,6 +24,9 @@ func ParseUnifiedDiff(diffText string) *domain.Diff {
 	}
 
 	for _, line := range lines {
+		// Files with Windows line endings leave a "\r" on every line, which the terminal and the
+		// clipboard (y/Y) turn into an extra line break.
+		line = strings.TrimSuffix(line, carriageReturn)
 		if strings.HasPrefix(line, "diff --git") {
 			if currentFile != nil && currentHunk != nil {
 				currentFile.Hunks = append(currentFile.Hunks, *currentHunk)

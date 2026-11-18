@@ -1,6 +1,7 @@
 package common
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/johanforsgren/lgtmfaster/internal/domain"
@@ -239,5 +240,20 @@ diff --git a/file2.txt b/file2.txt
 				}
 			}
 		})
+	}
+}
+
+func TestParseUnifiedDiff_DropsWindowsLineEndings(t *testing.T) {
+	diffText := "diff --git a/Order.cs b/Order.cs\r\n--- a/Order.cs\r\n+++ b/Order.cs\r\n@@ -1,2 +1,2 @@\r\n class Order\r\n-{ }\r\n+{\r\n"
+
+	diff := ParseUnifiedDiff(diffText)
+
+	if len(diff.Files) != 1 || diff.Files[0].NewPath != "Order.cs" {
+		t.Fatalf("expected Order.cs, got %+v", diff.Files)
+	}
+	for _, line := range diff.Files[0].Hunks[0].Lines {
+		if strings.Contains(line.Content, "\r") {
+			t.Errorf("expected no carriage return in %q", line.Content)
+		}
 	}
 }
