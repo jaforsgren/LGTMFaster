@@ -35,6 +35,42 @@ func TestDiffExclusions_MatchFoldersNamesAndPaths(t *testing.T) {
 	}
 }
 
+// TestDiffExclusions_RecommendedTestPatterns covers the patterns suggested for .NET and JavaScript
+// repositories, which hide test projects and specs without catching look-alike production files.
+func TestDiffExclusions_RecommendedTestPatterns(t *testing.T) {
+	exclusions := newDiffExclusions([]string{"test/", "*.test/", "*tests/", "__tests__/", "*tests.cs", "*.test.*", "*.spec.*", "*.props"})
+
+	for _, path := range []string{
+		"tests/Orders/OrderTests.cs",
+		"test/Orders/OrderTest.cs",
+		"src/Orders.Tests/OrderServiceTests.cs",
+		"src/Orders.UnitTests/Fakes/FakeClock.cs",
+		"src/Orders.IntegrationTests/Orders.IntegrationTests.csproj",
+		"src/Orders.Test/OrderTest.cs",
+		"Orders/OrderServiceTests.cs",
+		"web/src/__tests__/cart.ts",
+		"web/src/cart.test.tsx",
+		"web/src/cart.spec.ts",
+		"Directory.Build.props",
+	} {
+		if !exclusions.excludes(path) {
+			t.Errorf("expected %s excluded", path)
+		}
+	}
+	for _, path := range []string{
+		"src/Orders/Latest.cs",
+		"src/Orders/Contest.cs",
+		"src/Orders/TestDataBuilder.cs",
+		"src/Orders.Api/Program.cs",
+		"src/Orders/Orders.csproj",
+		"web/src/cart.ts",
+	} {
+		if exclusions.excludes(path) {
+			t.Errorf("expected %s shown", path)
+		}
+	}
+}
+
 func TestDiffExclusions_FolderPatternsSkipFilesAtTheRoot(t *testing.T) {
 	if newDiffExclusions([]string{"*/"}).excludes("README.md") {
 		t.Error("expected a folder pattern to leave files outside folders alone")

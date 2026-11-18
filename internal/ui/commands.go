@@ -1757,7 +1757,7 @@ func (m Model) openCommentsMarkdown() (Model, tea.Cmd) {
 
 const (
 	diffFilterStatusDelay   = 4 * time.Second
-	noDiffExclusionsMessage = "No diff exclusions: add patterns to DiffExclusions in the settings of ~/.lgtmfaster/config.json"
+	noDiffExclusionsMessage = "No diff exclusions: add patterns to DiffExclusions with :settings"
 )
 
 func handleWhitespaceKey(m Model) (Model, tea.Cmd) {
@@ -1784,12 +1784,30 @@ func handleExcludedFilesKey(m Model) (Model, tea.Cmd) {
 		return m, clearStatusAfterDelay(diffFilterStatusDelay)
 	}
 	m.prInspect.ToggleExcludedFiles()
+	m.syncExcludedFiles()
 	if m.prInspect.HidesExcludedFiles() {
 		m.statusBar.SetMessage("Hiding excluded files", false)
 	} else {
 		m.statusBar.SetMessage("Showing excluded files", false)
 	}
 	return m, clearStatusAfterDelay(diffFilterStatusDelay)
+}
+
+// setDiffExclusions applies the configured exclusions to PR inspect and the top bar.
+func (m Model) setDiffExclusions(patterns []string) {
+	m.prInspect.SetDiffExclusions(patterns)
+	m.syncExcludedFiles()
+}
+
+func (m Model) syncExcludedFiles() {
+	switch {
+	case !m.prInspect.HasDiffExclusions():
+		m.topBar.SetExcludedFiles(components.ExcludedFilesUnconfigured)
+	case m.prInspect.HidesExcludedFiles():
+		m.topBar.SetExcludedFiles(components.ExcludedFilesHidden)
+	default:
+		m.topBar.SetExcludedFiles(components.ExcludedFilesShown)
+	}
 }
 
 func handleFileFilterKey(m Model) (Model, tea.Cmd) {

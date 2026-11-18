@@ -205,3 +205,30 @@ func TestTopBarView_CommentThreadsInPRContext(t *testing.T) {
 		t.Error("expected only the count when resolution is unknown")
 	}
 }
+
+func excludedFilesTopBar(view string, state ExcludedFilesState) string {
+	m := NewTopBar()
+	m.SetWidth(wideTerminal)
+	m.SetView(view)
+	m.SetContext("Proj/api", "7")
+	m.SetExcludedFiles(state)
+	return m.View()
+}
+
+func TestExcludedFilesLine_ShowsTheStateAndKeyInDiffs(t *testing.T) {
+	if view := excludedFilesTopBar(ViewNamePRDiff, ExcludedFilesHidden); !strings.Contains(view, "Excluded files: HIDDEN"+excludedFilesKeyHint) {
+		t.Errorf("expected the hidden state in the diff context, got %q", view)
+	}
+	if view := excludedFilesTopBar(ViewNamePRCommit, ExcludedFilesShown); !strings.Contains(view, "Excluded files: SHOWN") {
+		t.Error("expected the shown state in a commit's diff")
+	}
+}
+
+func TestExcludedFilesLine_LeftOutWithoutExclusionsOrOutsideDiffs(t *testing.T) {
+	if strings.Contains(excludedFilesTopBar(ViewNamePRDiff, ExcludedFilesUnconfigured), "Excluded files") {
+		t.Error("expected no line without configured exclusions")
+	}
+	if strings.Contains(excludedFilesTopBar(ViewNamePRDescription, ExcludedFilesHidden), "Excluded files") {
+		t.Error("expected no line outside the diff")
+	}
+}

@@ -127,11 +127,10 @@ func NewModel(repository domain.Repository) Model {
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#7C3AED"))
 
 	prListView := views.NewPRListView()
-	prInspect := views.NewPRInspectView()
+	settings, settingsErr := repository.GetSettings()
 	topBarHidden := false
-	if settings, err := repository.GetSettings(); err == nil {
+	if settingsErr == nil {
 		prListView.SetSettings(settings)
-		prInspect.SetDiffExclusions(settings.DiffExclusions)
 		topBarHidden = settings.TopBarHidden
 	}
 
@@ -143,7 +142,7 @@ func NewModel(repository domain.Repository) Model {
 		commandBar:          components.NewCommandBar(),
 		patsView:            views.NewPATsView(),
 		prListView:          prListView,
-		prInspect:           prInspect,
+		prInspect:           views.NewPRInspectView(),
 		reviewView:          views.NewReviewView(),
 		mergeView:           views.NewMergeView(),
 		inlineCommentView:   views.NewInlineCommentView(),
@@ -171,6 +170,9 @@ func NewModel(repository domain.Repository) Model {
 		commandRegistry:     NewCommandRegistry(),
 		isInitialStartup:    true,
 		spinner:             s,
+	}
+	if settingsErr == nil {
+		m.setDiffExclusions(settings.DiffExclusions)
 	}
 	return m.loadSession()
 }
@@ -839,7 +841,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, clearStatusAfterDelay(4 * time.Second)
 		}
 		m.prListView.SetSettings(settings)
-		m.prInspect.SetDiffExclusions(settings.DiffExclusions)
+		m.setDiffExclusions(settings.DiffExclusions)
 		m.pipelineListView.SetSortMode(settings.PipelineSortMode)
 		m.topBarHidden = settings.TopBarHidden
 		m.resizeViews()

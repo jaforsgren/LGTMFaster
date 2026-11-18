@@ -5,13 +5,14 @@ import (
 	"testing"
 
 	"github.com/johanforsgren/lgtmfaster/internal/domain"
+	"github.com/johanforsgren/lgtmfaster/internal/ui/components"
 )
 
 func exclusionTestModel(t *testing.T, exclusions []string) Model {
 	t.Helper()
 	m := newPRTestModel(t, &mockProvider{})
 	m.state = ViewPRInspect
-	m.prInspect.SetDiffExclusions(exclusions)
+	m.setDiffExclusions(exclusions)
 	m.prInspect.SetDiff(&domain.Diff{Files: []domain.FileDiff{
 		{NewPath: "src/Order.cs"},
 		{NewPath: "tests/OrderTests.cs"},
@@ -23,9 +24,15 @@ func exclusionTestModel(t *testing.T, exclusions []string) Model {
 func TestExcludedFilesKey_TogglesTheExcludedFiles(t *testing.T) {
 	m := exclusionTestModel(t, []string{"tests/"})
 
+	m.topBar.SetContext("Proj/api", "7")
+	m.topBar.SetView(components.ViewNamePRDiff)
+
 	m, _ = handleExcludedFilesKey(m)
 	if !m.prInspect.HidesExcludedFiles() || m.prInspect.ShownFileCount() != 1 {
 		t.Fatal("expected the test file hidden")
+	}
+	if !strings.Contains(m.View(), "Excluded files: HIDDEN") {
+		t.Error("expected the top bar to show the excluded files hidden")
 	}
 
 	m, _ = handleExcludedFilesKey(m)

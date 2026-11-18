@@ -94,6 +94,7 @@ type TopBarModel struct {
 	pipelineRun    string
 	pipelineCount  int
 	commentThreads *domain.CommentThreads
+	excludedFiles  ExcludedFilesState
 	autoRefresh    bool
 	refreshEvery   time.Duration
 	lastRefresh    time.Time
@@ -192,6 +193,24 @@ func (m *TopBarModel) SetLastRefresh(at time.Time) {
 // until they are loaded.
 func (m *TopBarModel) SetCommentThreads(threads *domain.CommentThreads) {
 	m.commentThreads = threads
+}
+
+// ExcludedFilesState is what the diff does with the files matching the diff exclusions.
+type ExcludedFilesState int
+
+const (
+	ExcludedFilesUnconfigured ExcludedFilesState = iota
+	ExcludedFilesShown
+	ExcludedFilesHidden
+)
+
+// excludedFilesKeyHint names the key that toggles the excluded files, since the shortcuts columns
+// rarely have room for it in a diff.
+const excludedFilesKeyHint = " <X>"
+
+// SetExcludedFiles shows in a diff's context whether the excluded files are hidden.
+func (m *TopBarModel) SetExcludedFiles(state ExcludedFilesState) {
+	m.excludedFiles = state
 }
 
 func (m *TopBarModel) HasLinkedRepo() bool {
@@ -332,6 +351,10 @@ func (m *TopBarModel) buildPRContextInfo() []string {
 		lines = append(lines, contextLine("💬", "Comments", m.commentThreads.Describe()))
 	}
 
+	if line := m.excludedFilesLine(); line != "" {
+		lines = append(lines, line)
+	}
+
 	if m.linkedRepoPath != "" {
 		linkValue := valueWhiteStyle.Render(truncatePathStart(m.linkedRepoPath, topBarPathMax))
 		if m.linkedBranch != "" {
@@ -403,6 +426,18 @@ func (m *TopBarModel) buildPipelineContextInfo() []string {
 		lines = append(lines, contextLine("▶️", "Run", m.pipelineRun))
 	}
 	return append(lines, m.autoRefreshLine())
+}
+
+// excludedFilesLine is shown in the diffs only, where X applies.
+func (m *TopBarModel) excludedFilesLine() string {
+	if m.excludedFiles == ExcludedFilesUnconfigured || (m.currentView != ViewNamePRDiff && m.currentView != ViewNamePRCommit) {
+		return ""
+	}
+	state := activeStyle.Render("SHOWN")
+	if m.excludedFiles == ExcludedFilesHidden {
+		state = autoRefreshOffStyle.Render("HIDDEN")
+	}
+	return "🙈 " + labelOrangeStyle.Render("Excluded files: ") + state + shortcutBlueStyle.Render(excludedFilesKeyHint)
 }
 
 func (m *TopBarModel) autoRefreshLine() string {
