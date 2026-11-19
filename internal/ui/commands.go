@@ -1749,7 +1749,7 @@ func handleLinkKey(m Model) (Model, tea.Cmd) {
 }
 
 // openCommentsMarkdown writes every comment of the inspected pull request, with the code each is
-// about, to a markdown file and opens it with the system's default application.
+// about, to a markdown file and opens it in $EDITOR.
 func (m Model) openCommentsMarkdown() (Model, tea.Cmd) {
 	pr := m.prInspect.GetPR()
 	number := 0
@@ -1762,9 +1762,6 @@ func (m Model) openCommentsMarkdown() (Model, tea.Cmd) {
 		_, err = file.WriteString(m.commentDetailView.Markdown(pr))
 		file.Close()
 	}
-	if err == nil {
-		err = openExternal(file.Name())
-	}
 	if err != nil {
 		logger.LogError("OPEN_COMMENTS_MARKDOWN", "temp file", err)
 		m.statusBar.SetMessage(fmt.Sprintf("Failed to open comments as markdown: %v", err), true)
@@ -1772,8 +1769,21 @@ func (m Model) openCommentsMarkdown() (Model, tea.Cmd) {
 	}
 
 	logger.LogFileWrite(file.Name())
-	m.statusBar.SetMessage("Opened comments as markdown: "+file.Name(), false)
-	return m, clearStatusAfterDelay(4 * time.Second)
+	path := file.Name()
+	return m, tea.ExecProcess(editorCommand(path), func(err error) tea.Msg {
+		return CommentsMarkdownClosedMsg{path: path, err: err}
+	})
+}
+
+// handleCommentsMarkdownClosed drops the markdown file, which only existed to be read in the editor.
+func (m Model) handleCommentsMarkdownClosed(msg CommentsMarkdownClosedMsg) (Model, tea.Cmd) {
+	os.Remove(msg.path)
+	if msg.err != nil {
+		logger.LogError("OPEN_COMMENTS_MARKDOWN", "editor process", msg.err)
+		m.statusBar.SetMessage(fmt.Sprintf("Editor error: %v", msg.err), true)
+		return m, clearStatusAfterDelay(4 * time.Second)
+	}
+	return m, nil
 }
 
 const (

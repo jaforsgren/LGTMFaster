@@ -36,6 +36,11 @@ const (
 
 const prCacheTTL = 30 * time.Second
 
+const (
+	editorEnvVar  = "EDITOR"
+	defaultEditor = "nvim"
+)
+
 // pendingCommentMessage says how inline comments get posted: they wait for the review.
 const pendingCommentMessage = "Comment queued (%d pending). Post with enter (comment only), a (approve) or r (request changes), then ctrl+s"
 
@@ -833,6 +838,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		return m, nil
 
+	case CommentsMarkdownClosedMsg:
+		return m.handleCommentsMarkdownClosed(msg)
+
 	case SettingsEditorFinishedMsg:
 		if msg.err != nil {
 			logger.LogError("SETTINGS_EDITOR", "editor process", msg.err)
@@ -1295,31 +1303,28 @@ func (m *Model) openExternalEditor(content string, source EditorSource) tea.Cmd 
 	m.editorTempFile = tmpFile.Name()
 	m.editorSource = source
 
-	editor := os.Getenv("EDITOR")
-	if editor == "" {
-		editor = "nvim"
-	}
-
-	logger.Log("UI: Opening external editor %s for %s", editor, tmpFile.Name())
-
-	c := exec.Command(editor, tmpFile.Name())
+	c := editorCommand(tmpFile.Name())
+	logger.Log("UI: Opening external editor %s for %s", c.Path, tmpFile.Name())
 	return tea.ExecProcess(c, func(err error) tea.Msg {
 		return ExternalEditorFinishedMsg{err: err}
 	})
 }
 
 func (m *Model) openSettingsEditor() tea.Cmd {
-	editor := os.Getenv("EDITOR")
-	if editor == "" {
-		editor = "nvim"
-	}
-
-	logger.Log("UI: Opening settings file %s in %s", m.repository.ConfigPath(), editor)
-
-	c := exec.Command(editor, m.repository.ConfigPath())
+	c := editorCommand(m.repository.ConfigPath())
+	logger.Log("UI: Opening settings file %s in %s", m.repository.ConfigPath(), c.Path)
 	return tea.ExecProcess(c, func(err error) tea.Msg {
 		return SettingsEditorFinishedMsg{err: err}
 	})
+}
+
+// editorCommand opens the file in $EDITOR, which may carry arguments ("code --wait").
+func editorCommand(path string) *exec.Cmd {
+	args := strings.Fields(os.Getenv(editorEnvVar))
+	if len(args) == 0 {
+		args = []string{defaultEditor}
+	}
+	return exec.Command(args[0], append(args[1:], path)...)
 }
 
 func (m Model) createProvider(pat domain.PAT) (domain.Provider, error) {
@@ -1717,6 +1722,12 @@ type ClearStatusMsg struct{}
 
 type ExternalEditorFinishedMsg struct {
 	err error
+}
+
+// CommentsMarkdownClosedMsg reports that the editor showing the comments as markdown exited.
+type CommentsMarkdownClosedMsg struct {
+	path string
+	err  error
 }
 
 type SettingsEditorFinishedMsg struct {
