@@ -159,6 +159,21 @@ func TestDashboard_BackgroundReloadReadsTheActivityOfNewPullRequests(t *testing.
 	t.Error("expected the new PR's activity to be read")
 }
 
+func TestDashboard_RefreshReadsTheActivityAgain(t *testing.T) {
+	m, mine := dashboardTestModel(t)
+	m, cmd := m.openDashboard()
+	m, _ = m.handleDashboardActivityLoaded(findMsg[DashboardActivityLoadedMsg](t, cmd))
+	m, _ = m.refreshDashboard()
+
+	updated, cmd := m.Update(PRLoadingStartedMsg{TotalPATs: 1})
+	m = updated.(Model)
+	m, _ = m.handleDashboardActivityLoaded(findMsg[DashboardActivityLoadedMsg](t, cmd))
+
+	if !strings.Contains(m.View(), mine.Title+"  (Anna approved)") {
+		t.Error("expected the refresh to read the activity again")
+	}
+}
+
 func TestDashboard_PRCommandOpensThePRList(t *testing.T) {
 	m, mine := dashboardTestModel(t)
 	m, _ = m.openDashboard()

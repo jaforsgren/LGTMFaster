@@ -600,10 +600,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			AccumulatedGroups: []domain.PRGroup{},
 			FailedPATs:        []string{},
 		}
-		m, _ = m.showPRResults()
+		var resultsCmd tea.Cmd
+		m, resultsCmd = m.showPRResults()
 		m.statusBar.SetMessage(fmt.Sprintf("%s Loading PRs (0/%d PATs)...",
 			m.spinner.View(), msg.TotalPATs), false)
-		return m, m.spinner.Tick
+		return m, tea.Batch(m.spinner.Tick, resultsCmd)
 
 	case PRGroupLoadedMsg:
 		if !m.loadingState.IsLoading {
