@@ -17,9 +17,6 @@ const (
 	dashboardNewsFormat      = "%s  (%s)"
 	dashboardNewsMoreFormat  = "%s, +%d more"
 	checksLoadingIcon        = "…"
-	// dashboardPaneChromeRows are the rows of a pane that are not pull requests: its title, the blank
-	// line under it, the column header and the scroll position.
-	dashboardPaneChromeRows = listTitleRows + listHeaderRows + listScrollInfoRows
 	// The pull request grid takes dashboardGridParts of dashboardHeightParts of the height; the
 	// active runs pane spans the rest below it.
 	dashboardGridParts   = 2
@@ -197,9 +194,19 @@ func (m *DashboardViewModel) SetSize(width, height int) {
 func (m *DashboardViewModel) fitCursors() {
 	layout := m.layout()
 	for section := range m.cursors {
-		m.cursors[section].SetVisibleRows(layout.sectionHeight(section) - dashboardPaneChromeRows)
+		m.cursors[section].SetVisibleRows(visibleListRows(layout.sectionHeight(section), len(m.sections[section])))
 	}
-	m.runsCursor.SetVisibleRows(layout.runs.inner - dashboardPaneChromeRows)
+	m.runsCursor.SetVisibleRows(visibleListRows(layout.runs.inner, len(m.runs)))
+}
+
+// visibleListRows is how many of a list's count rows fit a pane of the inner height under its title
+// and column header; the scroll position takes a row only when they do not all fit.
+func visibleListRows(inner, count int) int {
+	rows := inner - listTitleRows - listHeaderRows
+	if count > rows {
+		rows -= listScrollInfoRows
+	}
+	return rows
 }
 
 func (m *DashboardViewModel) SetPRs(prs []domain.PullRequest) {
@@ -495,7 +502,8 @@ type dashboardLayout struct {
 	// gridHeight is the outer height of the columns; a column whose panes need less is padded.
 	gridHeight int
 	runs       paneHeight
-	// spareRows are left blank under the runs pane when every list fits.
+	// spareRows are left blank between the grid and the runs pane when every list fits, which keeps
+	// the runs pane at the bottom.
 	spareRows int
 }
 
@@ -645,7 +653,7 @@ func (m *DashboardViewModel) View() string {
 	if layout.spareRows == 0 {
 		return lipgloss.JoinVertical(lipgloss.Left, grid, runs)
 	}
-	return lipgloss.JoinVertical(lipgloss.Left, grid, runs, blankRows(outerSize(m.width, paneHorizontalPadding), layout.spareRows))
+	return lipgloss.JoinVertical(lipgloss.Left, grid, blankRows(outerSize(m.width, paneHorizontalPadding), layout.spareRows), runs)
 }
 
 func blankRows(width, rows int) string {

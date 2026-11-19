@@ -381,11 +381,56 @@ func TestDashboard_PanesTakeOnlyTheRowsTheirListNeeds(t *testing.T) {
 		t.Errorf("expected the runs pane to fit its one run in %d rows, got %d", fittedListRows(1), layout.runs.inner)
 	}
 	if layout.sectionHeight(sectionReview) != fittedListRows(1) || layout.spareRows == 0 {
-		t.Errorf("expected every pane fitted and the spare rows left blank below, got %+v", layout)
+		t.Errorf("expected every pane fitted and the spare rows left blank, got %+v", layout)
 	}
 	main := RenderMainWindow("", m.width, m.height)
 	if got := lipgloss.Height(m.View()); got != lipgloss.Height(main) {
 		t.Errorf("expected the panes to still fill %d rows, got %d", lipgloss.Height(main), got)
+	}
+}
+
+func TestDashboard_FittedListsShowEveryRowWithoutAScrollPosition(t *testing.T) {
+	m := NewDashboardView()
+	m.SetSize(160, 40)
+	var prs []domain.PullRequest
+	for number := 1; number <= 4; number++ {
+		prs = append(prs, dashboardPR(number, fmt.Sprintf("Ready %d", number), domain.PRCategoryAuthored, func(pr *domain.PullRequest) {
+			pr.ApprovalStatus = domain.ApprovalStatusApproved
+			pr.Mergeable = true
+		}))
+	}
+	m.SetPRs(prs)
+	for _, pr := range m.PendingChecks() {
+		m.SetChecks(pr.Key(), domain.SummarizeChecks([]domain.Check{{Name: "ci", State: domain.CheckStatePassing}}))
+	}
+	m.SetActiveRuns([]domain.PipelineRun{dashboardRun(1, "only", 5)})
+
+	view := m.View()
+	if strings.Contains(view, "of 4]") {
+		t.Error("expected no scroll position on lists that fit")
+	}
+	for _, pr := range prs {
+		if strings.Count(view, pr.Title) != 2 {
+			t.Errorf("expected %s under Created by you and Ready to merge", pr.Title)
+		}
+	}
+}
+
+func TestDashboard_RunsPaneSitsAtTheBottom(t *testing.T) {
+	m := loadedDashboard()
+	m.SetActiveRuns([]domain.PipelineRun{dashboardRun(1, "only", 5)})
+	layout := m.layout()
+	if layout.spareRows == 0 {
+		t.Fatal("expected rows no list needs")
+	}
+
+	lines := strings.Split(m.View(), "\n")
+
+	if top := lines[len(lines)-layout.runs.outer()]; !strings.Contains(top, "╭") {
+		t.Errorf("expected the runs pane to end on the last row, got %q above it", top)
+	}
+	if !strings.Contains(lines[len(lines)-layout.runs.outer()+paneVerticalPadding+1], dashboardRunsTitle) {
+		t.Error("expected the runs pane's title right under its top border")
 	}
 }
 
