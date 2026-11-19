@@ -781,7 +781,7 @@ func (m *DashboardViewModel) newsRow(pr domain.PullRequest) listRow {
 	if more := len(news) - 1; more > 0 {
 		description = fmt.Sprintf(dashboardNewsMoreFormat, description, more)
 	}
-	row.values[prTitleValue] = fmt.Sprintf(dashboardNewsFormat, pr.Title, description)
+	row.values[prTitleValue] = fmt.Sprintf(dashboardNewsFormat, prTitle(pr), description)
 	return row
 }
 

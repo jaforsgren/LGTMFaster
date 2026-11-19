@@ -215,3 +215,21 @@ func TestPRInfoLines_ShowsClosingAndMergeCommitOfClosedPRs(t *testing.T) {
 		t.Error("expected no merge commit row for an open PR")
 	}
 }
+
+func TestPRList_MarksDrafts(t *testing.T) {
+	m := NewPRListView()
+	m.SetSize(120, 40)
+	m.SetPRs([]domain.PullRequest{
+		{Number: 1, Title: "Half done", IsDraft: true, Status: domain.PRStatusOpen},
+		{Number: 2, Title: "Finished", Status: domain.PRStatusOpen},
+	})
+
+	view := m.View()
+
+	if !strings.Contains(view, draftTitlePrefix+"Half done") {
+		t.Error("expected the draft marked")
+	}
+	if strings.Contains(view, draftTitlePrefix+"Finished") {
+		t.Error("expected only drafts marked")
+	}
+}

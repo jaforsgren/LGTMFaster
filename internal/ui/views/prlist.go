@@ -16,6 +16,7 @@ const (
 	prListTitle         = "Pull Requests"
 	closedPRListTitle   = "Closed"
 	prAgeColumnTitle    = "Age"
+	draftTitlePrefix    = "[draft] "
 	prClosedColumnTitle = "Closed"
 	prInfoPaneTitle     = "Info"
 	prDescriptionTitle  = "Description"
@@ -509,15 +510,23 @@ func prRowWith(pr domain.PullRequest, compact bool, badge, age string) listRow {
 	appearance := prCategoryAppearanceFor(pr.Category)
 	number := fmt.Sprintf("#%d", pr.Number)
 
-	values := []string{badge, pr.Title, pr.Repository.FullName, number, pr.Author.Username, age}
+	values := []string{badge, prTitle(pr), pr.Repository.FullName, number, pr.Author.Username, age}
 	if compact {
-		values = []string{badge, pr.Title, number, age}
+		values = []string{badge, prTitle(pr), number, age}
 	}
 	return listRow{
 		icon:   renderListIcon(appearance.icon, appearance.color),
 		values: values,
 		style:  appearance.rowStyle,
 	}
+}
+
+// prTitle marks a draft in front of its title, where it survives truncation.
+func prTitle(pr domain.PullRequest) string {
+	if pr.IsDraft {
+		return draftTitlePrefix + pr.Title
+	}
+	return pr.Title
 }
 
 func (m *PRListViewModel) detailPanes() []detailPane {

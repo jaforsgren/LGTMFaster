@@ -491,3 +491,14 @@ func TestDashboard_NewPRsShowInNewsBeforeTheirActivityLoads(t *testing.T) {
 		t.Error("expected the opening in the News pane")
 	}
 }
+
+func TestDashboard_MarksDrafts(t *testing.T) {
+	m := NewDashboardView()
+	m.SetSize(160, 40)
+
+	m.SetPRs([]domain.PullRequest{dashboardPR(1, "Half done", domain.PRCategoryAuthored, func(pr *domain.PullRequest) { pr.IsDraft = true })})
+
+	if !strings.Contains(m.View(), draftTitlePrefix+"Half done") {
+		t.Error("expected the draft marked on the dashboard")
+	}
+}
