@@ -56,6 +56,11 @@ type Repository interface {
 
 	MarkPipelineViewed(key string, viewedAt time.Time) error
 
+	// ListPRLastViewed maps PullRequest.Key to when the pull request was last opened.
+	ListPRLastViewed() (map[string]time.Time, error)
+
+	MarkPRViewed(key string, viewedAt time.Time) error
+
 	GetSettings() (Settings, error)
 
 	SaveSettings(settings Settings) error

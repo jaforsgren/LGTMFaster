@@ -4,58 +4,129 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/johanforsgren/lgtmfaster/internal/domain"
 )
 
 const (
-	dashboardChecksLoading = " · checking builds (%d left)..."
-	dashboardFailingFormat = "%s  (failing: %s)"
-	checksLoadingIcon      = "…"
+	dashboardChecksLoading   = " · checking builds (%d left)..."
+	dashboardActivityLoading = " · reading activity (%d left)..."
+	dashboardFailingFormat   = "%s  (failing: %s)"
+	dashboardNewsFormat      = "%s  (%s)"
+	dashboardNewsMoreFormat  = "%s, +%d more"
+	checksLoadingIcon        = "…"
 	// dashboardPaneChromeRows are the rows of a pane that are not pull requests: its title, the blank
 	// line under it, the column header and the scroll position.
 	dashboardPaneChromeRows = listTitleRows + listHeaderRows + listScrollInfoRows
-	dashboardColumns        = 2
-	// dashboardRows are the rows of pull request panes; the active runs pane spans a row below them.
-	dashboardRows        = 2
-	dashboardGridRows    = dashboardRows + 1
+	// The pull request grid takes dashboardGridParts of dashboardHeightParts of the height; the
+	// active runs pane spans the rest below it.
+	dashboardGridParts   = 2
+	dashboardHeightParts = dashboardGridParts + 1
+	// prTitleValue is the title's index in a compact pull request row.
+	prTitleValue         = 1
 	dashboardRunsTitle   = "Your active pipeline runs"
 	dashboardRunsLoading = "Loading pipeline runs..."
 	noCursor             = -1
-	// dashboardEmptyPaneRows is the height of a pane with nothing in it: only its title, so the
-	// panes with something to show get the room.
-	dashboardEmptyPaneRows = 1
+	// dashboardEmptyPaneRows is the height of a pane with nothing in it: only its title, without
+	// padding, so the panes with something to show get the room.
+	dashboardEmptyPaneRows    = 1
+	dashboardEmptyPanePadding = 0
 )
 
 // dashboardRunsPane is the focus index of the active runs pane, after the pull request panes.
 var dashboardRunsPane = len(dashboardSections)
 
+// dashboardDetail is what a section needs fetched per pull request before it can sort it in.
+type dashboardDetail int
+
+const (
+	dashboardDetailNone dashboardDetail = iota
+	dashboardDetailChecks
+	dashboardDetailActivity
+)
+
+// dashboardPRState is what the dashboard fetched for a pull request.
+type dashboardPRState struct {
+	checks       domain.Checks
+	checksLoaded bool
+	// news is what others did since the user last looked, newest first.
+	news []domain.Activity
+}
+
 type dashboardSection struct {
 	title    string
-	includes func(pr domain.PullRequest, checks domain.Checks, checksLoaded bool) bool
+	column   int
+	needs    dashboardDetail
+	includes func(pr domain.PullRequest, state dashboardPRState) bool
+	// orderedAt sorts the section, newest first.
+	orderedAt func(pr domain.PullRequest, state dashboardPRState) time.Time
 }
 
 func isOwnOpenPR(pr domain.PullRequest) bool {
 	return pr.Category == domain.PRCategoryAuthored && pr.Status == domain.PRStatusOpen
 }
 
-// dashboardSections fill the panes column by column: the left column holds what waits on someone,
-// the right one the user's pull requests that need action.
+// followsPR reports whether the user authored or reviews the open pull request, whose activity the
+// News pane follows.
+func followsPR(pr domain.PullRequest) bool {
+	return pr.Status == domain.PRStatusOpen && (pr.Category == domain.PRCategoryAuthored || pr.Category == domain.PRCategoryAssigned)
+}
+
+func byUpdate(pr domain.PullRequest, _ dashboardPRState) time.Time {
+	return pr.UpdatedAt
+}
+
+func byLatestNews(_ domain.PullRequest, state dashboardPRState) time.Time {
+	return state.news[0].At
+}
+
+// dashboardSections are listed column by column, which is also the tab order: the left column holds
+// what waits on the user, the right one what changed and the user's pull requests that need action.
 var dashboardSections = []dashboardSection{
-	{"Waiting for your review", func(pr domain.PullRequest, _ domain.Checks, _ bool) bool {
+	{"Waiting for your review", 0, dashboardDetailNone, func(pr domain.PullRequest, _ dashboardPRState) bool {
 		return pr.Category == domain.PRCategoryAssigned && !pr.ReviewedByMe && !pr.IsDraft && pr.Status == domain.PRStatusOpen
-	}},
-	{"Created by you", func(pr domain.PullRequest, _ domain.Checks, _ bool) bool {
+	}, byUpdate},
+	{"Created by you", 0, dashboardDetailNone, func(pr domain.PullRequest, _ dashboardPRState) bool {
 		return isOwnOpenPR(pr)
-	}},
-	{"Failing checks", func(pr domain.PullRequest, checks domain.Checks, loaded bool) bool {
-		return isOwnOpenPR(pr) && loaded && checks.State == domain.CheckStateFailing
-	}},
-	{"Ready to merge", func(pr domain.PullRequest, checks domain.Checks, loaded bool) bool {
+	}, byUpdate},
+	{"News", 1, dashboardDetailActivity, func(pr domain.PullRequest, state dashboardPRState) bool {
+		return followsPR(pr) && len(state.news) > 0
+	}, byLatestNews},
+	{"Failing checks", 1, dashboardDetailChecks, func(pr domain.PullRequest, state dashboardPRState) bool {
+		return isOwnOpenPR(pr) && state.checksLoaded && state.checks.State == domain.CheckStateFailing
+	}, byUpdate},
+	{"Ready to merge", 1, dashboardDetailChecks, func(pr domain.PullRequest, state dashboardPRState) bool {
 		return isOwnOpenPR(pr) && !pr.IsDraft && pr.ApprovalStatus == domain.ApprovalStatusApproved && pr.Mergeable &&
-			loaded && (checks.State == domain.CheckStatePassing || checks.State == domain.CheckStateNone)
-	}},
+			state.checksLoaded && (state.checks.State == domain.CheckStatePassing || state.checks.State == domain.CheckStateNone)
+	}, byUpdate},
+}
+
+// dashboardColumnPanes holds each column's sections, top to bottom.
+var dashboardColumnPanes = sectionsByColumn()
+
+func sectionsByColumn() [][]int {
+	var columns [][]int
+	for section, definition := range dashboardSections {
+		for len(columns) <= definition.column {
+			columns = append(columns, nil)
+		}
+		columns[definition.column] = append(columns[definition.column], section)
+	}
+	return columns
+}
+
+// dashboardPanePosition is the column of a section and its row in that column.
+func dashboardPanePosition(section int) (column, row int) {
+	for column, sections := range dashboardColumnPanes {
+		for row, candidate := range sections {
+			if candidate == section {
+				return column, row
+			}
+		}
+	}
+	return 0, 0
 }
 
 var checkAppearances = map[domain.CheckState]prCategoryAppearance{
@@ -65,18 +136,31 @@ var checkAppearances = map[domain.CheckState]prCategoryAppearance{
 	domain.CheckStateNone:    {icon: "○", color: lipgloss.Color("#6B7280")},
 }
 
+var activityAppearances = map[domain.ActivityKind]prCategoryAppearance{
+	domain.ActivityKindPush:    {icon: "↑", color: lipgloss.Color("#3B82F6")},
+	domain.ActivityKindComment: {icon: "✎", color: lipgloss.Color("#F59E0B")},
+	domain.ActivityKindReview:  {icon: "★", color: lipgloss.Color("#10B981")},
+}
+
 // DashboardViewModel shows the loaded pull requests in a fixed grid of panes, one per section, each
-// with its own cursor. Checks are only fetched for the user's own pull requests.
+// with its own cursor. Checks are only fetched for the user's own pull requests, activity for the
+// ones the user authored or reviews.
 type DashboardViewModel struct {
-	prs           []domain.PullRequest
-	runs          []domain.PipelineRun
-	runsLoaded    bool
-	runsCursor    listCursor
-	checks        map[string]domain.Checks
-	checksPending map[string]bool
-	sections      [][]domain.PullRequest
-	cursors       []listCursor
-	focus         int
+	prs             []domain.PullRequest
+	runs            []domain.PipelineRun
+	runsLoaded      bool
+	runsCursor      listCursor
+	checks          map[string]domain.Checks
+	checksPending   map[string]bool
+	activity        map[string][]domain.Activity
+	activityPending map[string]bool
+	// lastViewed maps PullRequest.Key to when the user last opened it; news is what happened since,
+	// at most newsWindow back.
+	lastViewed map[string]time.Time
+	newsWindow time.Duration
+	sections   [][]domain.PullRequest
+	cursors    []listCursor
+	focus      int
 	// focusChosen stops the focus from following the first filled pane once the user moved it.
 	focusChosen bool
 	width       int
@@ -89,11 +173,15 @@ func NewDashboardView() *DashboardViewModel {
 		cursors[i] = newListCursor()
 	}
 	return &DashboardViewModel{
-		checks:        make(map[string]domain.Checks),
-		checksPending: make(map[string]bool),
-		sections:      make([][]domain.PullRequest, len(dashboardSections)),
-		cursors:       cursors,
-		runsCursor:    newListCursor(),
+		checks:          make(map[string]domain.Checks),
+		checksPending:   make(map[string]bool),
+		activity:        make(map[string][]domain.Activity),
+		activityPending: make(map[string]bool),
+		lastViewed:      make(map[string]time.Time),
+		newsWindow:      domain.Settings{}.NewsWindow(),
+		sections:        make([][]domain.PullRequest, len(dashboardSections)),
+		cursors:         cursors,
+		runsCursor:      newListCursor(),
 	}
 }
 
@@ -110,7 +198,7 @@ func (m *DashboardViewModel) fitCursors() {
 	for section := range m.cursors {
 		m.cursors[section].SetVisibleRows(layout.sectionHeight(section) - dashboardPaneChromeRows)
 	}
-	m.runsCursor.SetVisibleRows(layout.runsHeight - dashboardPaneChromeRows)
+	m.runsCursor.SetVisibleRows(layout.runs.inner - dashboardPaneChromeRows)
 }
 
 func (m *DashboardViewModel) SetPRs(prs []domain.PullRequest) {
@@ -131,6 +219,53 @@ func (m *DashboardViewModel) PendingChecks() []domain.PullRequest {
 		pending = append(pending, pr)
 	}
 	return pending
+}
+
+// PendingActivity returns the followed pull requests whose activity is not fetched yet, and marks
+// them in flight.
+func (m *DashboardViewModel) PendingActivity() []domain.PullRequest {
+	var pending []domain.PullRequest
+	for _, pr := range m.prs {
+		key := pr.Key()
+		if _, loaded := m.activity[key]; loaded || m.activityPending[key] || !followsPR(pr) {
+			continue
+		}
+		m.activityPending[key] = true
+		pending = append(pending, pr)
+	}
+	return pending
+}
+
+func (m *DashboardViewModel) SetActivity(prKey string, activity []domain.Activity) {
+	delete(m.activityPending, prKey)
+	m.activity[prKey] = activity
+	m.rebuild()
+}
+
+// ActivityFailed forgets the request; the pull request stays out of the News pane.
+func (m *DashboardViewModel) ActivityFailed(prKey string) {
+	delete(m.activityPending, prKey)
+}
+
+// SetLastViewed takes when each pull request was last opened, keeping its own copy since
+// MarkViewed adds to it.
+func (m *DashboardViewModel) SetLastViewed(lastViewed map[string]time.Time) {
+	m.lastViewed = make(map[string]time.Time, len(lastViewed))
+	for key, viewedAt := range lastViewed {
+		m.lastViewed[key] = viewedAt
+	}
+	m.rebuild()
+}
+
+// MarkViewed takes the pull request out of the News pane until something new happens on it.
+func (m *DashboardViewModel) MarkViewed(prKey string, viewedAt time.Time) {
+	m.lastViewed[prKey] = viewedAt
+	m.rebuild()
+}
+
+func (m *DashboardViewModel) SetNewsWindow(window time.Duration) {
+	m.newsWindow = window
+	m.rebuild()
 }
 
 // SetActiveRuns shows the runs newest first, keeping the cursor on the same run.
@@ -169,10 +304,12 @@ func (m *DashboardViewModel) ChecksFailed(prKey string) {
 	delete(m.checksPending, prKey)
 }
 
-// ResetChecks makes every check be fetched again, for a refresh.
-func (m *DashboardViewModel) ResetChecks() {
+// ResetDetails makes every check and activity be fetched again, for a refresh.
+func (m *DashboardViewModel) ResetDetails() {
 	m.checks = make(map[string]domain.Checks)
 	m.checksPending = make(map[string]bool)
+	m.activity = make(map[string][]domain.Activity)
+	m.activityPending = make(map[string]bool)
 	m.rebuild()
 }
 
@@ -246,18 +383,27 @@ func dashboardPaneCount() int {
 	return dashboardRunsPane + 1
 }
 
-// FocusRight and FocusLeft move to the pull request pane beside the focused one; the runs pane
-// spans both columns, so they leave it alone.
+// FocusRight and FocusLeft move to the pull request pane beside the focused one, or the column's
+// last pane when it has fewer; the runs pane spans both columns, so they leave it alone.
 func (m *DashboardViewModel) FocusRight() {
-	if m.focus != dashboardRunsPane && m.focus+dashboardRows < len(dashboardSections) {
-		m.setFocus(m.focus + dashboardRows)
-	}
+	m.focusColumn(1)
 }
 
 func (m *DashboardViewModel) FocusLeft() {
-	if m.focus != dashboardRunsPane && m.focus >= dashboardRows {
-		m.setFocus(m.focus - dashboardRows)
+	m.focusColumn(-1)
+}
+
+func (m *DashboardViewModel) focusColumn(step int) {
+	if m.focus == dashboardRunsPane {
+		return
 	}
+	column, row := dashboardPanePosition(m.focus)
+	target := column + step
+	if target < 0 || target >= len(dashboardColumnPanes) {
+		return
+	}
+	panes := dashboardColumnPanes[target]
+	m.setFocus(panes[min(row, len(panes)-1)])
 }
 
 func (m *DashboardViewModel) setFocus(section int) {
@@ -265,9 +411,33 @@ func (m *DashboardViewModel) setFocus(section int) {
 	m.focusChosen = true
 }
 
-// rebuild sorts the pull requests into the sections, newest update first, keeping each pane's
-// cursor on the same pull request.
+func (m *DashboardViewModel) prState(pr domain.PullRequest) dashboardPRState {
+	checks, loaded := m.checks[pr.Key()]
+	return dashboardPRState{checks: checks, checksLoaded: loaded, news: m.newsOf(pr)}
+}
+
+// newsOf is what others did on the pull request since the user last opened it, but at most the
+// news window back, so a pull request opened long ago does not stay in the News pane for good.
+func (m *DashboardViewModel) newsOf(pr domain.PullRequest) []domain.Activity {
+	activity, loaded := m.activity[pr.Key()]
+	if !loaded {
+		return nil
+	}
+	since := time.Now().Add(-m.newsWindow)
+	if viewedAt := m.lastViewed[pr.Key()]; viewedAt.After(since) {
+		since = viewedAt
+	}
+	return domain.ActivitySince(activity, since)
+}
+
+// rebuild sorts the pull requests into the sections, newest first, keeping each pane's cursor on
+// the same pull request.
 func (m *DashboardViewModel) rebuild() {
+	states := make(map[string]dashboardPRState, len(m.prs))
+	for _, pr := range m.prs {
+		states[pr.Key()] = m.prState(pr)
+	}
+
 	for section, definition := range dashboardSections {
 		selectedKey := ""
 		if index := m.cursors[section].Index(); index < len(m.sections[section]) {
@@ -276,12 +446,13 @@ func (m *DashboardViewModel) rebuild() {
 
 		var members []domain.PullRequest
 		for _, pr := range m.prs {
-			checks, loaded := m.checks[pr.Key()]
-			if definition.includes(pr, checks, loaded) {
+			if definition.includes(pr, states[pr.Key()]) {
 				members = append(members, pr)
 			}
 		}
-		sort.SliceStable(members, func(i, j int) bool { return members[i].UpdatedAt.After(members[j].UpdatedAt) })
+		sort.SliceStable(members, func(i, j int) bool {
+			return definition.orderedAt(members[i], states[members[i].Key()]).After(definition.orderedAt(members[j], states[members[j].Key()]))
+		})
 		m.sections[section] = members
 
 		m.cursors[section].Clamp(len(members))
@@ -303,70 +474,138 @@ func (m *DashboardViewModel) rebuild() {
 	m.fitCursors()
 }
 
-// dashboardLayout holds the inner sizes of the panes, which together occupy exactly the main
-// window. Each column stacks its pull request panes on its own, so an empty pane only gives its
-// room to the pane under or over it; the runs pane below spans the window.
+// paneHeight is a pane's inner height and the vertical padding around it.
+type paneHeight struct {
+	inner   int
+	padding int
+}
+
+var collapsedPaneHeight = paneHeight{inner: dashboardEmptyPaneRows, padding: dashboardEmptyPanePadding}
+
+func (h paneHeight) outer() int {
+	return outerSize(h.inner, h.padding)
+}
+
+// dashboardLayout holds the inner sizes of the panes, which together with the blank rows no list
+// needs occupy exactly the main window. Each column stacks its pull request panes on its own, so a
+// short list only gives its room to the panes under or over it; the runs pane below spans the window.
 type dashboardLayout struct {
 	widths []int
-	// heights holds the pull request panes' heights per column, top to bottom.
-	heights    [][]int
-	runsHeight int
+	// heights holds the pull request panes' heights by section.
+	heights []paneHeight
+	// gridHeight is the outer height of the columns; a column whose panes need less is padded.
+	gridHeight int
+	runs       paneHeight
+	// spareRows are left blank under the runs pane when every list fits.
+	spareRows int
 }
 
 func (l dashboardLayout) sectionHeight(section int) int {
-	return l.heights[section/dashboardRows][section%dashboardRows]
+	return l.heights[section].inner
 }
 
 func (m *DashboardViewModel) layout() dashboardLayout {
 	outer := outerSize(m.height, paneVerticalPadding)
-	gridOuter := outer / dashboardGridRows * dashboardRows
-	runsOuter := outer - gridOuter
-	if m.runsLoaded && len(m.runs) == 0 {
-		runsOuter = outerSize(dashboardEmptyPaneRows, paneVerticalPadding)
-		gridOuter = outer - runsOuter
+	// A short window gives the grid the runs pane's rows rather than squeezing a column's panes
+	// below their title.
+	gridOuter := max(outer/dashboardHeightParts*dashboardGridParts, minDashboardGridOuter())
+	runs := paneHeight{inner: innerSize(outer-gridOuter, paneVerticalPadding), padding: paneVerticalPadding}
+	gridNeeded := m.gridNeededOuter()
+	switch {
+	case m.runsLoaded && len(m.runs) == 0:
+		runs = collapsedPaneHeight
+	case m.runsLoaded:
+		// The runs pane takes only the rows its runs need, and more of the grid's when the grid's
+		// lists need less than their share.
+		runs.inner = min(fittedListRows(len(m.runs)), runs.inner+max(gridOuter-gridNeeded, 0))
+	}
+	gridOuter = outer - runs.outer()
+	spareRows := 0
+	if m.runsLoaded && gridNeeded < gridOuter {
+		spareRows = gridOuter - gridNeeded
+		gridOuter = gridNeeded
 	}
 
-	heights := make([][]int, dashboardColumns)
-	for column := range heights {
-		empty := make([]bool, dashboardRows)
-		for row := range empty {
-			empty[row] = len(m.sections[column*dashboardRows+row]) == 0
+	heights := make([]paneHeight, len(dashboardSections))
+	for _, sections := range dashboardColumnPanes {
+		for row, height := range stackPanes(gridOuter, m.wantedRows(sections)) {
+			heights[sections[row]] = height
 		}
-		heights[column] = stackPanes(gridOuter, empty)
 	}
 	return dashboardLayout{
-		widths:     splitEvenly(outerSize(m.width, paneHorizontalPadding), dashboardColumns, paneHorizontalPadding),
+		widths:     splitEvenly(outerSize(m.width, paneHorizontalPadding), len(dashboardColumnPanes), paneHorizontalPadding),
 		heights:    heights,
-		runsHeight: innerSize(runsOuter, paneVerticalPadding),
+		gridHeight: gridOuter,
+		runs:       runs,
+		spareRows:  spareRows,
 	}
 }
 
-// stackPanes divides an outer height between panes stacked on each other and returns their inner
-// heights: empty panes only show their title and the others share the rest evenly. When all are
-// empty, the last one takes the rest so the stack still fills the height.
-func stackPanes(outer int, empty []bool) []int {
-	emptyOuter := outerSize(dashboardEmptyPaneRows, paneVerticalPadding)
-	filled := make([]bool, len(empty))
-	filledCount := 0
-	for i, isEmpty := range empty {
-		filled[i] = !isEmpty
-		if filled[i] {
-			filledCount++
+// fittedListRows is the inner height of a pane that shows all of its count rows: the title, the
+// column header and the rows, with no scroll position.
+func fittedListRows(count int) int {
+	return listTitleRows + listHeaderRows + count
+}
+
+// wantedRows is the inner height each section's list needs, 0 for an empty one.
+func (m *DashboardViewModel) wantedRows(sections []int) []int {
+	wants := make([]int, len(sections))
+	for row, section := range sections {
+		if count := len(m.sections[section]); count > 0 {
+			wants[row] = fittedListRows(count)
 		}
 	}
-	if filledCount == 0 {
-		filled[len(filled)-1] = true
-		filledCount = 1
-	}
+	return wants
+}
 
-	shared := splitEvenly(outer-(len(empty)-filledCount)*emptyOuter, filledCount, paneVerticalPadding)
-	heights := make([]int, len(empty))
-	for i := range heights {
-		if !filled[i] {
-			heights[i] = dashboardEmptyPaneRows
+// gridNeededOuter is the height of the column whose lists need the most rows.
+func (m *DashboardViewModel) gridNeededOuter() int {
+	tallest := minDashboardGridOuter()
+	for _, sections := range dashboardColumnPanes {
+		needed := 0
+		for _, want := range m.wantedRows(sections) {
+			if want == 0 {
+				needed += collapsedPaneHeight.outer()
+				continue
+			}
+			needed += outerSize(want, paneVerticalPadding)
+		}
+		tallest = max(tallest, needed)
+	}
+	return tallest
+}
+
+// minDashboardGridOuter is the height of the tallest column with every pane but one shrunk to its
+// title, the one left showing a single row, so a long list is never squeezed out by short ones.
+func minDashboardGridOuter() int {
+	tallest := 0
+	for _, sections := range dashboardColumnPanes {
+		tallest = max(tallest, len(sections))
+	}
+	return (tallest-1)*collapsedPaneHeight.outer() + outerSize(minPaneSize, paneVerticalPadding)
+}
+
+// stackPanes divides an outer height between panes stacked on each other, given the inner rows
+// each one's list wants (0 when empty). Empty panes collapse to their title; the others get what
+// their list needs, shorter lists first, and share what is left evenly when it is not enough. Rows
+// no list needs are left over, for the caller to leave blank.
+func stackPanes(outer int, wants []int) []paneHeight {
+	heights := make([]paneHeight, len(wants))
+	var filled []int
+	for i, want := range wants {
+		if want == 0 {
+			heights[i] = collapsedPaneHeight
 			continue
 		}
-		heights[i], shared = shared[0], shared[1:]
+		filled = append(filled, i)
+	}
+	room := outer - (len(wants)-len(filled))*collapsedPaneHeight.outer()
+
+	sort.SliceStable(filled, func(i, j int) bool { return wants[filled[i]] < wants[filled[j]] })
+	for n, pane := range filled {
+		share := innerSize(room/(len(filled)-n), paneVerticalPadding)
+		heights[pane] = paneHeight{inner: min(wants[pane], share), padding: paneVerticalPadding}
+		room -= heights[pane].outer()
 	}
 	return heights
 }
@@ -387,19 +626,31 @@ func splitEvenly(outer, parts, padding int) []int {
 
 func (m *DashboardViewModel) View() string {
 	layout := m.layout()
-	columns := make([]string, dashboardColumns)
-	for column := range columns {
-		panes := make([]string, dashboardRows)
-		for row := range panes {
-			section := column*dashboardRows + row
-			width, height := layout.widths[column], layout.heights[column][row]
-			panes[row] = renderPane(m.renderSection(section, width), width, height, m.paneBorderColor(section))
+	columns := make([]string, len(dashboardColumnPanes))
+	for column, sections := range dashboardColumnPanes {
+		width := layout.widths[column]
+		panes := make([]string, 0, len(sections)+1)
+		used := 0
+		for _, section := range sections {
+			height := layout.heights[section]
+			panes = append(panes, renderPaddedPane(m.renderSection(section, width), width, height.inner, height.padding, m.paneBorderColor(section)))
+			used += height.outer()
+		}
+		if spare := layout.gridHeight - used; spare > 0 {
+			panes = append(panes, blankRows(outerSize(width, paneHorizontalPadding), spare))
 		}
 		columns[column] = lipgloss.JoinVertical(lipgloss.Left, panes...)
 	}
 	grid := lipgloss.JoinHorizontal(lipgloss.Top, columns...)
-	runs := renderPane(m.renderRuns(), m.width, layout.runsHeight, m.paneBorderColor(dashboardRunsPane))
-	return lipgloss.JoinVertical(lipgloss.Left, grid, runs)
+	runs := renderPaddedPane(m.renderRuns(), m.width, layout.runs.inner, layout.runs.padding, m.paneBorderColor(dashboardRunsPane))
+	if layout.spareRows == 0 {
+		return lipgloss.JoinVertical(lipgloss.Left, grid, runs)
+	}
+	return lipgloss.JoinVertical(lipgloss.Left, grid, runs, blankRows(outerSize(m.width, paneHorizontalPadding), layout.spareRows))
+}
+
+func blankRows(width, rows int) string {
+	return lipgloss.NewStyle().Width(width).Height(rows).Render("")
 }
 
 func (m *DashboardViewModel) paneBorderColor(pane int) lipgloss.Color {
@@ -476,10 +727,8 @@ func pipelineRunRow(run domain.PipelineRun) listRow {
 
 func (m *DashboardViewModel) renderSection(section, width int) string {
 	members := m.sections[section]
-	title := fmt.Sprintf("%s (%d)", dashboardSections[section].title, len(members))
-	if loading := len(m.checksPending); loading > 0 && section >= dashboardRows {
-		title += fmt.Sprintf(dashboardChecksLoading, loading)
-	}
+	definition := dashboardSections[section]
+	title := fmt.Sprintf("%s (%d)", definition.title, len(members)) + m.loadingSuffix(definition.needs)
 
 	if len(members) == 0 {
 		return listTitleStyle.Render(title)
@@ -495,9 +744,45 @@ func (m *DashboardViewModel) renderSection(section, width int) string {
 		cursor.index = noCursor
 	}
 	b.WriteString(renderListRows(prColumns(width, true, prAgeColumnTitle), len(members), cursor, func(i int) listRow {
+		if definition.needs == dashboardDetailActivity {
+			return m.newsRow(members[i])
+		}
 		return m.prRow(members[i])
 	}))
 	return b.String()
+}
+
+func (m *DashboardViewModel) loadingSuffix(needs dashboardDetail) string {
+	switch {
+	case needs == dashboardDetailChecks && len(m.checksPending) > 0:
+		return fmt.Sprintf(dashboardChecksLoading, len(m.checksPending))
+	case needs == dashboardDetailActivity && len(m.activityPending) > 0:
+		return fmt.Sprintf(dashboardActivityLoading, len(m.activityPending))
+	}
+	return ""
+}
+
+// newsRow badges the latest news by its kind, dates the row by it and says who did what.
+func (m *DashboardViewModel) newsRow(pr domain.PullRequest) listRow {
+	news := m.newsOf(pr)
+	latest := news[0]
+	row := prRowWith(pr, true, prApprovalBadges[pr.ApprovalStatus], FormatAge(latest.At))
+	appearance := activityAppearances[latest.Kind]
+	row.icon = renderListIcon(appearance.icon, appearance.color)
+
+	description := describeActivity(latest)
+	if more := len(news) - 1; more > 0 {
+		description = fmt.Sprintf(dashboardNewsMoreFormat, description, more)
+	}
+	row.values[prTitleValue] = fmt.Sprintf(dashboardNewsFormat, pr.Title, description)
+	return row
+}
+
+func describeActivity(activity domain.Activity) string {
+	if activity.Author.Username == "" {
+		return activity.Summary
+	}
+	return activity.Author.Username + " " + activity.Summary
 }
 
 // prRow shows the checks in the icon column once they are known, and names the failing ones.
@@ -512,7 +797,7 @@ func (m *DashboardViewModel) prRow(pr domain.PullRequest) listRow {
 		row.icon = renderListIcon(checksLoadingIcon, lipgloss.Color("#6B7280"))
 	}
 	if failing := checks.Failing(); len(failing) > 0 {
-		row.values[1] = fmt.Sprintf(dashboardFailingFormat, row.values[1], strings.Join(failing, ", "))
+		row.values[prTitleValue] = fmt.Sprintf(dashboardFailingFormat, row.values[prTitleValue], strings.Join(failing, ", "))
 	}
 	return row
 }

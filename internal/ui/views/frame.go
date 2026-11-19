@@ -42,14 +42,20 @@ func outerSize(inner, padding int) int {
 // renderPane truncates content to the pane's inner size first, so long lines are cut rather than
 // wrapped and the pane never grows past its layout.
 func renderPane(content string, innerWidth, innerHeight int, borderColor lipgloss.Color) string {
+	return renderPaddedPane(content, innerWidth, innerHeight, paneVerticalPadding, borderColor)
+}
+
+// renderPaddedPane is renderPane with its own vertical padding, for panes collapsed to one line.
+func renderPaddedPane(content string, innerWidth, innerHeight, verticalPadding int, borderColor lipgloss.Color) string {
 	inner := lipgloss.NewStyle().
 		MaxWidth(innerWidth).
 		MaxHeight(innerHeight).
 		Render(content)
 
 	return mainWindowStyle.
+		Padding(verticalPadding, paneHorizontalPadding).
 		BorderForeground(borderColor).
 		Width(innerWidth + 2*paneHorizontalPadding).
-		Height(innerHeight + 2*paneVerticalPadding).
+		Height(innerHeight + 2*verticalPadding).
 		Render(inner)
 }

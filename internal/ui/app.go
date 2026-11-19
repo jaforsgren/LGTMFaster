@@ -129,11 +129,16 @@ func NewModel(repository domain.Repository) Model {
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#7C3AED"))
 
 	prListView := views.NewPRListView()
+	dashboardView := views.NewDashboardView()
 	settings, settingsErr := repository.GetSettings()
 	topBarHidden := false
 	if settingsErr == nil {
 		prListView.SetSettings(settings)
+		dashboardView.SetNewsWindow(settings.NewsWindow())
 		topBarHidden = settings.TopBarHidden
+	}
+	if lastViewed, err := repository.ListPRLastViewed(); err == nil {
+		dashboardView.SetLastViewed(lastViewed)
 	}
 
 	m := Model{
@@ -165,7 +170,7 @@ func NewModel(repository domain.Repository) Model {
 		extensionFilterView: views.NewExtensionFilterView(),
 		workItemPickerView:  views.NewWorkItemPickerView(),
 		mergeRunsView:       views.NewMergeRunsView(),
-		dashboardView:       views.NewDashboardView(),
+		dashboardView:       dashboardView,
 		repository:          repository,
 		providers:           make(map[string]domain.Provider),
 		ctx:                 context.Background(),
@@ -617,13 +622,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if len(m.loadingState.AccumulatedGroups) > 0 {
 			m.prListView.SetPRGroups(m.loadingState.AccumulatedGroups)
 		}
-		var resumeCmd, dashboardCmd tea.Cmd
+		var resumeCmd tea.Cmd
 		m, resumeCmd = m.resumePRs(m.loadingState.LoadedPATs >= m.loadingState.TotalPATs)
-		m.dashboardView.SetPRs(m.prListView.AllPRs())
-		if m.state == ViewDashboard {
-			dashboardCmd = m.loadDashboardChecks()
-		}
-		resumeCmd = tea.Batch(resumeCmd, m.loadPRListDetails(), dashboardCmd)
+		resumeCmd = tea.Batch(resumeCmd, m.loadPRListDetails(), m.refreshDashboardPRs())
 
 		totalPRs := 0
 		repoMap := make(map[string]bool)
@@ -852,6 +853,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, clearStatusAfterDelay(4 * time.Second)
 		}
 		m.prListView.SetSettings(settings)
+		m.dashboardView.SetNewsWindow(settings.NewsWindow())
 		m.setDiffExclusions(settings.DiffExclusions)
 		m.pipelineListView.SetSortMode(settings.PipelineSortMode)
 		m.topBarHidden = settings.TopBarHidden
@@ -879,6 +881,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case DashboardChecksLoadedMsg:
 		return m.handleDashboardChecksLoaded(msg)
+
+	case DashboardActivityLoadedMsg:
+		return m.handleDashboardActivityLoaded(msg)
 
 	case DashboardRunsLoadedMsg:
 		return m.handleDashboardRunsLoaded(msg)

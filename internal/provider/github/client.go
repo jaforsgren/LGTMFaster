@@ -244,3 +244,19 @@ func (c *Client) ListCheckRuns(ctx context.Context, owner, repo, sha string) ([]
 	}
 	return result.CheckRuns, nil
 }
+
+func (c *Client) ListTimeline(ctx context.Context, owner, repo string, number int) ([]*github.Timeline, error) {
+	var events []*github.Timeline
+	opts := &github.ListOptions{PerPage: listPageSize}
+	for {
+		page, resp, err := c.client.Issues.ListIssueTimeline(ctx, owner, repo, number, opts)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list timeline: %w", err)
+		}
+		events = append(events, page...)
+		if resp.NextPage == 0 {
+			return events, nil
+		}
+		opts.Page = resp.NextPage
+	}
+}

@@ -1038,6 +1038,7 @@ func (m Model) inspectPR(pr domain.PullRequest) (Model, tea.Cmd) {
 		m.prInspectOrigin = m.state
 	}
 	m.state = ViewPRInspect
+	m.markPRViewed(pr)
 	m.topBar.SetCommentThreads(nil)
 	m.prInspect.ClosePreview()
 	m.prInspect.SwitchToDescription()

@@ -87,15 +87,22 @@ var voteDescriptions = map[string]string{
 
 // describeVote turns Azure DevOps' "<name> voted 10" system comments into "<name> approved".
 func describeVote(content string) string {
+	voter, description, isVote := parseVote(content)
+	if !isVote {
+		return content
+	}
+	return voter + " " + description
+}
+
+// parseVote splits a "<name> voted 10" system comment into the voter and "approved"; isVote is
+// false for other system comments and unknown votes.
+func parseVote(content string) (voter, description string, isVote bool) {
 	match := voteMessage.FindStringSubmatch(content)
 	if match == nil {
-		return content
+		return "", "", false
 	}
 	description, known := voteDescriptions[match[2]]
-	if !known {
-		return content
-	}
-	return match[1] + " " + description
+	return match[1], description, known
 }
 
 // resolvedThreadStatuses are the statuses Azure DevOps shows as resolved; active and pending

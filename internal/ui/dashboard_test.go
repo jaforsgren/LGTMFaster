@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/johanforsgren/lgtmfaster/internal/domain"
@@ -44,9 +45,14 @@ func dashboardTestModel(t *testing.T) (Model, domain.PullRequest) {
 		ApprovalStatus: domain.ApprovalStatusApproved, Mergeable: true, PATID: testPATID,
 		Repository: domain.Repo{FullName: "Proj/api"},
 	}
-	provider := &mockProvider{checks: map[int]domain.Checks{
-		4: domain.SummarizeChecks([]domain.Check{{Name: "ci", State: domain.CheckStateFailing}}),
-	}}
+	provider := &mockProvider{
+		checks: map[int]domain.Checks{
+			4: domain.SummarizeChecks([]domain.Check{{Name: "ci", State: domain.CheckStateFailing}}),
+		},
+		activity: map[int][]domain.Activity{4: {{
+			Kind: domain.ActivityKindReview, Author: domain.User{Username: "Anna"}, Summary: "approved", At: time.Now().Add(-5 * time.Minute),
+		}}},
+	}
 	m := newPRTestModel(t, provider)
 	m.prListView.SetPRs([]domain.PullRequest{mine})
 	return m, mine
@@ -63,6 +69,44 @@ func TestOpenDashboard_LoadsChecksOfOwnPullRequests(t *testing.T) {
 
 	if !strings.Contains(m.View(), "Failing checks (1)") || !strings.Contains(m.View(), mine.Title) {
 		t.Error("expected the PR under failing checks")
+	}
+}
+
+func TestOpenDashboard_ShowsNewsOnFollowedPullRequests(t *testing.T) {
+	m, mine := dashboardTestModel(t)
+
+	m, cmd := m.openDashboard()
+	m, _ = m.handleDashboardActivityLoaded(findMsg[DashboardActivityLoadedMsg](t, cmd))
+
+	view := m.View()
+	if !strings.Contains(view, "News (1)") || !strings.Contains(view, mine.Title+"  (Anna approved)") {
+		t.Error("expected Anna's approval in the News pane")
+	}
+}
+
+func TestDashboard_OpeningAPullRequestClearsItsNews(t *testing.T) {
+	m, mine := dashboardTestModel(t)
+	m, cmd := m.openDashboard()
+	m, _ = m.handleDashboardActivityLoaded(findMsg[DashboardActivityLoadedMsg](t, cmd))
+
+	m, _ = m.inspectPR(mine)
+	m, _ = handleQuitKey(m)
+
+	if !strings.Contains(m.View(), "News (0)") {
+		t.Error("expected the opened PR to leave the News pane")
+	}
+	if _, stored := m.repository.(*mockRepository).prLastViewed[mine.Key()]; !stored {
+		t.Error("expected the view time to be stored")
+	}
+}
+
+func TestDashboard_FailedActivityIsReported(t *testing.T) {
+	m, mine := dashboardTestModel(t)
+
+	m, _ = m.handleDashboardActivityLoaded(DashboardActivityLoadedMsg{prKey: mine.Key(), err: errors.New("forbidden")})
+
+	if !strings.Contains(m.View(), "Failed to load pull request activity: forbidden") {
+		t.Error("expected the failure in the status bar")
 	}
 }
 

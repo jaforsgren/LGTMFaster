@@ -560,24 +560,41 @@ func (r *LocalRepository) TogglePipelineFavorite(key string) (bool, error) {
 }
 
 func (r *LocalRepository) ListPipelineLastViewed() (map[string]time.Time, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	lastViewed := make(map[string]time.Time, len(r.config.PipelineLastViewed))
-	for key, viewedAt := range r.config.PipelineLastViewed {
-		lastViewed[key] = viewedAt
-	}
-	return lastViewed, nil
+	return r.listViewTimes(&r.config.PipelineLastViewed), nil
 }
 
 func (r *LocalRepository) MarkPipelineViewed(key string, viewedAt time.Time) error {
+	return r.markViewed(&r.config.PipelineLastViewed, key, viewedAt)
+}
+
+func (r *LocalRepository) ListPRLastViewed() (map[string]time.Time, error) {
+	return r.listViewTimes(&r.config.PRLastViewed), nil
+}
+
+func (r *LocalRepository) MarkPRViewed(key string, viewedAt time.Time) error {
+	return r.markViewed(&r.config.PRLastViewed, key, viewedAt)
+}
+
+// listViewTimes copies a map of view times, so callers can keep it while the config changes.
+func (r *LocalRepository) listViewTimes(viewTimes *map[string]time.Time) map[string]time.Time {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	copied := make(map[string]time.Time, len(*viewTimes))
+	for key, viewedAt := range *viewTimes {
+		copied[key] = viewedAt
+	}
+	return copied
+}
+
+func (r *LocalRepository) markViewed(viewTimes *map[string]time.Time, key string, viewedAt time.Time) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if r.config.PipelineLastViewed == nil {
-		r.config.PipelineLastViewed = make(map[string]time.Time)
+	if *viewTimes == nil {
+		*viewTimes = make(map[string]time.Time)
 	}
-	r.config.PipelineLastViewed[key] = viewedAt
+	(*viewTimes)[key] = viewedAt
 	return r.save()
 }
 

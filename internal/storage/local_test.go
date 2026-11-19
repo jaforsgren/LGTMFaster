@@ -588,6 +588,9 @@ func TestMarkPipelineViewedAndSortModePersist(t *testing.T) {
 	if err := repo.MarkPipelineViewed("pipeline:pat:Proj:1", viewedAt); err != nil {
 		t.Fatalf("Failed to mark viewed: %v", err)
 	}
+	if err := repo.MarkPRViewed("pat/Proj/api#4", viewedAt); err != nil {
+		t.Fatalf("Failed to mark PR viewed: %v", err)
+	}
 	if err := repo.SaveSettings(domain.Settings{PipelineSortMode: domain.PipelineSortStatus}); err != nil {
 		t.Fatalf("Failed to save settings: %v", err)
 	}
@@ -600,6 +603,10 @@ func TestMarkPipelineViewedAndSortModePersist(t *testing.T) {
 	lastViewed, _ := reloaded.ListPipelineLastViewed()
 	if !lastViewed["pipeline:pat:Proj:1"].Equal(viewedAt) {
 		t.Errorf("Expected persisted view time, got %v", lastViewed)
+	}
+	prLastViewed, _ := reloaded.ListPRLastViewed()
+	if len(prLastViewed) != 1 || !prLastViewed["pat/Proj/api#4"].Equal(viewedAt) {
+		t.Errorf("Expected the PR view time kept apart from the pipelines', got %v", prLastViewed)
 	}
 	settings, _ := reloaded.GetSettings()
 	if settings.PipelineSortMode != domain.PipelineSortStatus {

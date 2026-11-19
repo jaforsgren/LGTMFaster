@@ -14,6 +14,7 @@ type mockRepository struct {
 	pats               map[string]*domain.PAT
 	pipelineFavorites  []string
 	pipelineLastViewed map[string]time.Time
+	prLastViewed       map[string]time.Time
 	settings           domain.Settings
 	session            domain.Session
 }
@@ -135,6 +136,18 @@ func (m *mockRepository) MarkPipelineViewed(key string, viewedAt time.Time) erro
 	return nil
 }
 
+func (m *mockRepository) ListPRLastViewed() (map[string]time.Time, error) {
+	return m.prLastViewed, nil
+}
+
+func (m *mockRepository) MarkPRViewed(key string, viewedAt time.Time) error {
+	if m.prLastViewed == nil {
+		m.prLastViewed = make(map[string]time.Time)
+	}
+	m.prLastViewed[key] = viewedAt
+	return nil
+}
+
 func (m *mockRepository) GetSettings() (domain.Settings, error) {
 	settings := m.settings
 	if settings.HideOldOtherPRsDays <= 0 {
@@ -175,6 +188,7 @@ type mockProvider struct {
 	commits            []domain.Commit
 	commitDiffs        map[string]*domain.Diff
 	checks             map[int]domain.Checks
+	activity           map[int][]domain.Activity
 	linkedWorkItems    []domain.WorkItem
 	linkedWorkItemIDs  map[int][]int
 	assignedWorkItems  []domain.WorkItem
@@ -250,6 +264,10 @@ func (m *mockProvider) GetCommitDiff(ctx context.Context, identifier domain.PRId
 
 func (m *mockProvider) GetChecks(ctx context.Context, identifier domain.PRIdentifier) (domain.Checks, error) {
 	return m.checks[identifier.Number], nil
+}
+
+func (m *mockProvider) ListActivity(ctx context.Context, identifier domain.PRIdentifier) ([]domain.Activity, error) {
+	return m.activity[identifier.Number], nil
 }
 
 func (m *mockProvider) ListLinkedWorkItems(ctx context.Context, identifier domain.PRIdentifier) ([]domain.WorkItem, error) {

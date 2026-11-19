@@ -241,7 +241,7 @@ func (c *Client) GetPullRequestCommits(ctx context.Context, projectID string, re
 	return &response.Value, nil
 }
 
-func (c *Client) GetPullRequestIterationChanges(ctx context.Context, projectID string, repoID string, pullRequestID int) (string, error) {
+func (c *Client) GetPullRequestIterations(ctx context.Context, projectID string, repoID string, pullRequestID int) (*[]git.GitPullRequestIteration, error) {
 	iterations, err := c.gitClient.GetPullRequestIterations(ctx, git.GetPullRequestIterationsArgs{
 		RepositoryId:  &repoID,
 		PullRequestId: &pullRequestID,
@@ -249,7 +249,15 @@ func (c *Client) GetPullRequestIterationChanges(ctx context.Context, projectID s
 	})
 	if err != nil {
 		logger.LogError("AZURE_GET_ITERATIONS", fmt.Sprintf("project=%s repo=%s PR=%d", projectID, repoID, pullRequestID), err)
-		return "", fmt.Errorf("failed to get PR iterations: %w", err)
+		return nil, fmt.Errorf("failed to get PR iterations: %w", err)
+	}
+	return iterations, nil
+}
+
+func (c *Client) GetPullRequestIterationChanges(ctx context.Context, projectID string, repoID string, pullRequestID int) (string, error) {
+	iterations, err := c.GetPullRequestIterations(ctx, projectID, repoID, pullRequestID)
+	if err != nil {
+		return "", err
 	}
 
 	if iterations == nil || len(*iterations) == 0 {

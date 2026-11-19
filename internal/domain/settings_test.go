@@ -25,6 +25,15 @@ func TestRecentBranchWindow_DefaultsTo60Minutes(t *testing.T) {
 	}
 }
 
+func TestNewsWindow_DefaultsTo24Hours(t *testing.T) {
+	if got := (Settings{}).NewsWindow(); got != 24*time.Hour {
+		t.Errorf("expected 24h, got %s", got)
+	}
+	if got := (Settings{NewsWindowHours: 72}).NewsWindow(); got != 72*time.Hour {
+		t.Errorf("expected the configured 72h, got %s", got)
+	}
+}
+
 func TestPipelineAutoRefreshInterval_DefaultsTo15Seconds(t *testing.T) {
 	if got := (Settings{}).PipelineAutoRefreshInterval(); got != 15*time.Second {
 		t.Errorf("expected 15s, got %s", got)

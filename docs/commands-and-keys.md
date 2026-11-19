@@ -39,12 +39,15 @@ Keys mean the same thing in every list.
 
 ### Dashboard
 
-The app starts on the dashboard; `:dashboard` (or `D` in the PR list) brings you back. It shows four panes:
+The app starts on the dashboard; `:dashboard` (or `D` in the PR list) brings you back. It shows five panes:
 
 | | |
 |---|---|
-| **Waiting for your review**: assigned to you, not reviewed by you yet, not draft | **Failing checks**: your PRs whose latest builds or checks failed (the failing ones are named) |
-| **Created by you**: all your open PRs, with their check status | **Ready to merge**: your PRs that are approved, mergeable, not draft, with passing or no checks |
+| **Waiting for your review**: assigned to you, not reviewed by you yet, not draft | **News**: PRs you created or review where someone else pushed, commented or voted/reviewed since you last opened the PR (at most `NewsWindowHours` in `config.json`, default 24, back), newest first, with the latest event (`↑` push, `✎` comment, `★` vote) |
+| **Created by you**: all your open PRs, with their check status | **Failing checks**: your PRs whose latest builds or checks failed (the failing ones are named) |
+| | **Ready to merge**: your PRs that are approved, mergeable, not draft, with passing or no checks |
+
+Opening a PR takes it out of News until something new happens on it.
 
 Each pane has its own cursor: `tab` / `shift+tab` move to the next / previous pane, `→` / `←` to the pane beside, `j`/`k` within the focused (yellow) pane. Checks are fetched for your own PRs when the dashboard opens (Azure DevOps: the latest build of each pipeline on the PR's merge ref). `enter` inspects a PR and going back returns to the dashboard; `r` reloads.
 

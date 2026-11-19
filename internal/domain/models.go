@@ -103,6 +103,7 @@ const (
 	DefaultHideOldOtherPRsDays        = 30
 	DefaultPipelineAutoRefreshSeconds = 15
 	DefaultRecentBranchMinutes        = 60
+	DefaultNewsWindowHours            = 24
 )
 
 type Settings struct {
@@ -117,6 +118,9 @@ type Settings struct {
 	PipelineAutoRefreshEnabled bool
 	// RecentBranchMinutes is how far back :pr looks for pushed branches to open a pull request from.
 	RecentBranchMinutes int
+	// NewsWindowHours is how far back the dashboard's News pane looks on a pull request that was
+	// never opened; once opened, it shows what happened since.
+	NewsWindowHours int
 	// TopBarHidden collapses the top bar to give the content its rows; T toggles it.
 	TopBarHidden bool
 	// DiffExclusions are the patterns of the files X hides from a pull request's diff: "tests/" hides
@@ -135,6 +139,9 @@ func (s Settings) WithDefaults() Settings {
 	if s.RecentBranchMinutes <= 0 {
 		s.RecentBranchMinutes = DefaultRecentBranchMinutes
 	}
+	if s.NewsWindowHours <= 0 {
+		s.NewsWindowHours = DefaultNewsWindowHours
+	}
 	if s.DiffExclusions == nil {
 		// An empty list rather than none, so the key is written to config.json, ready to fill in.
 		s.DiffExclusions = []string{}
@@ -144,6 +151,10 @@ func (s Settings) WithDefaults() Settings {
 
 func (s Settings) RecentBranchWindow() time.Duration {
 	return time.Duration(s.WithDefaults().RecentBranchMinutes) * time.Minute
+}
+
+func (s Settings) NewsWindow() time.Duration {
+	return time.Duration(s.WithDefaults().NewsWindowHours) * time.Hour
 }
 
 func (s Settings) PipelineAutoRefreshInterval() time.Duration {

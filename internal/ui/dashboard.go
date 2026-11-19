@@ -2,9 +2,11 @@ package ui
 
 import (
 	"fmt"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/johanforsgren/lgtmfaster/internal/domain"
+	"github.com/johanforsgren/lgtmfaster/internal/logger"
 	"github.com/johanforsgren/lgtmfaster/internal/ui/components"
 )
 
@@ -12,6 +14,12 @@ type DashboardChecksLoadedMsg struct {
 	prKey  string
 	checks domain.Checks
 	err    error
+}
+
+type DashboardActivityLoadedMsg struct {
+	prKey    string
+	activity []domain.Activity
+	err      error
 }
 
 type DashboardRunsLoadedMsg struct {
@@ -33,7 +41,7 @@ func (m Model) openDashboard() (Model, tea.Cmd) {
 	if len(m.prListView.AllPRs()) == 0 && !m.loadingState.IsLoading {
 		return m, tea.Batch(m.loadPRsWithCache(), runs)
 	}
-	return m, tea.Batch(m.loadDashboardChecks(), runs)
+	return m, tea.Batch(m.loadDashboardDetails(), runs)
 }
 
 // watchDashboardRuns loads the user's active pipeline runs and keeps them fresh with the pipeline
@@ -68,6 +76,11 @@ func (m Model) handleDashboardRunsLoaded(msg DashboardRunsLoadedMsg) (Model, tea
 	return m, nil
 }
 
+// loadDashboardDetails fetches the checks and activity the dashboard has none for yet.
+func (m Model) loadDashboardDetails() tea.Cmd {
+	return tea.Batch(m.loadDashboardChecks(), m.loadDashboardActivity())
+}
+
 // loadDashboardChecks fetches the checks of the user's pull requests the dashboard has none for.
 func (m Model) loadDashboardChecks() tea.Cmd {
 	var cmds []tea.Cmd
@@ -92,14 +105,58 @@ func (m Model) handleDashboardChecksLoaded(msg DashboardChecksLoadedMsg) (Model,
 	return m, nil
 }
 
+// loadDashboardActivity fetches the activity of the pull requests the News pane follows.
+func (m Model) loadDashboardActivity() tea.Cmd {
+	var cmds []tea.Cmd
+	for _, pr := range m.dashboardView.PendingActivity() {
+		provider := m.getProviderForPR(pr)
+		ctx, target := m.ctx, pr
+		cmds = append(cmds, func() tea.Msg {
+			activity, err := provider.ListActivity(ctx, prIdentifier(target))
+			return DashboardActivityLoadedMsg{prKey: target.Key(), activity: activity, err: err}
+		})
+	}
+	return tea.Batch(cmds...)
+}
+
+func (m Model) handleDashboardActivityLoaded(msg DashboardActivityLoadedMsg) (Model, tea.Cmd) {
+	if msg.err != nil {
+		m.dashboardView.ActivityFailed(msg.prKey)
+		m.statusBar.SetMessage(fmt.Sprintf("Failed to load pull request activity: %v", msg.err), true)
+		return m, nil
+	}
+	m.dashboardView.SetActivity(msg.prKey, msg.activity)
+	return m, nil
+}
+
+// markPRViewed records that the user opened the pull request, which takes it out of the News pane
+// until something new happens on it.
+func (m Model) markPRViewed(pr domain.PullRequest) {
+	viewedAt := time.Now()
+	m.dashboardView.MarkViewed(pr.Key(), viewedAt)
+	if err := m.repository.MarkPRViewed(pr.Key(), viewedAt); err != nil {
+		logger.LogError("MARK_PR_VIEWED", pr.Key(), err)
+	}
+}
+
 // showPRResults puts freshly loaded pull requests on screen: into the dashboard while it is open,
 // else into the PR list.
 func (m Model) showPRResults() (Model, tea.Cmd) {
-	m.dashboardView.SetPRs(m.prListView.AllPRs())
+	cmd := m.refreshDashboardPRs()
 	if m.state == ViewDashboard {
-		return m, m.loadDashboardChecks()
+		return m, cmd
 	}
 	return m.showPRList(), nil
+}
+
+// refreshDashboardPRs hands the dashboard the loaded pull requests and, while it is open, fetches
+// what it needs for them.
+func (m Model) refreshDashboardPRs() tea.Cmd {
+	m.dashboardView.SetPRs(m.prListView.AllPRs())
+	if m.state != ViewDashboard {
+		return nil
+	}
+	return m.loadDashboardDetails()
 }
 
 func (m Model) showPRList() Model {
@@ -130,7 +187,7 @@ func handleDashboardLeftKey(m Model) (Model, tea.Cmd) {
 }
 
 func (m Model) refreshDashboard() (Model, tea.Cmd) {
-	m.dashboardView.ResetChecks()
+	m.dashboardView.ResetDetails()
 	m.loadingState = LoadingState{}
 	m.prCache = nil
 	return m, tea.Batch(m.loadPRsStreaming(), m.loadDashboardRuns())
