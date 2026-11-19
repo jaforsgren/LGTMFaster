@@ -137,6 +137,7 @@ var checkAppearances = map[domain.CheckState]prCategoryAppearance{
 }
 
 var activityAppearances = map[domain.ActivityKind]prCategoryAppearance{
+	domain.ActivityKindOpened:  {icon: "●", color: lipgloss.Color("#A855F7")},
 	domain.ActivityKindPush:    {icon: "↑", color: lipgloss.Color("#3B82F6")},
 	domain.ActivityKindComment: {icon: "✎", color: lipgloss.Color("#F59E0B")},
 	domain.ActivityKindReview:  {icon: "★", color: lipgloss.Color("#10B981")},
@@ -417,12 +418,10 @@ func (m *DashboardViewModel) prState(pr domain.PullRequest) dashboardPRState {
 }
 
 // newsOf is what others did on the pull request since the user last opened it, but at most the
-// news window back, so a pull request opened long ago does not stay in the News pane for good.
+// news window back, so a pull request opened long ago does not stay in the News pane for good. Its
+// opening counts before the rest of its activity has loaded.
 func (m *DashboardViewModel) newsOf(pr domain.PullRequest) []domain.Activity {
-	activity, loaded := m.activity[pr.Key()]
-	if !loaded {
-		return nil
-	}
+	activity := append([]domain.Activity{pr.OpenedActivity()}, m.activity[pr.Key()]...)
 	since := time.Now().Add(-m.newsWindow)
 	if viewedAt := m.lastViewed[pr.Key()]; viewedAt.After(since) {
 		since = viewedAt

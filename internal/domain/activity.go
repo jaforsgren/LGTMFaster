@@ -8,10 +8,13 @@ import (
 type ActivityKind string
 
 const (
+	ActivityKindOpened  ActivityKind = "opened"
 	ActivityKindPush    ActivityKind = "push"
 	ActivityKindComment ActivityKind = "comment"
 	// ActivityKindReview is a vote (Azure DevOps) or a submitted review (GitHub).
 	ActivityKindReview ActivityKind = "review"
+
+	openedSummary = "opened the pull request"
 )
 
 // Activity is one thing that happened on a pull request.
@@ -23,6 +26,18 @@ type Activity struct {
 	// "commented: <first line>".
 	Summary string
 	ByMe    bool
+}
+
+// OpenedActivity is the pull request's opening, which the providers' activity leaves out: GitHub's
+// timeline has no event for it.
+func (pr PullRequest) OpenedActivity() Activity {
+	return Activity{
+		Kind:    ActivityKindOpened,
+		Author:  pr.Author,
+		At:      pr.CreatedAt,
+		Summary: openedSummary,
+		ByMe:    pr.Category == PRCategoryAuthored,
+	}
 }
 
 // ActivitySince returns what others did after since, newest first.

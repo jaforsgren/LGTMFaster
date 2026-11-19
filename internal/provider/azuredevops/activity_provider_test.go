@@ -56,7 +56,6 @@ func TestListActivity_ReadsCommentsVotesAndPushesOldestFirst(t *testing.T) {
 	}
 
 	expected := []domain.Activity{
-		{Kind: domain.ActivityKindPush, Summary: "opened the pull request", ByMe: true},
 		{Kind: domain.ActivityKindComment, Summary: "commented: Please rename"},
 		{Kind: domain.ActivityKindPush, Summary: "force-pushed"},
 		{Kind: domain.ActivityKindComment, Summary: "commented: Done", ByMe: true},

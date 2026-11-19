@@ -141,6 +141,24 @@ func TestDashboard_StaysOpenWhenPullRequestsReload(t *testing.T) {
 	}
 }
 
+func TestDashboard_BackgroundReloadReadsTheActivityOfNewPullRequests(t *testing.T) {
+	m, mine := dashboardTestModel(t)
+	m, _ = m.openDashboard()
+	fresh := mine
+	fresh.Number = 5
+	m.prListView.SetPRs([]domain.PullRequest{mine, fresh})
+
+	updated, cmd := m.Update(PRsLoadedMsg{prs: []domain.PullRequest{mine, fresh}, background: true})
+	m = updated.(Model)
+
+	for _, msg := range runCmd(cmd) {
+		if loaded, ok := msg.(DashboardActivityLoadedMsg); ok && loaded.prKey == fresh.Key() {
+			return
+		}
+	}
+	t.Error("expected the new PR's activity to be read")
+}
+
 func TestDashboard_PRCommandOpensThePRList(t *testing.T) {
 	m, mine := dashboardTestModel(t)
 	m, _ = m.openDashboard()

@@ -425,3 +425,24 @@ func TestStackPanes_ShortListsLeaveTheRestToLongOnes(t *testing.T) {
 		t.Errorf("expected the stack to fill 30 rows, got %d", total)
 	}
 }
+
+func TestDashboard_NewPRsShowInNewsBeforeTheirActivityLoads(t *testing.T) {
+	opened := func(pr *domain.PullRequest) {
+		pr.Author = domain.User{Username: "Anna"}
+		pr.CreatedAt = time.Now().Add(-10 * time.Minute)
+	}
+	m := NewDashboardView()
+	m.SetSize(160, 40)
+
+	m.SetPRs([]domain.PullRequest{
+		dashboardPR(1, "Fresh for me", domain.PRCategoryAssigned, opened),
+		dashboardPR(2, "Fresh of mine", domain.PRCategoryAuthored, opened),
+	})
+
+	if got := sectionTitles(m, sectionNews); got != "Fresh for me" {
+		t.Errorf("expected only the PR someone else opened in News, got %s", got)
+	}
+	if !strings.Contains(m.View(), "Anna opened the pull request") {
+		t.Error("expected the opening in the News pane")
+	}
+}

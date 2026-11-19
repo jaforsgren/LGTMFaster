@@ -20,3 +20,18 @@ func TestActivitySince_KeepsWhatOthersDidAfterTheTimeNewestFirst(t *testing.T) {
 		t.Errorf("expected newer then older, got %+v", news)
 	}
 }
+
+func TestOpenedActivity_IsTheUsersOwnOnlyOnAuthoredPRs(t *testing.T) {
+	createdAt := time.Now().Add(-time.Hour)
+	pr := PullRequest{Author: User{Username: "anna"}, CreatedAt: createdAt, Category: PRCategoryAssigned}
+
+	opened := pr.OpenedActivity()
+	if opened.Kind != ActivityKindOpened || opened.Author.Username != "anna" || !opened.At.Equal(createdAt) || opened.ByMe {
+		t.Errorf("expected Anna's opening, got %+v", opened)
+	}
+
+	pr.Category = PRCategoryAuthored
+	if !pr.OpenedActivity().ByMe {
+		t.Error("expected the opening of an authored PR to be the user's own")
+	}
+}

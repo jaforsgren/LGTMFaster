@@ -717,8 +717,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.topBar.SetPRBreakdown(authored, assigned, other)
 		if msg.background {
 			m.topBar.SetLastRefresh(time.Now())
-			m.dashboardView.SetPRs(m.prListView.AllPRs())
-			return m, m.loadPRListDetails()
+			return m, tea.Batch(m.loadPRListDetails(), m.refreshDashboardPRs())
 		}
 		var resultsCmd, resumeCmd tea.Cmd
 		m, resultsCmd = m.showPRResults()

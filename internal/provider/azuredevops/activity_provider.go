@@ -16,14 +16,14 @@ const (
 )
 
 var iterationSummaries = map[git.IterationReason]string{
-	git.IterationReasonValues.Create:    "opened the pull request",
 	git.IterationReasonValues.Push:      "pushed",
 	git.IterationReasonValues.ForcePush: "force-pushed",
 	git.IterationReasonValues.Rebase:    "rebased",
 }
 
 // ListActivity reads the comments and votes from the threads and the pushes from the iterations;
-// the other system comments (reviewers, status, ref updates) are left out.
+// the other system comments (reviewers, status, ref updates) and the iteration that opened the pull
+// request (domain.PullRequest.OpenedActivity) are left out.
 func (p *Provider) ListActivity(ctx context.Context, identifier domain.PRIdentifier) ([]domain.Activity, error) {
 	projectID, repoID, err := p.resolveProjectAndRepoWithCache(ctx, identifier.Repository)
 	if err != nil {
@@ -86,7 +86,7 @@ func (p *Provider) iterationActivity(iterations *[]git.GitPullRequestIteration) 
 		return activity
 	}
 	for _, iteration := range *iterations {
-		if iteration.CreatedDate == nil {
+		if iteration.CreatedDate == nil || isOpeningIteration(iteration) {
 			continue
 		}
 		pusher := iteration.Author
@@ -105,6 +105,10 @@ func (p *Provider) iterationActivity(iterations *[]git.GitPullRequestIteration) 
 		activity = append(activity, item)
 	}
 	return activity
+}
+
+func isOpeningIteration(iteration git.GitPullRequestIteration) bool {
+	return iteration.Reason != nil && *iteration.Reason == git.IterationReasonValues.Create
 }
 
 func iterationSummary(reason *git.IterationReason) string {

@@ -43,7 +43,7 @@ The app starts on the dashboard; `:dashboard` (or `D` in the PR list) brings you
 
 | | |
 |---|---|
-| **Waiting for your review**: assigned to you, not reviewed by you yet, not draft | **News**: PRs you created or review where someone else pushed, commented or voted/reviewed since you last opened the PR (at most `NewsWindowHours` in `config.json`, default 24, back), newest first, with the latest event (`↑` push, `✎` comment, `★` vote) |
+| **Waiting for your review**: assigned to you, not reviewed by you yet, not draft | **News**: PRs you created or review where someone else opened, pushed, commented or voted/reviewed since you last opened the PR (at most `NewsWindowHours` in `config.json`, default 24, back), newest first, with the latest event (`●` opened, `↑` push, `✎` comment, `★` vote) |
 | **Created by you**: all your open PRs, with their check status | **Failing checks**: your PRs whose latest builds or checks failed (the failing ones are named) |
 | | **Ready to merge**: your PRs that are approved, mergeable, not draft, with passing or no checks |
 
