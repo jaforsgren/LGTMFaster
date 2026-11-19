@@ -22,7 +22,8 @@ const (
 	noDescriptionText   = "No description provided."
 	noPRSelectedText    = "No pull request selected."
 	loadingCommentsText = "loading..."
-	prDetailLabelWidth  = 11
+	noLinkedWorkItemIDs = "none"
+	prDetailLabelWidth  = 12
 	hoursPerDay         = 24
 )
 
@@ -88,22 +89,29 @@ type PRListViewModel struct {
 	// mergeRuns caches the runs that built each merged PR's merge commit, fetched while it is shown.
 	mergeRuns        map[string][]domain.PipelineRun
 	mergeRunsPending map[string]bool
-	cursor           listCursor
-	filter           listFilter
-	split            splitView
-	settings         domain.Settings
-	width            int
-	height           int
+	// workItemIDs caches each PR's linked work items, fetched only while sorting or filtering by them.
+	workItemIDs        map[string][]int
+	workItemIDsPending map[string]bool
+	sortMode           domain.PRSortMode
+	cursor             listCursor
+	filter             listFilter
+	split              splitView
+	settings           domain.Settings
+	width              int
+	height             int
 }
 
 func NewPRListView() *PRListViewModel {
 	return &PRListViewModel{
-		commentThreads:   make(map[string]domain.CommentThreads),
-		commentsPending:  make(map[string]bool),
-		mergeRuns:        make(map[string][]domain.PipelineRun),
-		mergeRunsPending: make(map[string]bool),
-		cursor:           newListCursor(),
-		filter:           newListFilter("Filter by title, author, or PR number..."),
+		commentThreads:     make(map[string]domain.CommentThreads),
+		commentsPending:    make(map[string]bool),
+		mergeRuns:          make(map[string][]domain.PipelineRun),
+		mergeRunsPending:   make(map[string]bool),
+		workItemIDs:        make(map[string][]int),
+		workItemIDsPending: make(map[string]bool),
+		sortMode:           domain.PRSortDefault,
+		cursor:             newListCursor(),
+		filter:             newListFilter("Filter by title, author, repo, PR or work item number..."),
 	}
 }
 
@@ -115,6 +123,7 @@ func (m *PRListViewModel) SetSize(width, height int) {
 
 func (m *PRListViewModel) SetSettings(settings domain.Settings) {
 	m.settings = settings
+	m.sortMode = settings.PRSortMode.OrDefault()
 	m.rebuild()
 }
 
@@ -165,11 +174,11 @@ func (m *PRListViewModel) rebuild() {
 	}
 
 	if m.showClosed {
-		m.visiblePRs = sortClosedPRs(m.filterPRs(m.closedPRs))
+		m.visiblePRs = m.sortPRs(m.filterPRs(m.closedPRs), sortClosedPRs, closedDate)
 	} else {
 		filtered := m.filterOldOtherPRs(m.sourcePRs)
 		filtered = m.filterPRs(filtered)
-		m.visiblePRs = sortPRs(filtered)
+		m.visiblePRs = m.sortPRs(filtered, sortOpenPRs, createdDate)
 	}
 
 	for i, pr := range m.visiblePRs {
@@ -181,7 +190,23 @@ func (m *PRListViewModel) rebuild() {
 	m.cursor.Clamp(len(m.visiblePRs))
 }
 
-func sortPRs(prs []domain.PullRequest) []domain.PullRequest {
+// sortPRs applies the chosen sort mode; the default mode keeps each list's own order.
+func (m *PRListViewModel) sortPRs(prs []domain.PullRequest, defaultSort func([]domain.PullRequest) []domain.PullRequest, dateOf func(domain.PullRequest) time.Time) []domain.PullRequest {
+	if m.sortMode == domain.PRSortDefault {
+		return defaultSort(prs)
+	}
+	return prSorter{mode: m.sortMode, dateOf: dateOf, workItemIDs: m.workItemIDs}.sort(prs)
+}
+
+func createdDate(pr domain.PullRequest) time.Time {
+	return pr.CreatedAt
+}
+
+func closedDate(pr domain.PullRequest) time.Time {
+	return pr.ClosedAt
+}
+
+func sortOpenPRs(prs []domain.PullRequest) []domain.PullRequest {
 	out := append([]domain.PullRequest(nil), prs...)
 	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].Category != out[j].Category {
@@ -222,11 +247,59 @@ func (m *PRListViewModel) filterOldOtherPRs(prs []domain.PullRequest) []domain.P
 func (m *PRListViewModel) filterPRs(prs []domain.PullRequest) []domain.PullRequest {
 	var out []domain.PullRequest
 	for _, pr := range prs {
-		if m.filter.Matches(pr.Title, pr.Author.Username, strconv.Itoa(pr.Number)) {
+		fields := []string{pr.Title, pr.Author.Username, pr.Repository.FullName, strconv.Itoa(pr.Number)}
+		for _, id := range m.workItemIDs[pr.Key()] {
+			fields = append(fields, strconv.Itoa(id))
+		}
+		if m.filter.Matches(fields...) {
 			out = append(out, pr)
 		}
 	}
 	return out
+}
+
+func (m *PRListViewModel) SetSortMode(mode domain.PRSortMode) {
+	m.sortMode = mode.OrDefault()
+	m.rebuild()
+}
+
+func (m *PRListViewModel) SortMode() domain.PRSortMode {
+	return m.sortMode
+}
+
+// PendingWorkItemIDRequests returns the listed PRs whose linked work items are not known yet, while
+// the list is sorted or filtered by them, and marks them in flight.
+func (m *PRListViewModel) PendingWorkItemIDRequests() []domain.PullRequest {
+	if m.sortMode != domain.PRSortWorkItem && m.filter.Text() == "" {
+		return nil
+	}
+	source := m.sourcePRs
+	if m.showClosed {
+		source = m.closedPRs
+	}
+	var pending []domain.PullRequest
+	for _, pr := range source {
+		key := pr.Key()
+		if _, loaded := m.workItemIDs[key]; loaded || m.workItemIDsPending[key] {
+			continue
+		}
+		m.workItemIDsPending[key] = true
+		pending = append(pending, pr)
+	}
+	return pending
+}
+
+// SetWorkItemIDs records the linked work items of the PRs in ids; failed lists the PRs whose lookup
+// failed, so they are fetched again next time.
+func (m *PRListViewModel) SetWorkItemIDs(ids map[string][]int, failed []string) {
+	for key, linked := range ids {
+		delete(m.workItemIDsPending, key)
+		m.workItemIDs[key] = linked
+	}
+	for _, key := range failed {
+		delete(m.workItemIDsPending, key)
+	}
+	m.rebuild()
 }
 
 func (m *PRListViewModel) GetSelectedPR() *domain.PullRequest {
@@ -413,10 +486,14 @@ func (m *PRListViewModel) View() string {
 }
 
 func (m *PRListViewModel) title() string {
+	title := renderListTitle(prListTitle)
 	if m.showClosed {
-		return renderListTitle(prListTitle, closedPRListTitle)
+		title = renderListTitle(prListTitle, closedPRListTitle)
 	}
-	return renderListTitle(prListTitle)
+	if m.sortMode == domain.PRSortDefault {
+		return title
+	}
+	return title + listMutedStyle.Render("  sorted by "+PRSortModeLabel(m.sortMode))
 }
 
 func prRow(pr domain.PullRequest, compact bool) listRow {
@@ -483,6 +560,9 @@ func (m *PRListViewModel) prInfoLines(pr domain.PullRequest) []string {
 		prDetail{"Updated", formatOptionalAge(pr.UpdatedAt)},
 		prDetail{"Comments", m.commentThreadsText(pr)},
 	)
+	if ids, loaded := m.workItemIDs[pr.Key()]; loaded {
+		details = append(details, prDetail{workItemsPaneTitle, formatWorkItemIDs(ids)})
+	}
 
 	lines := make([]string, 0, len(details))
 	for _, detail := range details {
@@ -526,4 +606,15 @@ func (m *PRListViewModel) commentThreadsText(pr domain.PullRequest) string {
 		return "💬 " + threads.Describe()
 	}
 	return loadingCommentsText
+}
+
+func formatWorkItemIDs(ids []int) string {
+	if len(ids) == 0 {
+		return noLinkedWorkItemIDs
+	}
+	formatted := make([]string, len(ids))
+	for i, id := range ids {
+		formatted[i] = fmt.Sprintf("#%d", id)
+	}
+	return strings.Join(formatted, ", ")
 }

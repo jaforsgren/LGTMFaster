@@ -119,6 +119,8 @@ type Model struct {
 	resume *domain.Session
 	// lastSession is the session saved when the app last quit, which :session resumes.
 	lastSession *domain.Session
+	// yankPending is set by y in the PR list and dashboard, waiting for the key that names what to copy.
+	yankPending bool
 }
 
 func NewModel(repository domain.Repository) Model {
@@ -503,13 +505,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				default:
 					cmd = m.prListView.UpdateFilter(msg)
-					return m, cmd
+					return m, tea.Batch(cmd, m.loadPRListWorkItemIDs())
 				}
 			}
 		}
 
 		if m.state == ViewPRInspect && !isDiffMotionKey(key) {
 			m.prInspect.ResetMotion()
+		}
+		if m.yankPending {
+			var yanked bool
+			if m, cmd, yanked = m.completeYank(key); yanked {
+				return m, cmd
+			}
 		}
 		newModel, cmd, handled := m.commandRegistry.HandleKey(m, key)
 		if handled {
@@ -719,6 +727,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case MergeRunsLoadedMsg:
 		return m.handleMergeRunsLoaded(msg)
+
+	case PRWorkItemIDsLoadedMsg:
+		return m.handlePRWorkItemIDsLoaded(msg)
 
 	case ClosedPRsLoadedMsg:
 		return m.handleClosedPRsLoaded(msg)

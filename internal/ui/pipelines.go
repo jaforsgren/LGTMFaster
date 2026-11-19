@@ -598,20 +598,10 @@ func (m Model) setPipelineSortMode(mode domain.PipelineSortMode) (Model, tea.Cmd
 	}
 
 	m.pipelineListView.SetSortMode(mode)
-	label := views.PipelineSortModeLabel(mode)
-
-	settings, err := m.repository.GetSettings()
-	if err == nil {
+	saved := m.saveSortMode(views.PipelineSortModeLabel(mode), func(settings *domain.Settings) {
 		settings.PipelineSortMode = mode
-		err = m.repository.SaveSettings(settings)
-	}
-	if err != nil {
-		m.statusBar.SetMessage(fmt.Sprintf("Sorted by %s (not saved: %v)", label, err), true)
-		return m, clearStatusAfterDelay(4 * time.Second)
-	}
-
-	m.statusBar.SetMessage("Sorted by "+label, false)
-	return m, tea.Batch(m.loadPipelinePreview(), clearStatusAfterDelay(4*time.Second))
+	})
+	return m, tea.Batch(m.loadPipelinePreview(), saved)
 }
 
 // selectedFavoriteTarget returns the favorite key and display name of whatever is selected in the current pipeline view.

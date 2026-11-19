@@ -18,9 +18,10 @@ type MergeRunsLoadedMsg struct {
 	err   error
 }
 
-// loadPRListDetails fetches what the PR list's Info pane shows for the selected PR beyond the PR itself.
+// loadPRListDetails fetches what the PR list's Info pane shows for the selected PR beyond the PR
+// itself, and the linked work items the list sorts or filters by.
 func (m Model) loadPRListDetails() tea.Cmd {
-	return tea.Batch(m.loadPRListComments(), m.loadPRListMergeRuns())
+	return tea.Batch(m.loadPRListComments(), m.loadPRListMergeRuns(), m.loadPRListWorkItemIDs())
 }
 
 func (m Model) loadPRListMergeRuns() tea.Cmd {

@@ -21,6 +21,14 @@ const (
 )
 
 func (p *Provider) ListLinkedWorkItems(ctx context.Context, identifier domain.PRIdentifier) ([]domain.WorkItem, error) {
+	ids, err := p.ListLinkedWorkItemIDs(ctx, identifier)
+	if err != nil {
+		return nil, err
+	}
+	return p.getWorkItems(ctx, ids)
+}
+
+func (p *Provider) ListLinkedWorkItemIDs(ctx context.Context, identifier domain.PRIdentifier) ([]int, error) {
 	projectID, repoID, err := p.resolveProjectAndRepoWithCache(ctx, identifier.Repository)
 	if err != nil {
 		return nil, err
@@ -30,7 +38,7 @@ func (p *Provider) ListLinkedWorkItems(ctx context.Context, identifier domain.PR
 		logger.LogError("AZDO_LIST_PR_WORK_ITEMS", fmt.Sprintf("%s#%d", identifier.Repository, identifier.Number), err)
 		return nil, err
 	}
-	return p.getWorkItems(ctx, ids)
+	return ids, nil
 }
 
 // ListAssignedWorkItems searches the whole organization, so work items of other projects can be

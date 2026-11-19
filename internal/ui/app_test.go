@@ -176,6 +176,7 @@ type mockProvider struct {
 	commitDiffs        map[string]*domain.Diff
 	checks             map[int]domain.Checks
 	linkedWorkItems    []domain.WorkItem
+	linkedWorkItemIDs  map[int][]int
 	assignedWorkItems  []domain.WorkItem
 	linkedWorkItemID   int
 	closedPRs          []domain.PullRequest
@@ -253,6 +254,10 @@ func (m *mockProvider) GetChecks(ctx context.Context, identifier domain.PRIdenti
 
 func (m *mockProvider) ListLinkedWorkItems(ctx context.Context, identifier domain.PRIdentifier) ([]domain.WorkItem, error) {
 	return m.linkedWorkItems, nil
+}
+
+func (m *mockProvider) ListLinkedWorkItemIDs(ctx context.Context, identifier domain.PRIdentifier) ([]int, error) {
+	return m.linkedWorkItemIDs[identifier.Number], nil
 }
 
 func (m *mockProvider) ListAssignedWorkItems(ctx context.Context, identifier domain.PRIdentifier) ([]domain.WorkItem, error) {

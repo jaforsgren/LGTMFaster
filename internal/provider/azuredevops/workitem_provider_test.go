@@ -3,6 +3,7 @@ package azuredevops
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -96,6 +97,24 @@ func TestListLinkedWorkItems_NoLinksMakesNoWorkItemRequest(t *testing.T) {
 
 	if err != nil || len(workItems) != 0 || len(workItemClient.requestedIDs) != 0 {
 		t.Errorf("expected no work items and no request, got %+v, %v, %v", workItems, err, workItemClient.requestedIDs)
+	}
+}
+
+func TestListLinkedWorkItemIDs_ReadsOnlyTheWorkItemRefs(t *testing.T) {
+	workItemClient := &mockWorkItemClient{}
+	gitClient := &mockGitClient{workItemRefs: &[]webapi.ResourceRef{{Id: strPtr("12")}, {Id: strPtr("7")}}}
+	provider := workItemTestProvider(gitClient, workItemClient)
+
+	ids, err := provider.ListLinkedWorkItemIDs(context.Background(), domain.PRIdentifier{Repository: testRepository, Number: 42})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !slices.Equal(ids, []int{12, 7}) {
+		t.Errorf("expected the linked work item IDs, got %v", ids)
+	}
+	if len(workItemClient.requestedIDs) != 0 {
+		t.Errorf("expected no work item request, got %v", workItemClient.requestedIDs)
 	}
 }
 

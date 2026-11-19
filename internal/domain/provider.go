@@ -50,6 +50,10 @@ type Provider interface {
 	// description closes).
 	ListLinkedWorkItems(ctx context.Context, identifier PRIdentifier) ([]WorkItem, error)
 
+	// ListLinkedWorkItemIDs returns only the IDs of the linked work items, which costs one request
+	// per pull request, so the PR list can sort and filter by them.
+	ListLinkedWorkItemIDs(ctx context.Context, identifier PRIdentifier) ([]int, error)
+
 	// ListAssignedWorkItems returns the user's open bugs, tasks and user stories (GitHub: the open
 	// issues assigned to the user in the pull request's repository).
 	ListAssignedWorkItems(ctx context.Context, identifier PRIdentifier) ([]WorkItem, error)

@@ -109,6 +109,7 @@ type Settings struct {
 	HideOldOtherPRs     bool
 	HideOldOtherPRsDays int
 	PipelineSortMode    PipelineSortMode
+	PRSortMode          PRSortMode
 	// PipelineAutoRefreshSeconds is how often the PR list, dashboard and pipeline views refresh while
 	// auto-refresh is on. The name predates the PR list refreshing and is kept for existing configs.
 	PipelineAutoRefreshSeconds int

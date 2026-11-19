@@ -51,6 +51,8 @@ const (
 	keyExcludedFiles   = "X"
 	keyYankFile        = "y"
 	keyYankAll         = "Y"
+	keyYankPrefix      = "y"
+	keyYankPRLink      = "p"
 	keySubmitReview    = "ctrl+s"
 	keyCheckout        = "g"
 	keyOpenFolder      = "o"

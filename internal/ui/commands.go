@@ -69,6 +69,7 @@ func NewCommandRegistry() *CommandRegistry {
 	registry.registerCommands()
 	registry.registerKeyBindings()
 	registry.registerPipelineSortBindings()
+	registry.registerPRSortBindings()
 	registry.registerDiffCountBindings()
 	return registry
 }
@@ -577,6 +578,13 @@ func (cr *CommandRegistry) registerKeyBindings() {
 			AvailableIn: []ViewState{ViewPRInspect},
 		},
 		{
+			Keys:        []string{keyYankPrefix},
+			Description: "Copy PR link",
+			ShortHelp:   keyYankPrefix + keyYankPRLink,
+			Handler:     handleYankPrefixKey,
+			AvailableIn: []ViewState{ViewPRList, ViewDashboard},
+		},
+		{
 			Keys:        []string{keyYankAll},
 			Description: "Yank all files diff",
 			ShortHelp:   keyYankAll,
@@ -750,20 +758,36 @@ func (cr *CommandRegistry) registerKeyBindings() {
 	}
 }
 
-// registerPipelineSortBindings binds the number keys to sort modes. Only the first binding carries
-// a ShortHelp so the top bar shows a single "<0-5> Sort" hint instead of one per mode.
+// registerPipelineSortBindings binds the number keys to the pipeline list's sort modes.
 func (cr *CommandRegistry) registerPipelineSortBindings() {
-	lastIndex := len(domain.PipelineSortModes) - 1
-	for i, mode := range domain.PipelineSortModes {
+	cr.registerSortBindings(ViewPipelineList, "Sort (fav/proj/repo/name/run/status)", len(domain.PipelineSortModes), func(i int) (string, KeyHandler) {
+		mode := domain.PipelineSortModes[i]
+		return views.PipelineSortModeLabel(mode), sortPipelinesHandler(mode)
+	})
+}
+
+// registerPRSortBindings binds the number keys to the PR list's sort modes.
+func (cr *CommandRegistry) registerPRSortBindings() {
+	cr.registerSortBindings(ViewPRList, "Sort (def/new/name/ticket/repo/author)", len(domain.PRSortModes), func(i int) (string, KeyHandler) {
+		mode := domain.PRSortModes[i]
+		return views.PRSortModeLabel(mode), sortPRsHandler(mode)
+	})
+}
+
+// registerSortBindings binds the number keys 0..count-1 to sort modes. Only the first binding carries
+// a ShortHelp so the top bar shows a single "<0-n> Sort" hint instead of one per mode.
+func (cr *CommandRegistry) registerSortBindings(view ViewState, summary string, count int, mode func(int) (string, KeyHandler)) {
+	for i := range count {
+		label, handler := mode(i)
 		binding := &KeyBinding{
 			Keys:        []string{strconv.Itoa(i)},
-			Description: "Sort " + views.PipelineSortModeLabel(mode),
-			Handler:     sortPipelinesHandler(mode),
-			AvailableIn: []ViewState{ViewPipelineList},
+			Description: "Sort " + label,
+			Handler:     handler,
+			AvailableIn: []ViewState{view},
 		}
 		if i == 0 {
-			binding.Description = "Sort (fav/proj/repo/name/run/status)"
-			binding.ShortHelp = fmt.Sprintf("0-%d", lastIndex)
+			binding.Description = summary
+			binding.ShortHelp = fmt.Sprintf("0-%d", count-1)
 		}
 		cr.keyBindings = append(cr.keyBindings, binding)
 	}
@@ -826,6 +850,12 @@ func handleDiffBottomKey(m Model) (Model, tea.Cmd) {
 func sortPipelinesHandler(mode domain.PipelineSortMode) KeyHandler {
 	return func(m Model) (Model, tea.Cmd) {
 		return m.setPipelineSortMode(mode)
+	}
+}
+
+func sortPRsHandler(mode domain.PRSortMode) KeyHandler {
+	return func(m Model) (Model, tea.Cmd) {
+		return m.setPRSortMode(mode)
 	}
 }
 
@@ -1395,21 +1425,11 @@ func handleOpenBrowserKey(m Model) (Model, tea.Cmd) {
 	var url string
 	target := "PR"
 
+	if pr := m.selectedPR(); pr != nil {
+		url = pr.URL
+	}
 	switch m.state {
-	case ViewPRList:
-		pr := m.prListView.GetSelectedPR()
-		if pr != nil {
-			url = pr.URL
-		}
-	case ViewPRInspect:
-		pr := m.prInspect.GetPR()
-		if pr != nil {
-			url = pr.URL
-		}
 	case ViewDashboard:
-		if pr := m.dashboardView.GetSelectedPR(); pr != nil {
-			url = pr.URL
-		}
 		if run := m.dashboardView.GetSelectedRun(); run != nil {
 			url, target = run.URL, "run"
 		}

@@ -27,15 +27,14 @@ var closingReference = regexp.MustCompile(`(?i)\b(?:close[sd]?|fix(?:e[sd])?|res
 // ListLinkedWorkItems returns the issues the pull request's description closes; GitHub's REST API
 // has no other link between pull requests and issues.
 func (p *Provider) ListLinkedWorkItems(ctx context.Context, identifier domain.PRIdentifier) ([]domain.WorkItem, error) {
+	numbers, err := p.ListLinkedWorkItemIDs(ctx, identifier)
+	if err != nil {
+		return nil, err
+	}
 	owner, repo, err := common.ParseGitHubRepository(identifier.Repository)
 	if err != nil {
 		return nil, err
 	}
-	pr, err := p.client.GetPullRequest(ctx, owner, repo, identifier.Number)
-	if err != nil {
-		return nil, err
-	}
-	numbers := closingIssueNumbers(pr.GetBody())
 	workItems := make([]domain.WorkItem, 0, len(numbers))
 	for _, number := range numbers {
 		issue, err := p.client.GetIssue(ctx, owner, repo, number)
@@ -46,6 +45,19 @@ func (p *Provider) ListLinkedWorkItems(ctx context.Context, identifier domain.PR
 		workItems = append(workItems, toDomainWorkItem(issue))
 	}
 	return workItems, nil
+}
+
+// ListLinkedWorkItemIDs returns the numbers of the issues the pull request's description closes.
+func (p *Provider) ListLinkedWorkItemIDs(ctx context.Context, identifier domain.PRIdentifier) ([]int, error) {
+	owner, repo, err := common.ParseGitHubRepository(identifier.Repository)
+	if err != nil {
+		return nil, err
+	}
+	pr, err := p.client.GetPullRequest(ctx, owner, repo, identifier.Number)
+	if err != nil {
+		return nil, err
+	}
+	return closingIssueNumbers(pr.GetBody()), nil
 }
 
 func (p *Provider) ListAssignedWorkItems(ctx context.Context, identifier domain.PRIdentifier) ([]domain.WorkItem, error) {
