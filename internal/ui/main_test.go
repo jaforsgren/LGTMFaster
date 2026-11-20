@@ -10,6 +10,7 @@ import (
 func TestMain(m *testing.M) {
 	openExternal = func(string) error { return nil }
 	openFolder = func(string) error { return nil }
+	writeClipboard = func(string) error { return nil }
 	os.Exit(m.Run())
 }
 
@@ -24,4 +25,17 @@ func recordOpened(t *testing.T) *[]string {
 	}
 	t.Cleanup(func() { openExternal = previous })
 	return &opened
+}
+
+// recordClipboard makes writeClipboard collect what is copied, for the duration of the test.
+func recordClipboard(t *testing.T) *[]string {
+	t.Helper()
+	var copied []string
+	previous := writeClipboard
+	writeClipboard = func(text string) error {
+		copied = append(copied, text)
+		return nil
+	}
+	t.Cleanup(func() { writeClipboard = previous })
+	return &copied
 }

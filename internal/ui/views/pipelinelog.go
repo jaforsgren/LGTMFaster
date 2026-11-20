@@ -211,6 +211,15 @@ func (m *PipelineLogViewModel) ReloadLines() {
 	m.marked = -1
 }
 
+func (m *PipelineLogViewModel) Logs() []domain.PipelineLog {
+	return m.logs
+}
+
+// ReadLines is what was read of the step's log so far, and whether that is all of it.
+func (m *PipelineLogViewModel) ReadLines(logID int) ([]string, bool) {
+	return m.lines[logID], m.complete[logID]
+}
+
 func (m *PipelineLogViewModel) currentLines() []string {
 	if log := m.SelectedLog(); log != nil {
 		return m.lines[log.ID]

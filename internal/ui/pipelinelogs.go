@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -208,4 +209,80 @@ func (m Model) refreshPipelineLogs() (Model, tea.Cmd) {
 	}
 	m.pipelineLogView.ReloadLines()
 	return m, m.loadPipelineLogs(*run)
+}
+
+// pipelineLogYankHeaderFormat names each step in a run's yanked logs.
+const pipelineLogYankHeaderFormat = "===== %s ====="
+
+// PipelineRunLogsReadMsg carries every step's log of the run, read for yY.
+type PipelineRunLogsReadMsg struct {
+	steps int
+	text  string
+	err   error
+}
+
+// yankStepLog copies what was read of the selected step's log.
+func (m Model) yankStepLog() Model {
+	log := m.pipelineLogView.SelectedLog()
+	if log == nil {
+		m.statusBar.SetMessage("No step selected", true)
+		return m
+	}
+	lines, complete := m.pipelineLogView.ReadLines(log.ID)
+	if len(lines) == 0 {
+		m.statusBar.SetMessage(fmt.Sprintf("Nothing read of the log of %s yet", log.Path()), true)
+		return m
+	}
+	done := fmt.Sprintf("Copied %d lines of %s to clipboard", len(lines), log.Path())
+	if !complete {
+		done += " (the step is still running)"
+	}
+	return m.copyToClipboard(strings.Join(lines, "\n"), done)
+}
+
+// yankRunLogs reads every step's log of the run, in run order, reusing the logs read completely,
+// and copies them once they are all read.
+func (m Model) yankRunLogs() (Model, tea.Cmd) {
+	run := m.pipelineLogView.GetRun()
+	logs := m.pipelineLogView.Logs()
+	if run == nil || len(logs) == 0 {
+		m.statusBar.SetMessage("No logs to copy", true)
+		return m, nil
+	}
+	read := make(map[int][]string, len(logs))
+	for _, log := range logs {
+		if lines, complete := m.pipelineLogView.ReadLines(log.ID); complete {
+			read[log.ID] = lines
+		}
+	}
+
+	ctx := m.ctx
+	identifier := run.Identifier()
+	provider, providerErr := m.getPipelineProvider(run.PATID)
+	m.statusBar.SetMessage(fmt.Sprintf("Reading the logs of %d steps...", len(logs)), false)
+	return m, func() tea.Msg {
+		if providerErr != nil {
+			return PipelineRunLogsReadMsg{err: providerErr}
+		}
+		sections := make([]string, 0, len(logs))
+		for _, log := range logs {
+			lines, known := read[log.ID]
+			if !known {
+				var err error
+				if lines, err = provider.GetPipelineLogLines(ctx, identifier, log.ID, 0); err != nil {
+					return PipelineRunLogsReadMsg{err: fmt.Errorf("failed to read the log of %s: %w", log.Path(), err)}
+				}
+			}
+			sections = append(sections, fmt.Sprintf(pipelineLogYankHeaderFormat, log.Path())+"\n"+strings.Join(lines, "\n"))
+		}
+		return PipelineRunLogsReadMsg{steps: len(logs), text: strings.Join(sections, "\n\n")}
+	}
+}
+
+func (m Model) handlePipelineRunLogsRead(msg PipelineRunLogsReadMsg) (Model, tea.Cmd) {
+	if msg.err != nil {
+		m.statusBar.SetMessage(msg.err.Error(), true)
+		return m, nil
+	}
+	return m.copyToClipboard(msg.text, fmt.Sprintf("Copied the logs of %d steps to clipboard", msg.steps)), nil
 }

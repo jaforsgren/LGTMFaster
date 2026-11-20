@@ -585,6 +585,13 @@ func (cr *CommandRegistry) registerKeyBindings() {
 			AvailableIn: []ViewState{ViewPRList, ViewDashboard},
 		},
 		{
+			Keys:        []string{keyYankPrefix},
+			Description: "Copy step log / run logs",
+			ShortHelp:   keyYankPrefix + keyYankStepLog + "/" + keyYankPrefix + keyYankRunLogs,
+			Handler:     handleYankPrefixKey,
+			AvailableIn: []ViewState{ViewPipelineLog},
+		},
+		{
 			Keys:        []string{keyYankAll},
 			Description: "Yank all files diff",
 			ShortHelp:   keyYankAll,
@@ -1578,13 +1585,7 @@ func handleYankCurrentFileKey(m Model) (Model, tea.Cmd) {
 		return m, nil
 	}
 
-	if err := clipboard.WriteAll(diffText); err != nil {
-		m.statusBar.SetMessage(fmt.Sprintf("Failed to copy: %v", err), true)
-		return m, nil
-	}
-
-	m.statusBar.SetMessage("Copied current file diff to clipboard", false)
-	return m, nil
+	return m.copyToClipboard(diffText, "Copied current file diff to clipboard"), nil
 }
 
 func handleYankAllFilesKey(m Model) (Model, tea.Cmd) {
@@ -1598,13 +1599,7 @@ func handleYankAllFilesKey(m Model) (Model, tea.Cmd) {
 		return m, nil
 	}
 
-	if err := clipboard.WriteAll(diffText); err != nil {
-		m.statusBar.SetMessage(fmt.Sprintf("Failed to copy: %v", err), true)
-		return m, nil
-	}
-
-	m.statusBar.SetMessage(fmt.Sprintf("Copied diff from %d files to clipboard", m.prInspect.ShownFileCount()), false)
-	return m, nil
+	return m.copyToClipboard(diffText, fmt.Sprintf("Copied diff from %d files to clipboard", m.prInspect.ShownFileCount())), nil
 }
 
 func handleEditDescriptionKey(m Model) (Model, tea.Cmd) {
@@ -1627,11 +1622,13 @@ func handleEditDescriptionKey(m Model) (Model, tea.Cmd) {
 	return m, nil
 }
 
-// openExternal and openFolder hand a URL, file or folder to the system. They are variables so the
-// tests can replace them; otherwise every test of an "open" key launches a real application.
+// openExternal and openFolder hand a URL, file or folder to the system, and writeClipboard text to
+// the system clipboard. They are variables so the tests can replace them; otherwise every test of
+// an "open" or yank key launches a real application or overwrites the developer's clipboard.
 var (
-	openExternal = openWithSystem
-	openFolder   = git.OpenFolder
+	openExternal   = openWithSystem
+	openFolder     = git.OpenFolder
+	writeClipboard = clipboard.WriteAll
 )
 
 // openWithSystem opens a URL or a file with the system's default application.

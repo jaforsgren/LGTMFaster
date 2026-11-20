@@ -102,5 +102,6 @@ Type `:pr ` (with a space): the status bar lists the branches you pushed in the 
 | `0`–`5` | Sort: favorites & recently viewed, project, repository, name, last run, status |
 | `R` | Toggle auto-refresh (shown in the top bar) |
 | `a` / `x` | Approve / reject the selected stage (run view) |
+| `yy` / `yY` | Copy the shown step's log / every step's log of the run (logs view) |
 
 Favorites are listed in their own section at the top of the list.

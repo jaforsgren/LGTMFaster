@@ -53,6 +53,8 @@ const (
 	keyYankAll         = "Y"
 	keyYankPrefix      = "y"
 	keyYankPRLink      = "p"
+	keyYankStepLog     = "y"
+	keyYankRunLogs     = "Y"
 	keySubmitReview    = "ctrl+s"
 	keyCheckout        = "g"
 	keyOpenFolder      = "o"
