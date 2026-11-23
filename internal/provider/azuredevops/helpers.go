@@ -33,12 +33,20 @@ func buildPRWebURL(pr *git.GitPullRequest) string {
 	return fmt.Sprintf("%s/pullrequest/%d", *pr.Repository.WebUrl, *pr.PullRequestId)
 }
 
-func isMergeable(mergeStatus *git.PullRequestAsyncStatus) bool {
+func mergeConflictStatus(mergeStatus *git.PullRequestAsyncStatus) domain.MergeConflictStatus {
 	if mergeStatus == nil {
-		return false
+		return domain.MergeConflictUnknown
 	}
-	return *mergeStatus == git.PullRequestAsyncStatusValues.Succeeded ||
-		*mergeStatus == git.PullRequestAsyncStatusValues.Queued
+	switch *mergeStatus {
+	case git.PullRequestAsyncStatusValues.Succeeded:
+		return domain.MergeConflictNone
+	case git.PullRequestAsyncStatusValues.Conflicts:
+		return domain.MergeConflictFound
+	case git.PullRequestAsyncStatusValues.Queued:
+		return domain.MergeConflictChecking
+	default:
+		return domain.MergeConflictUnknown
+	}
 }
 
 const (

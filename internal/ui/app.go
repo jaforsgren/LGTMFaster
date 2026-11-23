@@ -101,6 +101,7 @@ type Model struct {
 	dashboardView       *views.DashboardViewModel
 	// prInspectOrigin is the view a pull request was opened from, which going back returns to.
 	prInspectOrigin ViewState
+	mergeConflicts  mergeConflictCheck
 	recentBranches  recentBranches
 	pipelineWatchID int
 	// pipelineLogWatchID is the generation of the loop following a run's log.
@@ -741,12 +742,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleClosedPRsLoaded(msg)
 
 	case PRDetailLoadedMsg:
-		m.prInspect.SetPR(msg.pr)
-		m.topBar.SetPRStatus(string(msg.pr.Status), msg.pr.Mergeable)
-		m.topBar.SetPRApproval(string(msg.pr.ApprovalStatus))
-		m.updateLinkedRepoInfo(msg.pr)
-		m.updateShortcuts()
-		return m, m.loadInspectWorkItems()
+		return m.handlePRDetailLoaded(msg)
+
+	case MergeConflictRecheckMsg:
+		return m.handleMergeConflictRecheck(msg)
+
+	case MergeConflictRecheckFailedMsg:
+		return m.handleMergeConflictRecheckFailed(msg)
 
 	case DiffLoadedMsg:
 		logger.Log("UI: DiffLoadedMsg received - diff has %d files", len(msg.diff.Files))
@@ -1000,6 +1002,7 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 		pr := m.prListView.GetSelectedPR()
 		if pr != nil {
 			m.state = ViewPRInspect
+			m = m.startMergeConflictCheck(*pr)
 			m.topBar.SetContext(pr.Repository.FullName, fmt.Sprintf("%d", pr.Number))
 			m.topBar.SetView(components.ViewNamePRInspect)
 			m.updateShortcuts()

@@ -41,3 +41,19 @@ func TestConvertPullRequest_ClosedUnmergedPRHasNoMergeCommit(t *testing.T) {
 		t.Errorf("expected a closed PR without a merge commit, got %+v", pr)
 	}
 }
+
+func TestMergeConflictStatus(t *testing.T) {
+	cases := map[string]struct {
+		mergeable *bool
+		want      domain.MergeConflictStatus
+	}{
+		"still computing": {nil, domain.MergeConflictChecking},
+		"clean":           {github.Bool(true), domain.MergeConflictNone},
+		"conflicting":     {github.Bool(false), domain.MergeConflictFound},
+	}
+	for name, tc := range cases {
+		if got := mergeConflictStatus(tc.mergeable); got != tc.want {
+			t.Errorf("%s: got %q, want %q", name, got, tc.want)
+		}
+	}
+}

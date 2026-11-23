@@ -1047,6 +1047,7 @@ func (m Model) inspectPR(pr domain.PullRequest) (Model, tea.Cmd) {
 	m.state = ViewPRInspect
 	m.markPRViewed(pr)
 	m.topBar.SetCommentThreads(nil)
+	m = m.startMergeConflictCheck(pr)
 	m.prInspect.ClosePreview()
 	m.prInspect.SwitchToDescription()
 	m.topBar.SetContext(pr.Repository.FullName, fmt.Sprintf("%d", pr.Number))

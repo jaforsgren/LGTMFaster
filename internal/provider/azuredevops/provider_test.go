@@ -243,3 +243,27 @@ func TestConvertReviewActionToVote(t *testing.T) {
 		})
 	}
 }
+
+func TestMergeConflictStatus(t *testing.T) {
+	statuses := git.PullRequestAsyncStatusValues
+	cases := []struct {
+		status git.PullRequestAsyncStatus
+		want   domain.MergeConflictStatus
+	}{
+		{statuses.Succeeded, domain.MergeConflictNone},
+		{statuses.Conflicts, domain.MergeConflictFound},
+		{statuses.Queued, domain.MergeConflictChecking},
+		{statuses.NotSet, domain.MergeConflictUnknown},
+		{statuses.Failure, domain.MergeConflictUnknown},
+		{statuses.RejectedByPolicy, domain.MergeConflictUnknown},
+	}
+	for _, tc := range cases {
+		status := tc.status
+		if got := mergeConflictStatus(&status); got != tc.want {
+			t.Errorf("%s: got %q, want %q", tc.status, got, tc.want)
+		}
+	}
+	if got := mergeConflictStatus(nil); got != domain.MergeConflictUnknown {
+		t.Errorf("nil: got %q", got)
+	}
+}

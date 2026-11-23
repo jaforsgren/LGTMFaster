@@ -42,7 +42,7 @@ func dashboardTestModel(t *testing.T) (Model, domain.PullRequest) {
 	t.Helper()
 	mine := domain.PullRequest{
 		Number: 4, Title: "Broken build", Category: domain.PRCategoryAuthored, Status: domain.PRStatusOpen,
-		ApprovalStatus: domain.ApprovalStatusApproved, Mergeable: true, PATID: testPATID,
+		ApprovalStatus: domain.ApprovalStatusApproved, MergeConflicts: domain.MergeConflictNone, PATID: testPATID,
 		Repository: domain.Repo{FullName: "Proj/api"},
 	}
 	provider := &mockProvider{

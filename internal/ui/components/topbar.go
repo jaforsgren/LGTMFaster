@@ -78,7 +78,7 @@ type TopBarModel struct {
 	currentRepo    string
 	currentPR      string
 	prStatus       string
-	prMergeable    bool
+	prConflicts    domain.MergeConflictStatus
 	prApproval     string
 	activePAT      string
 	patProvider    string
@@ -124,9 +124,13 @@ func (m *TopBarModel) SetContext(repo, pr string) {
 	m.currentPR = pr
 }
 
-func (m *TopBarModel) SetPRStatus(status string, mergeable bool) {
+func (m *TopBarModel) SetPRStatus(status string, conflicts domain.MergeConflictStatus) {
 	m.prStatus = status
-	m.prMergeable = mergeable
+	m.prConflicts = conflicts
+}
+
+func (m *TopBarModel) SetMergeConflicts(conflicts domain.MergeConflictStatus) {
+	m.prConflicts = conflicts
 }
 
 func (m *TopBarModel) SetPRApproval(approval string) {
@@ -341,6 +345,9 @@ func (m *TopBarModel) buildPRContextInfo() []string {
 		if badge := m.statusBadge(); badge != "" {
 			prValue += " " + badge
 		}
+		if badge := m.mergeConflictBadge(); badge != "" {
+			prValue += " " + badge
+		}
 		if badge := m.approvalBadge(); badge != "" {
 			prValue += " " + badge
 		}
@@ -381,18 +388,29 @@ var prApprovalBadges = map[string]badgeAppearance{
 	"pending":           {"PENDING ◯", lipgloss.Color("214")},
 }
 
+var mergeConflictBadges = map[domain.MergeConflictStatus]badgeAppearance{
+	domain.MergeConflictNone:     {"NO CONFLICTS ✓", lipgloss.Color("10")},
+	domain.MergeConflictFound:    {"CONFLICTS ✗", lipgloss.Color("9")},
+	domain.MergeConflictChecking: {"CHECKING MERGE…", lipgloss.Color("246")},
+}
+
 const prStatusOpen = "open"
 
 func (m *TopBarModel) statusBadge() string {
 	appearance, ok := prStatusBadges[m.prStatus]
 	if m.prStatus == prStatusOpen {
-		mergeIcon := "✗"
-		if m.prMergeable {
-			mergeIcon = "✓"
-		}
-		appearance, ok = badgeAppearance{"OPEN " + mergeIcon, lipgloss.Color("214")}, true
+		appearance, ok = badgeAppearance{"OPEN", lipgloss.Color("214")}, true
 	}
 	if !ok {
+		return ""
+	}
+	return renderBadge(appearance)
+}
+
+// mergeConflictBadge is for open PRs only: a closed PR's last merge status says nothing useful.
+func (m *TopBarModel) mergeConflictBadge() string {
+	appearance, ok := mergeConflictBadges[m.prConflicts]
+	if !ok || m.prStatus != prStatusOpen {
 		return ""
 	}
 	return renderBadge(appearance)

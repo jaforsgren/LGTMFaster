@@ -87,7 +87,8 @@ type PullRequest struct {
 	MergeCommitID string
 	URL           string
 	IsDraft       bool
-	Mergeable     bool
+	// MergeConflicts stays unknown when the provider gave no answer.
+	MergeConflicts MergeConflictStatus
 	// ReviewedByMe is set once the current user voted on or reviewed the pull request.
 	ReviewedByMe bool
 	ProviderType ProviderType

@@ -32,7 +32,7 @@ func dashboardPR(number int, title string, category domain.PRCategory, edit func
 func dashboardTestPRs() []domain.PullRequest {
 	approvedAndMergeable := func(pr *domain.PullRequest) {
 		pr.ApprovalStatus = domain.ApprovalStatusApproved
-		pr.Mergeable = true
+		pr.MergeConflicts = domain.MergeConflictNone
 	}
 	return []domain.PullRequest{
 		dashboardPR(1, "Needs my eyes", domain.PRCategoryAssigned, nil),
@@ -396,7 +396,7 @@ func TestDashboard_FittedListsShowEveryRowWithoutAScrollPosition(t *testing.T) {
 	for number := 1; number <= 4; number++ {
 		prs = append(prs, dashboardPR(number, fmt.Sprintf("Ready %d", number), domain.PRCategoryAuthored, func(pr *domain.PullRequest) {
 			pr.ApprovalStatus = domain.ApprovalStatusApproved
-			pr.Mergeable = true
+			pr.MergeConflicts = domain.MergeConflictNone
 		}))
 	}
 	m.SetPRs(prs)

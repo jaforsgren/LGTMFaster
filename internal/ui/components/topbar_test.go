@@ -232,3 +232,34 @@ func TestExcludedFilesLine_LeftOutWithoutExclusionsOrOutsideDiffs(t *testing.T) 
 		t.Error("expected no line outside the diff")
 	}
 }
+
+func TestTopBarView_MergeConflictBadge(t *testing.T) {
+	cases := []struct {
+		status    string
+		conflicts domain.MergeConflictStatus
+		want      string
+		absent    []string
+	}{
+		{"open", domain.MergeConflictFound, "[CONFLICTS ✗]", []string{"NO CONFLICTS"}},
+		{"open", domain.MergeConflictNone, "[NO CONFLICTS ✓]", nil},
+		{"open", domain.MergeConflictChecking, "[CHECKING MERGE…]", []string{"CONFLICTS"}},
+		{"open", domain.MergeConflictUnknown, "[OPEN]", []string{"CONFLICTS", "CHECKING"}},
+		{"merged", domain.MergeConflictFound, "[MERGED ✓]", []string{"CONFLICTS"}},
+	}
+	for _, tc := range cases {
+		m := NewTopBar()
+		m.SetWidth(wideTerminal)
+		m.SetView(ViewNamePRDiff)
+		m.SetContext("Proj/api", "3")
+		m.SetPRStatus(tc.status, tc.conflicts)
+		view := m.View()
+		if !strings.Contains(view, tc.want) {
+			t.Errorf("%s/%q: expected %q in view", tc.status, tc.conflicts, tc.want)
+		}
+		for _, absent := range tc.absent {
+			if strings.Contains(view, absent) {
+				t.Errorf("%s/%q: did not expect %q in view", tc.status, tc.conflicts, absent)
+			}
+		}
+	}
+}

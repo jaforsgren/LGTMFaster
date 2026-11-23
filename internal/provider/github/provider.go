@@ -263,18 +263,18 @@ func (p *Provider) convertPullRequest(ghPR *github.PullRequest, currentUser stri
 	}
 
 	pr := domain.PullRequest{
-		ID:          fmt.Sprintf("%d", ghPR.GetID()),
-		Number:      ghPR.GetNumber(),
-		Title:       ghPR.GetTitle(),
-		Description: ghPR.GetBody(),
-		Status:      status,
-		Category:    category,
-		CreatedAt:   ghPR.GetCreatedAt().Time,
-		UpdatedAt:   ghPR.GetUpdatedAt().Time,
-		ClosedAt:    ghPR.GetClosedAt().Time,
-		URL:         ghPR.GetHTMLURL(),
-		IsDraft:     ghPR.GetDraft(),
-		Mergeable:   ghPR.GetMergeable(),
+		ID:             fmt.Sprintf("%d", ghPR.GetID()),
+		Number:         ghPR.GetNumber(),
+		Title:          ghPR.GetTitle(),
+		Description:    ghPR.GetBody(),
+		Status:         status,
+		Category:       category,
+		CreatedAt:      ghPR.GetCreatedAt().Time,
+		UpdatedAt:      ghPR.GetUpdatedAt().Time,
+		ClosedAt:       ghPR.GetClosedAt().Time,
+		URL:            ghPR.GetHTMLURL(),
+		IsDraft:        ghPR.GetDraft(),
+		MergeConflicts: mergeConflictStatus(ghPR.Mergeable),
 	}
 
 	if status == domain.PRStatusMerged {
@@ -386,4 +386,16 @@ func (p *Provider) calculateApprovalStatus(reviews []*github.PullRequestReview) 
 		return domain.ApprovalStatusApproved
 	}
 	return domain.ApprovalStatusPending
+}
+
+// mergeConflictStatus reads GitHub's mergeable field, which is null while GitHub computes it.
+func mergeConflictStatus(mergeable *bool) domain.MergeConflictStatus {
+	switch {
+	case mergeable == nil:
+		return domain.MergeConflictChecking
+	case *mergeable:
+		return domain.MergeConflictNone
+	default:
+		return domain.MergeConflictFound
+	}
 }

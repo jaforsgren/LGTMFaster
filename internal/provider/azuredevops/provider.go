@@ -404,7 +404,7 @@ func convertPullRequest(adoPR *git.GitPullRequest, currentUser string) domain.Pu
 		UpdatedAt:      getUpdateTime(adoPR),
 		URL:            buildPRWebURL(adoPR),
 		IsDraft:        common.GetBool(adoPR.IsDraft),
-		Mergeable:      isMergeable(adoPR.MergeStatus),
+		MergeConflicts: mergeConflictStatus(adoPR.MergeStatus),
 		SourceBranch:   extractBranchName(adoPR.SourceRefName),
 		TargetBranch:   extractBranchName(adoPR.TargetRefName),
 	}

@@ -147,22 +147,8 @@ func (m *MergeViewModel) View() string {
 	b.WriteString(prInfoStyle.Render(fmt.Sprintf("Branch: %s → %s", m.pr.SourceBranch, m.pr.TargetBranch)))
 	b.WriteString("\n\n")
 
-	if !m.pr.Mergeable {
-		warningStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("214")).
-			Bold(true)
-
-		b.WriteString(warningStyle.Render("⚠ Warning: This PR has merge conflicts"))
-		b.WriteString("\n")
-		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("246")).Render("Resolve conflicts before merging"))
-		b.WriteString("\n\n")
-	} else {
-		successStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("10"))
-
-		b.WriteString(successStyle.Render("✓ This PR is mergeable"))
-		b.WriteString("\n\n")
-	}
+	b.WriteString(renderMergeConflictNotice(m.pr.MergeConflicts))
+	b.WriteString("\n\n")
 
 	mergeMethodTitle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("15")).
@@ -230,4 +216,20 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func renderMergeConflictNotice(status domain.MergeConflictStatus) string {
+	switch status {
+	case domain.MergeConflictFound:
+		warning := lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true).
+			Render("⚠ Warning: This PR has merge conflicts")
+		hint := lipgloss.NewStyle().Foreground(lipgloss.Color("246")).Render("Resolve conflicts before merging")
+		return warning + "\n" + hint
+	case domain.MergeConflictNone:
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Render("✓ This PR is mergeable")
+	case domain.MergeConflictChecking:
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("246")).Render("… Still checking for merge conflicts")
+	default:
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("246")).Render("? Merge conflict status unknown")
+	}
 }

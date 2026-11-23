@@ -95,7 +95,8 @@ var dashboardSections = []dashboardSection{
 		return isOwnOpenPR(pr) && state.checksLoaded && state.checks.State == domain.CheckStateFailing
 	}, byUpdate},
 	{"Ready to merge", 1, dashboardDetailChecks, func(pr domain.PullRequest, state dashboardPRState) bool {
-		return isOwnOpenPR(pr) && !pr.IsDraft && pr.ApprovalStatus == domain.ApprovalStatusApproved && pr.Mergeable &&
+		return isOwnOpenPR(pr) && !pr.IsDraft && pr.ApprovalStatus == domain.ApprovalStatusApproved &&
+			pr.MergeConflicts == domain.MergeConflictNone &&
 			state.checksLoaded && (state.checks.State == domain.CheckStatePassing || state.checks.State == domain.CheckStateNone)
 	}, byUpdate},
 }
