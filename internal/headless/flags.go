@@ -7,6 +7,8 @@ import (
 	"flag"
 	"fmt"
 	"strings"
+
+	"github.com/johanforsgren/lgtmfaster/internal/usage"
 )
 
 const (
@@ -30,8 +32,30 @@ const (
 	flagHelpDescriptionEditor  = "write the pull request description in $EDITOR; save and quit to submit"
 	flagHelpTarget             = "branch to merge into (default " + DefaultTargetBranch + ")"
 	flagHelpPR                 = "open a pull request from the current branch"
+	valueWorkItems             = "ids"
+	valueDescription           = "text"
+	valueDescriptionFile       = "file"
+	valueTarget                = "branch"
 	descriptionSourceSeparator = ", "
 )
+
+var (
+	optionPR                = usage.Option{Name: flagPR, Help: flagHelpPR}
+	optionInteractive       = usage.Option{Name: flagInteractive, Long: flagInteractiveLong, Help: flagHelpInteractive}
+	optionWorkItems         = usage.Option{Name: flagWorkItems, Long: flagWorkItemsLong, Value: valueWorkItems, Help: flagHelpWorkItems}
+	optionDescription       = usage.Option{Name: flagDescription, Long: flagDescriptionLong, Value: valueDescription, Help: flagHelpDescription}
+	optionDescriptionFile   = usage.Option{Name: flagDescriptionFile, Long: flagDescriptionFileLong, Value: valueDescriptionFile, Help: flagHelpDescriptionFile}
+	optionDescriptionEditor = usage.Option{Name: flagDescriptionEditor, Long: flagDescriptionEditorLong, Help: flagHelpDescriptionEditor}
+	optionTarget            = usage.Option{Name: flagTarget, Long: flagTargetLong, Value: valueTarget, Help: flagHelpTarget}
+)
+
+// Options are the pull request flags as the help lists them, -pr first.
+func Options() []usage.Option {
+	return []usage.Option{
+		optionPR, optionInteractive, optionWorkItems, optionDescription,
+		optionDescriptionFile, optionDescriptionEditor, optionTarget,
+	}
+}
 
 // DefaultTargetBranch is what a pull request created without -t merges into.
 const DefaultTargetBranch = "main"
@@ -54,24 +78,24 @@ type Flags struct {
 // Register adds the pull request flags to fs, each under its short and its long name.
 func Register(fs *flag.FlagSet) *Flags {
 	f := &Flags{}
-	fs.BoolVar(&f.PR, flagPR, false, flagHelpPR)
-	for _, name := range []string{flagInteractive, flagInteractiveLong} {
-		fs.BoolVar(&f.Interactive, name, false, flagHelpInteractive)
+	fs.BoolVar(&f.PR, optionPR.Name, false, optionPR.Help)
+	for _, name := range optionInteractive.Names() {
+		fs.BoolVar(&f.Interactive, name, false, optionInteractive.Help)
 	}
-	for _, name := range []string{flagWorkItems, flagWorkItemsLong} {
-		fs.StringVar(&f.WorkItems, name, "", flagHelpWorkItems)
+	for _, name := range optionWorkItems.Names() {
+		fs.StringVar(&f.WorkItems, name, "", optionWorkItems.Help)
 	}
-	for _, name := range []string{flagDescription, flagDescriptionLong} {
-		fs.StringVar(&f.Description, name, "", flagHelpDescription)
+	for _, name := range optionDescription.Names() {
+		fs.StringVar(&f.Description, name, "", optionDescription.Help)
 	}
-	for _, name := range []string{flagDescriptionFile, flagDescriptionFileLong} {
-		fs.StringVar(&f.DescriptionFile, name, "", flagHelpDescriptionFile)
+	for _, name := range optionDescriptionFile.Names() {
+		fs.StringVar(&f.DescriptionFile, name, "", optionDescriptionFile.Help)
 	}
-	for _, name := range []string{flagDescriptionEditor, flagDescriptionEditorLong} {
-		fs.BoolVar(&f.DescriptionEditor, name, false, flagHelpDescriptionEditor)
+	for _, name := range optionDescriptionEditor.Names() {
+		fs.BoolVar(&f.DescriptionEditor, name, false, optionDescriptionEditor.Help)
 	}
-	for _, name := range []string{flagTarget, flagTargetLong} {
-		fs.StringVar(&f.Target, name, "", flagHelpTarget)
+	for _, name := range optionTarget.Names() {
+		fs.StringVar(&f.Target, name, "", optionTarget.Help)
 	}
 	return f
 }
@@ -92,13 +116,9 @@ func (f *Flags) Validate(fs *flag.FlagSet) error {
 	}
 
 	var sources []string
-	for _, names := range [][]string{
-		{flagDescription, flagDescriptionLong},
-		{flagDescriptionFile, flagDescriptionFileLong},
-		{flagDescriptionEditor, flagDescriptionEditorLong},
-	} {
-		if f.set[names[0]] || f.set[names[1]] {
-			sources = append(sources, "-"+names[0])
+	for _, option := range []usage.Option{optionDescription, optionDescriptionFile, optionDescriptionEditor} {
+		if f.set[option.Name] || f.set[option.Long] {
+			sources = append(sources, "-"+option.Name)
 		}
 	}
 	if len(sources) > 1 {
@@ -108,9 +128,11 @@ func (f *Flags) Validate(fs *flag.FlagSet) error {
 }
 
 func (f *Flags) prOnlyFlags() []string {
-	return []string{
-		flagInteractive, flagInteractiveLong, flagWorkItems, flagWorkItemsLong,
-		flagDescription, flagDescriptionLong, flagDescriptionFile, flagDescriptionFileLong,
-		flagDescriptionEditor, flagDescriptionEditorLong, flagTarget, flagTargetLong,
+	var names []string
+	for _, option := range Options() {
+		if option != optionPR {
+			names = append(names, option.Names()...)
+		}
 	}
+	return names
 }

@@ -381,22 +381,6 @@ func TestPipelineList_PreviewForGroupsListsPipelines(t *testing.T) {
 	}
 }
 
-func TestPipelineDisplayName(t *testing.T) {
-	tests := []struct {
-		folder   string
-		expected string
-	}{
-		{"", "build"},
-		{`\`, "build"},
-		{`\team\infra`, `team\infra\build`},
-	}
-	for _, tt := range tests {
-		if got := PipelineDisplayName(domain.Pipeline{Name: "build", Folder: tt.folder}); got != tt.expected {
-			t.Errorf("PipelineDisplayName(%q) = %q, want %q", tt.folder, got, tt.expected)
-		}
-	}
-}
-
 func TestPipelineRuns_SetPipelineResetsState(t *testing.T) {
 	m := NewPipelineRunsView()
 	m.SetPipeline(domain.Pipeline{ID: 1})

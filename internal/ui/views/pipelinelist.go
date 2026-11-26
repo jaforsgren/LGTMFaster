@@ -11,11 +11,10 @@ import (
 )
 
 const (
-	pipelineFolderSeparator = `\`
-	treeIndent              = "  "
-	expandedMarker          = "▾ "
-	collapsedMarker         = "▸ "
-	leafMarker              = "  "
+	treeIndent      = "  "
+	expandedMarker  = "▾ "
+	collapsedMarker = "▸ "
+	leafMarker      = "  "
 	// favoriteSectionPrefix keeps the IDs of the favorites section's copies apart from the main
 	// tree's, so folding or selecting one copy leaves the other alone.
 	favoriteSectionPrefix = "favorites:"
@@ -374,7 +373,7 @@ func (m *PipelineListViewModel) rebuild() {
 func (m *PipelineListViewModel) rebuildKeepingSelection(selectedID string) {
 	var filtered []domain.Pipeline
 	for _, pipeline := range m.sourcePipelines {
-		if m.filter.Matches(pipeline.Project, pipeline.Repository, PipelineDisplayName(pipeline)) {
+		if m.filter.Matches(pipeline.Project, pipeline.Repository, pipeline.DisplayName()) {
 			filtered = append(filtered, pipeline)
 		}
 	}
@@ -472,7 +471,7 @@ func (m *PipelineListViewModel) favoriteSection(roots []*PipelineNode) []*Pipeli
 func favoriteSectionName(node *PipelineNode) string {
 	switch node.Kind {
 	case PipelineNodePipeline:
-		return fmt.Sprintf("%s  (%s/%s)", PipelineDisplayName(*node.Pipeline), node.Pipeline.Project, node.Pipeline.Repository)
+		return fmt.Sprintf("%s  (%s/%s)", node.Pipeline.DisplayName(), node.Pipeline.Project, node.Pipeline.Repository)
 	case PipelineNodeRepository:
 		if pipeline := firstPipeline(node); pipeline != nil {
 			return pipeline.Project + "/" + pipeline.Repository
@@ -551,7 +550,7 @@ func buildPipelineTree(pipelines []domain.Pipeline, levels []pipelineGroupLevel)
 			parent = group
 		}
 
-		name := PipelineDisplayName(*pipeline)
+		name := pipeline.DisplayName()
 		if isFlat {
 			name = fmt.Sprintf("%s  (%s/%s)", name, pipeline.Project, pipeline.Repository)
 		}
@@ -717,15 +716,6 @@ func containsID(nodes []*PipelineNode, id string) bool {
 	return false
 }
 
-// PipelineDisplayName prefixes the pipeline name with its folder; the root folder is omitted.
-func PipelineDisplayName(pipeline domain.Pipeline) string {
-	folder := strings.Trim(pipeline.Folder, pipelineFolderSeparator)
-	if folder == "" {
-		return pipeline.Name
-	}
-	return folder + pipelineFolderSeparator + pipeline.Name
-}
-
 func (m *PipelineListViewModel) columns() []listColumn {
 	const (
 		lastRunWidth = 18
@@ -811,7 +801,7 @@ func (m *PipelineListViewModel) nodeRow(node *PipelineNode) listRow {
 	case node.IsGroup():
 		values[0] = fmt.Sprintf("%s (%d)", name, node.PipelineCount)
 	case node.Run != nil:
-		values = append(values[:1], runCells(*node.Run, PipelineStatusLabel(node.Run.Status))...)
+		values = append(values[:1], runCells(*node.Run, node.Run.Status.Label())...)
 	case node.Pipeline.LatestRun != nil:
 		latest := *node.Pipeline.LatestRun
 		values = append(values[:1], runCells(latest, valueOrPlaceholder(latest.Number))...)
@@ -858,7 +848,7 @@ func (m *PipelineListViewModel) detailPane() detailPane {
 	case PipelineNodeRun:
 		return detailPane{title: "Run " + node.Name, lines: runDetailLines(*node.Run)}
 	default:
-		return detailPane{title: "Runs of " + PipelineDisplayName(*node.Pipeline), lines: m.previewRunLines(node.Pipeline)}
+		return detailPane{title: "Runs of " + node.Pipeline.DisplayName(), lines: m.previewRunLines(node.Pipeline)}
 	}
 }
 

@@ -37,7 +37,7 @@ Or build directly with Go:
 go build -o lgtmfaster ./cmd/lgtmfaster
 ```
 
-Run with `lgtmfaster`, or use `lgtmfaster --debug /tmp/lgtm.log` to write logs to a file.
+Run with `lgtmfaster`, or use `lgtmfaster --debug /tmp/lgtm.log` to write logs to a file. `lgtmfaster -h` lists every option with examples.
 
 ## Getting started
 
@@ -46,6 +46,18 @@ Run with `lgtmfaster`, or use `lgtmfaster --debug /tmp/lgtm.log` to write logs t
 3. Start reviewing PRs or browsing pipelines.
 
 Selected accounts load automatically on subsequent launches. Use `:session` to restore your previous view.
+
+## Listing from the command line
+
+Print what the selected PATs can see, then exit:
+
+```bash
+lgtmfaster -prs                         # open PRs: created by you, assigned to you, others
+lgtmfaster -pl                          # pipelines with their latest run (Azure DevOps)
+lgtmfaster -pl | grep failed            # pipelines whose latest run failed
+```
+
+Old PRs of others are left out as in the PR list (`HideOldOtherPRs` in the settings). A PAT that fails is reported after the rest are printed, and the exit code is non-zero.
 
 ## Pull requests from the command line
 

@@ -9,19 +9,18 @@ import (
 
 type pipelineStatusAppearance struct {
 	icon  string
-	label string
 	color lipgloss.Color
 }
 
 var pipelineStatusAppearances = map[domain.PipelineStatus]pipelineStatusAppearance{
-	domain.PipelineStatusQueued:             {"○", "queued", lipgloss.Color("#9CA3AF")},
-	domain.PipelineStatusRunning:            {"●", "running", lipgloss.Color("#3B82F6")},
-	domain.PipelineStatusWaitingForApproval: {"⏸", "waiting for approval", lipgloss.Color("#F59E0B")},
-	domain.PipelineStatusSucceeded:          {"✓", "succeeded", lipgloss.Color("#10B981")},
-	domain.PipelineStatusPartiallySucceeded: {"!", "partially succeeded", lipgloss.Color("#FBBF24")},
-	domain.PipelineStatusFailed:             {"✗", "failed", lipgloss.Color("#EF4444")},
-	domain.PipelineStatusCanceled:           {"⊘", "canceled", lipgloss.Color("#6B7280")},
-	domain.PipelineStatusSkipped:            {"»", "skipped", lipgloss.Color("#6B7280")},
+	domain.PipelineStatusQueued:             {"○", lipgloss.Color("#9CA3AF")},
+	domain.PipelineStatusRunning:            {"●", lipgloss.Color("#3B82F6")},
+	domain.PipelineStatusWaitingForApproval: {"⏸", lipgloss.Color("#F59E0B")},
+	domain.PipelineStatusSucceeded:          {"✓", lipgloss.Color("#10B981")},
+	domain.PipelineStatusPartiallySucceeded: {"!", lipgloss.Color("#FBBF24")},
+	domain.PipelineStatusFailed:             {"✗", lipgloss.Color("#EF4444")},
+	domain.PipelineStatusCanceled:           {"⊘", lipgloss.Color("#6B7280")},
+	domain.PipelineStatusSkipped:            {"»", lipgloss.Color("#6B7280")},
 }
 
 const (
@@ -45,17 +44,13 @@ func runCommitLabel(run domain.PipelineRun) string {
 	return valueOrPlaceholder(run.CommitMessage)
 }
 
-var unknownPipelineStatusAppearance = pipelineStatusAppearance{"?", "unknown", lipgloss.Color("#6B7280")}
+var unknownPipelineStatusAppearance = pipelineStatusAppearance{"?", lipgloss.Color("#6B7280")}
 
 func appearanceFor(status domain.PipelineStatus) pipelineStatusAppearance {
 	if appearance, ok := pipelineStatusAppearances[status]; ok {
 		return appearance
 	}
 	return unknownPipelineStatusAppearance
-}
-
-func PipelineStatusLabel(status domain.PipelineStatus) string {
-	return appearanceFor(status).label
 }
 
 func renderPipelineStatusIcon(status domain.PipelineStatus) string {
@@ -66,7 +61,7 @@ func renderPipelineStatusIcon(status domain.PipelineStatus) string {
 func renderPipelineStatusLabel(status domain.PipelineStatus, width int) string {
 	appearance := appearanceFor(status)
 	return lipgloss.NewStyle().Foreground(appearance.color).
-		Render(padToWidth(truncateString(appearance.label, width), width))
+		Render(padToWidth(truncateString(status.Label(), width), width))
 }
 
 // formatElapsed is how long something that started has run: until it finished, else until now.

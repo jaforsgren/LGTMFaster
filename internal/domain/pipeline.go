@@ -2,8 +2,12 @@ package domain
 
 import (
 	"fmt"
+	"strings"
 	"time"
 )
+
+// PipelineFolderSeparator separates the folders of a pipeline's path, as Azure DevOps writes them.
+const PipelineFolderSeparator = `\`
 
 type PipelineStatus string
 
@@ -18,6 +22,25 @@ const (
 	PipelineStatusSkipped            PipelineStatus = "skipped"
 	PipelineStatusUnknown            PipelineStatus = "unknown"
 )
+
+var pipelineStatusLabels = map[PipelineStatus]string{
+	PipelineStatusQueued:             "queued",
+	PipelineStatusRunning:            "running",
+	PipelineStatusWaitingForApproval: "waiting for approval",
+	PipelineStatusSucceeded:          "succeeded",
+	PipelineStatusPartiallySucceeded: "partially succeeded",
+	PipelineStatusFailed:             "failed",
+	PipelineStatusCanceled:           "canceled",
+	PipelineStatusSkipped:            "skipped",
+}
+
+// Label is the status as people read it; anything unrecognised reads as unknown.
+func (s PipelineStatus) Label() string {
+	if label, ok := pipelineStatusLabels[s]; ok {
+		return label
+	}
+	return string(PipelineStatusUnknown)
+}
 
 func (s PipelineStatus) IsFinished() bool {
 	switch s {
@@ -111,6 +134,15 @@ type Pipeline struct {
 	LatestRun    *PipelineRun
 	ProviderType ProviderType
 	PATID        string
+}
+
+// DisplayName prefixes the pipeline name with its folder; the root folder is omitted.
+func (p Pipeline) DisplayName() string {
+	folder := strings.Trim(p.Folder, PipelineFolderSeparator)
+	if folder == "" {
+		return p.Name
+	}
+	return folder + PipelineFolderSeparator + p.Name
 }
 
 func (p Pipeline) Identifier() PipelineIdentifier {

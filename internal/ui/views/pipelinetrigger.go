@@ -234,7 +234,7 @@ func (m *PipelineTriggerViewModel) View() string {
 	}
 
 	var b strings.Builder
-	b.WriteString(renderListTitle(pipelinesTitle, PipelineDisplayName(m.pipeline), "Run pipeline"))
+	b.WriteString(renderListTitle(pipelinesTitle, m.pipeline.DisplayName(), "Run pipeline"))
 	b.WriteString("\n\n")
 	b.WriteString(m.label("Branch", m.focus == pipelineTriggerBranchField) + m.branch.View() + "\n")
 	if m.focus == pipelineTriggerBranchField {

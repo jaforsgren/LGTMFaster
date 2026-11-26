@@ -38,7 +38,7 @@ func testPATs() []domain.PAT {
 	}
 }
 
-func factoryFor(t *testing.T, provider domain.Provider, wantPATID string) ProviderFactory {
+func factoryFor(t *testing.T, provider domain.Provider, wantPATID string) domain.ProviderFactory {
 	return func(pat domain.PAT) (domain.Provider, error) {
 		if pat.ID != wantPATID {
 			t.Errorf("expected the %s PAT, got %s", wantPATID, pat.ID)

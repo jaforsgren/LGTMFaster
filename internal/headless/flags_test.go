@@ -50,3 +50,20 @@ func TestFlags_DescriptionComesFromOnePlace(t *testing.T) {
 		t.Errorf("expected two description sources refused, got %v", err)
 	}
 }
+
+func TestOptions_ListEveryRegisteredFlag(t *testing.T) {
+	fs := flag.NewFlagSet("lgtmfaster", flag.ContinueOnError)
+	Register(fs)
+	listed := make(map[string]bool)
+	for _, option := range Options() {
+		for _, name := range option.Names() {
+			listed[name] = true
+		}
+	}
+
+	fs.VisitAll(func(registered *flag.Flag) {
+		if !listed[registered.Name] {
+			t.Errorf("-%s is registered but missing from Options", registered.Name)
+		}
+	})
+}

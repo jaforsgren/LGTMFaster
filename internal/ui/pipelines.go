@@ -312,7 +312,7 @@ func (m Model) showPipelineRuns() (Model, tea.Cmd) {
 
 	m.state = ViewPipelineRuns
 	m.topBar.SetView(components.ViewNamePipelineRuns)
-	m.topBar.SetPipelineContext(pipelineRepoLabel(*pipeline), views.PipelineDisplayName(*pipeline), "")
+	m.topBar.SetPipelineContext(pipelineRepoLabel(*pipeline), pipeline.DisplayName(), "")
 	m.updateShortcuts()
 
 	watch := m.startPipelineWatch()
@@ -338,9 +338,9 @@ func (m Model) setPipelineRunContext(run domain.PipelineRun) {
 	// The runs view keeps its last pipeline, which a run opened from the dashboard need not belong to.
 	if pipeline := m.pipelineRunsView.GetPipeline(); pipeline != nil && pipeline.Identifier() == run.PipelineIdentifier() {
 		repo = pipelineRepoLabel(*pipeline)
-		pipelineName = views.PipelineDisplayName(*pipeline)
+		pipelineName = pipeline.DisplayName()
 	}
-	runLabel := fmt.Sprintf("%s [%s]", run.Number, views.PipelineStatusLabel(run.Status))
+	runLabel := fmt.Sprintf("%s [%s]", run.Number, run.Status.Label())
 	m.topBar.SetPipelineContext(repo, pipelineName, runLabel)
 }
 

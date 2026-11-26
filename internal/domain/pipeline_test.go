@@ -90,3 +90,28 @@ func TestActiveStage_PrefersAStageWaitingForApproval(t *testing.T) {
 		t.Error("expected no active stage when every stage is done")
 	}
 }
+
+func TestPipeline_DisplayNamePrefixesTheFolder(t *testing.T) {
+	tests := []struct {
+		folder   string
+		expected string
+	}{
+		{"", "build"},
+		{`\`, "build"},
+		{`\team\infra`, `team\infra\build`},
+	}
+	for _, tt := range tests {
+		if got := (Pipeline{Name: "build", Folder: tt.folder}).DisplayName(); got != tt.expected {
+			t.Errorf("DisplayName with folder %q = %q, want %q", tt.folder, got, tt.expected)
+		}
+	}
+}
+
+func TestPipelineStatus_LabelReadsAsWords(t *testing.T) {
+	if got := PipelineStatusWaitingForApproval.Label(); got != "waiting for approval" {
+		t.Errorf("expected waiting for approval, got %q", got)
+	}
+	if got := PipelineStatus("bogus").Label(); got != string(PipelineStatusUnknown) {
+		t.Errorf("expected unknown, got %q", got)
+	}
+}

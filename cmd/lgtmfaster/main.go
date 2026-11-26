@@ -2,28 +2,34 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/johanforsgren/lgtmfaster/internal/domain"
 	"github.com/johanforsgren/lgtmfaster/internal/editor"
 	"github.com/johanforsgren/lgtmfaster/internal/headless"
+	"github.com/johanforsgren/lgtmfaster/internal/listing"
 	"github.com/johanforsgren/lgtmfaster/internal/logger"
 	"github.com/johanforsgren/lgtmfaster/internal/provider/factory"
 	"github.com/johanforsgren/lgtmfaster/internal/storage"
 	"github.com/johanforsgren/lgtmfaster/internal/ui"
+	"github.com/johanforsgren/lgtmfaster/internal/usage"
 )
 
 // currentRepository is where -pr looks for the branch to open a pull request from.
 const currentRepository = "."
 
+var errListingWithPR = errors.New("-prs and -pl cannot be combined with -pr")
+
 func main() {
-	debugLog := flag.String("debug", "", "Enable debug logging to specified file")
-	prFlags := headless.Register(flag.CommandLine)
+	debugLog, prFlags, listFlags := registerFlags(flag.CommandLine)
+	flag.Usage = func() { usage.Write(flag.CommandLine.Output(), helpPage()) }
 	flag.Parse()
-	if err := prFlags.Validate(flag.CommandLine); err != nil {
+	if err := validateFlags(prFlags, listFlags); err != nil {
 		exitWithError("Error: %v\n", err)
 	}
 
@@ -50,6 +56,11 @@ func main() {
 	}
 	logger.Log("Storage initialized successfully")
 
+	if listFlags.Requested() {
+		printListing(listFlags, repo)
+		return
+	}
+
 	model := ui.NewModel(repo)
 	if prFlags.PR {
 		var done bool
@@ -58,6 +69,48 @@ func main() {
 		}
 	}
 	runTUI(model)
+}
+
+func registerFlags(fs *flag.FlagSet) (*string, *headless.Flags, *listing.Flags) {
+	debugLog := fs.String(optionDebug.Name, "", optionDebug.Help)
+	return debugLog, headless.Register(fs), listing.Register(fs)
+}
+
+func validateFlags(prFlags *headless.Flags, listFlags *listing.Flags) error {
+	if err := prFlags.Validate(flag.CommandLine); err != nil {
+		return err
+	}
+	if err := listFlags.Validate(); err != nil {
+		return err
+	}
+	if prFlags.PR && listFlags.Requested() {
+		return errListingWithPR
+	}
+	return nil
+}
+
+// printListing prints the pull requests or pipelines the flags ask for; ctrl+c cancels the requests.
+func printListing(listFlags *listing.Flags, repo domain.Repository) {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	pats, err := repo.ListPATs()
+	if err != nil {
+		exitWithError("Error reading PATs: %v\n", err)
+	}
+
+	if listFlags.Pipelines {
+		err = listing.PrintPipelines(ctx, pats, factory.New, os.Stdout)
+	} else {
+		settings, settingsErr := repo.GetSettings()
+		if settingsErr != nil {
+			exitWithError("Error reading settings: %v\n", settingsErr)
+		}
+		err = listing.PrintPRs(ctx, pats, factory.New, settings, os.Stdout)
+	}
+	if err != nil {
+		logger.LogError("LISTING", "accounts", err)
+		exitWithError("Error: %v\n", err)
+	}
 }
 
 // openPullRequest creates the pull request the flags describe, or with -i returns the model that

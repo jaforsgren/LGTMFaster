@@ -25,7 +25,6 @@ const (
 	loadingCommentsText = "loading..."
 	noLinkedWorkItemIDs = "none"
 	prDetailLabelWidth  = 12
-	hoursPerDay         = 24
 )
 
 type prCategoryAppearance struct {
@@ -231,18 +230,7 @@ func (m *PRListViewModel) filterOldOtherPRs(prs []domain.PullRequest) []domain.P
 	if !m.settings.HideOldOtherPRs {
 		return prs
 	}
-
-	maxAge := time.Duration(m.settings.HideOldOtherPRsDays) * hoursPerDay * time.Hour
-	cutoff := time.Now().Add(-maxAge)
-
-	var out []domain.PullRequest
-	for _, pr := range prs {
-		if pr.Category == domain.PRCategoryOther && pr.CreatedAt.Before(cutoff) {
-			continue
-		}
-		out = append(out, pr)
-	}
-	return out
+	return domain.WithoutOldOtherPRs(prs, m.settings.HideOldOtherPRsDays, time.Now())
 }
 
 func (m *PRListViewModel) filterPRs(prs []domain.PullRequest) []domain.PullRequest {

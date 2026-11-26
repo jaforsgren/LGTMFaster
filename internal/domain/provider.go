@@ -66,6 +66,9 @@ type Provider interface {
 	ValidateCredentials(ctx context.Context) error
 }
 
+// ProviderFactory builds the provider a PAT belongs to.
+type ProviderFactory func(PAT) (Provider, error)
+
 // PipelineProvider is optional: providers without CI/CD support (currently GitHub) do not implement it,
 // so callers must type-assert a Provider before use.
 type PipelineProvider interface {

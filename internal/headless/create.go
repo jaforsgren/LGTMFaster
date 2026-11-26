@@ -15,12 +15,9 @@ var errSameBranch = errors.New("the current branch is the target branch; check o
 // ErrNotAllLinked means the pull request was created but some work items could not be linked.
 var ErrNotAllLinked = errors.New("pull request created, but not every work item was linked")
 
-// ProviderFactory builds the provider a PAT belongs to.
-type ProviderFactory func(domain.PAT) (domain.Provider, error)
-
 // Create opens the drafted pull request with the PAT that reaches its repository, links the work
 // items and reports the new pull request to out.
-func Create(ctx context.Context, pats []domain.PAT, newProvider ProviderFactory, draft domain.NewPullRequestDraft, out io.Writer) error {
+func Create(ctx context.Context, pats []domain.PAT, newProvider domain.ProviderFactory, draft domain.NewPullRequestDraft, out io.Writer) error {
 	request := newPullRequest(draft)
 	if request.SourceBranch == request.TargetBranch {
 		return fmt.Errorf("%w (%s)", errSameBranch, request.TargetBranch)

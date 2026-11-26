@@ -722,7 +722,7 @@ func pipelineRunRow(run domain.PipelineRun) listRow {
 		values: []string{
 			valueOrPlaceholder(run.PipelineName),
 			valueOrPlaceholder(run.Number),
-			PipelineStatusLabel(run.Status),
+			run.Status.Label(),
 			runStageLabel(run),
 			valueOrPlaceholder(run.SourceBranch),
 			formatOptionalAge(run.QueuedAt),

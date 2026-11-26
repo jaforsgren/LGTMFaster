@@ -239,7 +239,7 @@ func (m *PipelineRunsViewModel) View() string {
 
 	pipelineName := "Runs"
 	if m.pipeline != nil {
-		pipelineName = PipelineDisplayName(*m.pipeline)
+		pipelineName = m.pipeline.DisplayName()
 	}
 	b.WriteString(renderListTitle(pipelinesTitle, pipelineName))
 	b.WriteString("\n\n")
@@ -288,7 +288,7 @@ func (m *PipelineRunsViewModel) stagesPane() detailPane {
 	}
 	lines := make([]string, 0, len(stages))
 	for _, stage := range stages {
-		text := stage.Name + "  " + PipelineStatusLabel(stage.Status)
+		text := stage.Name + "  " + stage.Status.Label()
 		if !stage.StartedAt.IsZero() {
 			text += "  " + formatElapsed(stage.StartedAt, stage.FinishedAt)
 		}
@@ -306,7 +306,7 @@ func runRow(run domain.PipelineRun, isFavorite bool) listRow {
 		icon: renderPipelineStatusIcon(run.Status),
 		values: []string{
 			favoritePrefix(isFavorite) + valueOrPlaceholder(run.Number),
-			PipelineStatusLabel(run.Status),
+			run.Status.Label(),
 			runStageLabel(run),
 			valueOrPlaceholder(run.SourceBranch),
 			valueOrPlaceholder(run.RequestedBy.Username),
