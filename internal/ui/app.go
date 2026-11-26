@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -13,10 +12,10 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/google/uuid"
 	"github.com/johanforsgren/lgtmfaster/internal/domain"
+	"github.com/johanforsgren/lgtmfaster/internal/editor"
 	"github.com/johanforsgren/lgtmfaster/internal/git"
 	"github.com/johanforsgren/lgtmfaster/internal/logger"
-	"github.com/johanforsgren/lgtmfaster/internal/provider/azuredevops"
-	"github.com/johanforsgren/lgtmfaster/internal/provider/github"
+	"github.com/johanforsgren/lgtmfaster/internal/provider/factory"
 	"github.com/johanforsgren/lgtmfaster/internal/ui/components"
 	"github.com/johanforsgren/lgtmfaster/internal/ui/views"
 )
@@ -35,11 +34,6 @@ const (
 )
 
 const prCacheTTL = 30 * time.Second
-
-const (
-	editorEnvVar  = "EDITOR"
-	defaultEditor = "nvim"
-)
 
 // pendingCommentMessage says how inline comments get posted: they wait for the review.
 const pendingCommentMessage = "Comment queued (%d pending). Post with enter (comment only), a (approve) or r (request changes), then ctrl+s"
@@ -116,11 +110,14 @@ type Model struct {
 	ctx               context.Context
 	commandRegistry   *CommandRegistry
 	isInitialStartup  bool
-	loadingState      LoadingState
-	spinner           spinner.Model
-	prCache           *PRCache
-	editorTempFile    string
-	editorSource      EditorSource
+	// startupPR is the pull request the command line asked to open the form for once the PATs
+	// are loaded (lgtmfaster -pr -i).
+	startupPR      *startupPullRequest
+	loadingState   LoadingState
+	spinner        spinner.Model
+	prCache        *PRCache
+	editorTempFile string
+	editorSource   EditorSource
 	// resume is the stored session still waiting for its PRs or pipelines to load.
 	resume *domain.Session
 	// lastSession is the session saved when the app last quit, which :session resumes.
@@ -547,7 +544,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if len(msg.pats) > 0 {
 			for _, pat := range msg.pats {
 				if pat.IsActive && m.provider == nil {
-					provider, err := m.createProvider(pat)
+					provider, err := factory.New(pat)
 					if err != nil {
 						m.statusBar.SetMessage(fmt.Sprintf("Failed to create provider: %v", err), true)
 					} else {
@@ -557,7 +554,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 				if pat.IsSelected {
 					selectedCount++
-					provider, err := m.createProvider(pat)
+					provider, err := factory.New(pat)
 					if err != nil {
 						logger.LogError("CREATE_PROVIDER", pat.Name, err)
 						continue
@@ -583,7 +580,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.updateShortcuts()
 			logger.Log("UI: Starting on the dashboard with %d selected PAT(s)", selectedCount)
 			runs := m.watchDashboardRuns()
-			return m, tea.Batch(m.loadPRsStreaming(), runs)
+			var newPR tea.Cmd
+			m, newPR = m.openStartupPR()
+			return m, tea.Batch(m.loadPRsStreaming(), runs, newPR)
 		}
 
 		m.isInitialStartup = false
@@ -1079,7 +1078,7 @@ func (m Model) handlePATEnter() (tea.Model, tea.Cmd) {
 					return ErrorMsg{err: err}
 				}
 			}
-			provider, err := m.createProvider(*pat)
+			provider, err := factory.New(*pat)
 			if err != nil {
 				return m, func() tea.Msg {
 					return ErrorMsg{err: err}
@@ -1289,7 +1288,7 @@ func (m Model) saveDescription() tea.Cmd {
 }
 
 func (m *Model) openExternalEditor(content string, source EditorSource) tea.Cmd {
-	tmpFile, err := os.CreateTemp("", "lgtmfaster_*.md")
+	tmpFile, err := os.CreateTemp("", editor.TempFilePattern)
 	if err != nil {
 		logger.LogError("EXTERNAL_EDITOR", "create temp file", err)
 		return func() tea.Msg {
@@ -1310,7 +1309,7 @@ func (m *Model) openExternalEditor(content string, source EditorSource) tea.Cmd 
 	m.editorTempFile = tmpFile.Name()
 	m.editorSource = source
 
-	c := editorCommand(tmpFile.Name())
+	c := editor.Command(tmpFile.Name())
 	logger.Log("UI: Opening external editor %s for %s", c.Path, tmpFile.Name())
 	return tea.ExecProcess(c, func(err error) tea.Msg {
 		return ExternalEditorFinishedMsg{err: err}
@@ -1318,35 +1317,11 @@ func (m *Model) openExternalEditor(content string, source EditorSource) tea.Cmd 
 }
 
 func (m *Model) openSettingsEditor() tea.Cmd {
-	c := editorCommand(m.repository.ConfigPath())
+	c := editor.Command(m.repository.ConfigPath())
 	logger.Log("UI: Opening settings file %s in %s", m.repository.ConfigPath(), c.Path)
 	return tea.ExecProcess(c, func(err error) tea.Msg {
 		return SettingsEditorFinishedMsg{err: err}
 	})
-}
-
-// editorCommand opens the file in $EDITOR, which may carry arguments ("code --wait").
-func editorCommand(path string) *exec.Cmd {
-	args := strings.Fields(os.Getenv(editorEnvVar))
-	if len(args) == 0 {
-		args = []string{defaultEditor}
-	}
-	return exec.Command(args[0], append(args[1:], path)...)
-}
-
-func (m Model) createProvider(pat domain.PAT) (domain.Provider, error) {
-	switch pat.Provider {
-	case domain.ProviderGitHub:
-		return github.NewProvider(pat.Token, pat.Username), nil
-	case domain.ProviderAzureDevOps:
-		provider, err := azuredevops.NewProvider(pat.Token, pat.Organization, pat.Username)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create Azure DevOps provider: %w", err)
-		}
-		return provider, nil
-	default:
-		return nil, fmt.Errorf("unsupported provider type: %s", pat.Provider)
-	}
 }
 
 func (m Model) loadPATs() tea.Cmd {

@@ -38,20 +38,6 @@ var (
 	spaceKey    = tea.KeyMsg{Type: tea.KeySpace, Runes: []rune(" ")}
 )
 
-func TestTitleFromBranch(t *testing.T) {
-	tests := map[string]string{
-		"feature/add-login_page": "Add login page",
-		"fix-typo":               "Fix typo",
-		"main":                   "Main",
-		"feature/":               "",
-	}
-	for branch, expected := range tests {
-		if got := TitleFromBranch(branch); got != expected {
-			t.Errorf("TitleFromBranch(%q) = %q, want %q", branch, got, expected)
-		}
-	}
-}
-
 func TestNewPR_DefaultsToTheDefaultBranchAndATitleFromTheSource(t *testing.T) {
 	request, err := newPRTestView().Request()
 	if err != nil {

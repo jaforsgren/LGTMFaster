@@ -44,7 +44,7 @@ func (m Model) loadInspectWorkItems() tea.Cmd {
 		if provider == nil {
 			return WorkItemsLoadedMsg{prKey: inspected.Key(), err: fmt.Errorf("%s", noProviderMessage)}
 		}
-		workItems, err := provider.ListLinkedWorkItems(ctx, prIdentifier(inspected))
+		workItems, err := provider.ListLinkedWorkItems(ctx, inspected.Identifier())
 		return WorkItemsLoadedMsg{prKey: inspected.Key(), workItems: workItems, err: err}
 	}
 }
@@ -76,7 +76,7 @@ func handleLinkWorkItemKey(m Model) (Model, tea.Cmd) {
 	m.workItemPickerView.Activate(*pr, m.prInspect.LinkedWorkItemIDs())
 	ctx, inspected := m.ctx, *pr
 	return m, func() tea.Msg {
-		workItems, err := provider.ListAssignedWorkItems(ctx, prIdentifier(inspected))
+		workItems, err := provider.ListAssignedWorkItems(ctx, inspected.Identifier())
 		return AssignedWorkItemsLoadedMsg{prKey: inspected.Key(), workItems: workItems, err: err}
 	}
 }
@@ -119,7 +119,7 @@ func (m Model) linkSelectedWorkItem() (Model, tea.Cmd) {
 	ctx, inspected, workItem := m.ctx, *pr, *selected
 	m.statusBar.SetMessage(fmt.Sprintf(linkingWorkItemMessage, workItem.ID, workItem.Title), false)
 	return m, func() tea.Msg {
-		err := provider.LinkWorkItem(ctx, prIdentifier(inspected), workItem.ID)
+		err := provider.LinkWorkItem(ctx, inspected.Identifier(), workItem.ID)
 		return WorkItemLinkedMsg{prKey: inspected.Key(), workItem: workItem, err: err}
 	}
 }

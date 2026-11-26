@@ -267,3 +267,52 @@ func TestNewPRShortcut_ShownInTheTopBar(t *testing.T) {
 		}
 	}
 }
+
+func startupTestDraft() domain.NewPullRequestDraft {
+	return domain.NewPullRequestDraft{
+		Remote:       domain.GitRemote{Provider: domain.ProviderGitHub, RepositoryFullName: "Proj/api"},
+		SourceBranch: "feature/login",
+		TargetBranch: "develop",
+		Description:  "From the command line",
+		WorkItemIDs:  []int{1234, 5678},
+	}
+}
+
+func TestWithNewPullRequest_OpensThePrefilledFormOnceThePATsLoad(t *testing.T) {
+	repository := &mockRepository{pats: map[string]*domain.PAT{}}
+	m := NewModel(repository).WithNewPullRequest(startupTestDraft(), testPATID)
+
+	updated, _ := m.Update(PATsLoadedMsg{pats: []domain.PAT{{ID: testPATID, Name: "gh", Provider: domain.ProviderGitHub, IsSelected: true, IsPrimary: true}}})
+	m = updated.(Model)
+
+	if !m.newPRView.IsActive() || m.newPRView.Branch().Key() != "Proj/api:feature/login" || m.newPRView.Branch().PATID != testPATID {
+		t.Fatalf("expected the form for Proj/api:feature/login, got %+v", m.newPRView.Branch())
+	}
+	if m.startupPR != nil {
+		t.Error("expected the startup pull request consumed")
+	}
+}
+
+func TestWithNewPullRequest_PrefillsTargetDescriptionAndWorkItems(t *testing.T) {
+	provider := &mockProvider{
+		branches:  domain.RepositoryBranches{Default: "main", Names: []string{"main", "develop", "feature/login"}},
+		createdPR: &domain.PullRequest{Number: 7, Title: "Login", Repository: domain.Repo{FullName: "Proj/api"}},
+	}
+	m := newPRTestModel(t, provider).WithNewPullRequest(startupTestDraft(), testPATID)
+
+	m, cmd := m.openStartupPR()
+	m, _ = m.handleNewPRBranchesLoaded(cmd().(NewPRBranchesLoadedMsg))
+	m, cmd = m.handleNewPRKey(tea.KeyMsg{Type: tea.KeyCtrlS})
+	cmd()
+
+	want := domain.NewPullRequest{
+		RepositoryFullName: "Proj/api", SourceBranch: "feature/login", TargetBranch: "develop",
+		Title: "Login", Description: "From the command line",
+	}
+	if provider.lastNewPR == nil || *provider.lastNewPR != want {
+		t.Errorf("expected %+v, got %+v", want, provider.lastNewPR)
+	}
+	if !slices.Equal(provider.linkWorkItemCalls, []int{1234, 5678}) {
+		t.Errorf("expected the work items linked, got %v", provider.linkWorkItemCalls)
+	}
+}

@@ -88,7 +88,7 @@ func (m Model) loadDashboardChecks() tea.Cmd {
 		provider := m.getProviderForPR(pr)
 		ctx, target := m.ctx, pr
 		cmds = append(cmds, func() tea.Msg {
-			checks, err := provider.GetChecks(ctx, prIdentifier(target))
+			checks, err := provider.GetChecks(ctx, target.Identifier())
 			return DashboardChecksLoadedMsg{prKey: target.Key(), checks: checks, err: err}
 		})
 	}
@@ -112,7 +112,7 @@ func (m Model) loadDashboardActivity() tea.Cmd {
 		provider := m.getProviderForPR(pr)
 		ctx, target := m.ctx, pr
 		cmds = append(cmds, func() tea.Msg {
-			activity, err := provider.ListActivity(ctx, prIdentifier(target))
+			activity, err := provider.ListActivity(ctx, target.Identifier())
 			return DashboardActivityLoadedMsg{prKey: target.Key(), activity: activity, err: err}
 		})
 	}

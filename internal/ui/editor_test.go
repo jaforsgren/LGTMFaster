@@ -5,28 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 )
-
-func TestEditorCommand_RunsEditorWithItsArguments(t *testing.T) {
-	t.Setenv(editorEnvVar, "code --wait")
-
-	cmd := editorCommand("notes.md")
-
-	if want := []string{"code", "--wait", "notes.md"}; !reflect.DeepEqual(cmd.Args, want) {
-		t.Errorf("expected %v, got %v", want, cmd.Args)
-	}
-}
-
-func TestEditorCommand_FallsBackToTheDefaultEditor(t *testing.T) {
-	t.Setenv(editorEnvVar, "")
-
-	if cmd := editorCommand("notes.md"); cmd.Args[0] != defaultEditor {
-		t.Errorf("expected %s, got %v", defaultEditor, cmd.Args)
-	}
-}
 
 func TestOpenCommentsMarkdown_OpensTheEditorNotTheSystemApp(t *testing.T) {
 	opened := recordOpened(t)

@@ -24,10 +24,6 @@ type CommitDiffLoadedMsg struct {
 	err    error
 }
 
-func prIdentifier(pr domain.PullRequest) domain.PRIdentifier {
-	return domain.PRIdentifier{Repository: pr.Repository.FullName, Number: pr.Number}
-}
-
 // handleCommitsKey lists the inspected pull request's commits, fetching them the first time.
 func handleCommitsKey(m Model) (Model, tea.Cmd) {
 	pr := m.prInspect.GetPR()
@@ -44,7 +40,7 @@ func handleCommitsKey(m Model) (Model, tea.Cmd) {
 	provider := m.getProviderForPR(*pr)
 	ctx, inspected := m.ctx, *pr
 	return m, func() tea.Msg {
-		commits, err := provider.ListCommits(ctx, prIdentifier(inspected))
+		commits, err := provider.ListCommits(ctx, inspected.Identifier())
 		return CommitsLoadedMsg{prKey: inspected.Key(), commits: commits, err: err}
 	}
 }
@@ -71,7 +67,7 @@ func (m Model) openSelectedCommit() (Model, tea.Cmd) {
 	ctx, inspected, selected := m.ctx, *pr, *commit
 	m.statusBar.SetMessage(fmt.Sprintf("Loading commit %s...", selected.ShortID()), false)
 	return m, func() tea.Msg {
-		diff, err := provider.GetCommitDiff(ctx, prIdentifier(inspected), selected.ID)
+		diff, err := provider.GetCommitDiff(ctx, inspected.Identifier(), selected.ID)
 		return CommitDiffLoadedMsg{prKey: inspected.Key(), commit: selected, diff: diff, err: err}
 	}
 }

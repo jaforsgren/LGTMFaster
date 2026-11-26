@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"context"
 	"fmt"
 	"sort"
 	"strings"
@@ -38,12 +37,7 @@ type PullRequestCreatedMsg struct {
 	pr     domain.PullRequest
 	branch domain.PushedBranch
 	// linkFailures are the work items asked for in the form that could not be linked.
-	linkFailures []workItemLinkFailure
-}
-
-type workItemLinkFailure struct {
-	workItemID int
-	err        error
+	linkFailures []domain.LinkFailure
 }
 
 // recentBranches is what :pr suggests: the user's recently pushed branches across every selected
@@ -243,7 +237,41 @@ func (m Model) startNewPR(argument string) (Model, tea.Cmd) {
 		}
 		branch = domain.PushedBranch{Repository: domain.Repo{FullName: repository}, Branch: name, PATID: m.primaryPATID}
 	}
+	return m.openNewPRForm(branch)
+}
 
+type startupPullRequest struct {
+	draft domain.NewPullRequestDraft
+	patID string
+}
+
+// WithNewPullRequest opens the new pull request form for the draft, with the PAT that reaches its
+// repository, as soon as the PATs are loaded.
+func (m Model) WithNewPullRequest(draft domain.NewPullRequestDraft, patID string) Model {
+	m.startupPR = &startupPullRequest{draft: draft, patID: patID}
+	return m
+}
+
+func (m Model) openStartupPR() (Model, tea.Cmd) {
+	if m.startupPR == nil {
+		return m, nil
+	}
+	startup := *m.startupPR
+	m.startupPR = nil
+	branch := domain.PushedBranch{
+		Repository: domain.Repo{FullName: startup.draft.Remote.RepositoryFullName},
+		Branch:     startup.draft.SourceBranch,
+		PATID:      startup.patID,
+	}
+	m, cmd := m.openNewPRForm(branch)
+	if m.newPRView.IsActive() {
+		m.newPRView.Prefill(startup.draft)
+	}
+	return m, cmd
+}
+
+// openNewPRForm opens the form for a pull request from branch and loads the branches it can target.
+func (m Model) openNewPRForm(branch domain.PushedBranch) (Model, tea.Cmd) {
 	provider := m.getProviderForPAT(branch.PATID)
 	if provider == nil {
 		m.statusBar.SetMessage("No active PAT. Please select a PAT first.", true)
@@ -317,20 +345,8 @@ func (m Model) submitNewPR() (Model, tea.Cmd) {
 		}
 		pr.PATID = branch.PATID
 		pr.ProviderType = provider.GetType()
-		return PullRequestCreatedMsg{pr: *pr, branch: branch, linkFailures: linkWorkItems(ctx, provider, prIdentifier(*pr), workItemIDs)}
+		return PullRequestCreatedMsg{pr: *pr, branch: branch, linkFailures: domain.LinkWorkItems(ctx, provider, pr.Identifier(), workItemIDs)}
 	}
-}
-
-// linkWorkItems links every work item it can, so one that does not exist leaves the others linked.
-func linkWorkItems(ctx context.Context, provider domain.Provider, identifier domain.PRIdentifier, workItemIDs []int) []workItemLinkFailure {
-	var failures []workItemLinkFailure
-	for _, workItemID := range workItemIDs {
-		if err := provider.LinkWorkItem(ctx, identifier, workItemID); err != nil {
-			logger.LogError("LINK_WORK_ITEM", fmt.Sprintf("#%d", workItemID), err)
-			failures = append(failures, workItemLinkFailure{workItemID: workItemID, err: err})
-		}
-	}
-	return failures
 }
 
 // handlePullRequestCreated opens the new pull request; the PR list is reloaded the next time it is
@@ -342,19 +358,11 @@ func (m Model) handlePullRequestCreated(msg PullRequestCreatedMsg) (Model, tea.C
 	created := fmt.Sprintf("Created pull request #%d from %s", msg.pr.Number, msg.branch.Key())
 	inspected, cmd := m.inspectPR(msg.pr)
 	if len(msg.linkFailures) > 0 {
-		inspected.statusBar.SetMessage(created+", but "+describeLinkFailures(msg.linkFailures), true)
+		inspected.statusBar.SetMessage(created+", but "+domain.DescribeLinkFailures(msg.linkFailures), true)
 		return inspected, cmd
 	}
 	inspected.statusBar.SetMessage(created, false)
 	return inspected, tea.Batch(cmd, clearStatusAfterDelay(4*time.Second))
-}
-
-func describeLinkFailures(failures []workItemLinkFailure) string {
-	described := make([]string, 0, len(failures))
-	for _, failure := range failures {
-		described = append(described, fmt.Sprintf("could not link #%d: %v", failure.workItemID, failure.err))
-	}
-	return strings.Join(described, "; ")
 }
 
 // handleNewPRPrefixKey starts the pr sequence, which opens the command bar on ":pr ".

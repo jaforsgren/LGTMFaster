@@ -47,13 +47,35 @@ Run with `lgtmfaster`, or use `lgtmfaster --debug /tmp/lgtm.log` to write logs t
 
 Selected accounts load automatically on subsequent launches. Use `:session` to restore your previous view.
 
+## Pull requests from the command line
+
+Run from inside a repository whose branch is pushed to `origin` (GitHub or Azure DevOps):
+
+```bash
+lgtmfaster -pr                          # create a PR from the current branch into main
+lgtmfaster -pr -t develop -a 1234       # into develop, linked to work item 1234
+lgtmfaster -pr -de                      # write the description in $EDITOR first
+lgtmfaster -pr -i -a "1234,5678"        # open the TUI's new PR form, prefilled
+```
+
+| Flag | Meaning |
+|---|---|
+| `-i`, `--interactive` | Open the new pull request form in the TUI instead of creating it |
+| `-a`, `--ado` | Work item numbers to link (`1234` or `"1234,5678"`) |
+| `-d`, `--description` | Description text |
+| `-df`, `--description-file` | File holding the description |
+| `-de`, `--description-editor` | Write the description in `$EDITOR`; save and quit submits, `:cq` aborts |
+| `-t`, `--target` | Branch to merge into (default `main`; with `-i`, the repository's default branch) |
+
+The title comes from the branch name (`feature/add-login` → "Add login"). The PR is created with the account whose provider and organization match the remote; `-i` needs that account selected.
+
 ## Commands and keys
 
 | Command | Action |
 |---|---|
 | `:dashboard` | Open dashboard |
 | `:pr` | Browse pull requests |
-| `:pr <repo>:<branch>` | Create a pull request (Azure DevOps) |
+| `:pr <repo>:<branch>` / `pr` | Create a pull request (Azure DevOps) |
 | `:pipelines` | Browse Azure DevOps pipelines |
 | `:session` | Restore previous view |
 | `:settings` | Edit configuration |

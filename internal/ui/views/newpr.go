@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"unicode"
 
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -43,11 +42,9 @@ const (
 	newPRInputInset      = newPRLabelWidth + 8
 	newPRCharLimit       = 65535
 	newPRTitleCharLimit  = 400
-	branchPathSeparator  = "/"
 	draftLabel           = "[x] draft"
 	readyForReviewLabel  = "[ ] ready for review"
 	newPRHelp            = "tab/shift+tab: field | ↑↓: pick branch | space: draft | ctrl+g: editor | ctrl+s: create | esc: cancel"
-	branchWordSeparators = "-_"
 	newPRTitleText       = "New Pull Request"
 	newPRSourceFormat    = "%s : %s"
 	newPRPushedAgoFormat = "  (pushed %s)"
@@ -108,7 +105,7 @@ func (m *NewPRViewModel) SetSize(width, height int) {
 func (m *NewPRViewModel) Activate(branch domain.PushedBranch) {
 	m.branch = branch
 	m.target.Reset(branch.Branch)
-	m.title.SetValue(TitleFromBranch(branch.Branch))
+	m.title.SetValue(domain.TitleFromBranch(branch.Branch))
 	m.workItems.SetValue("")
 	m.description.SetValue("")
 	m.isDraft = false
@@ -167,6 +164,15 @@ func (m *NewPRViewModel) Request() (domain.NewPullRequest, error) {
 		Description:        m.description.Value(),
 		IsDraft:            m.isDraft,
 	}, nil
+}
+
+// Prefill fills in what the draft gives: the target branch, the description and the work items.
+func (m *NewPRViewModel) Prefill(draft domain.NewPullRequestDraft) {
+	if draft.TargetBranch != "" {
+		m.target.SetValue(draft.TargetBranch)
+	}
+	m.description.SetValue(draft.Description)
+	m.workItems.SetValue(domain.FormatWorkItemIDs(draft.WorkItemIDs))
 }
 
 // WorkItemIDs are the work items to link once the pull request is created.
@@ -308,20 +314,4 @@ func (m *NewPRViewModel) renderDropdown() string {
 		return ""
 	}
 	return m.target.Dropdown(newPRLabelWidth)
-}
-
-// TitleFromBranch turns the last segment of a branch name into a sentence: "feature/add-login"
-// becomes "Add login".
-func TitleFromBranch(branch string) string {
-	segments := strings.Split(branch, branchPathSeparator)
-	words := strings.FieldsFunc(segments[len(segments)-1], func(r rune) bool {
-		return strings.ContainsRune(branchWordSeparators, r)
-	})
-	title := strings.Join(words, " ")
-	if title == "" {
-		return ""
-	}
-	runes := []rune(title)
-	runes[0] = unicode.ToUpper(runes[0])
-	return string(runes)
 }

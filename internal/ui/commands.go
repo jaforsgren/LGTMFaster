@@ -13,6 +13,7 @@ import (
 	"github.com/atotto/clipboard"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/johanforsgren/lgtmfaster/internal/domain"
+	"github.com/johanforsgren/lgtmfaster/internal/editor"
 	"github.com/johanforsgren/lgtmfaster/internal/git"
 	"github.com/johanforsgren/lgtmfaster/internal/logger"
 	"github.com/johanforsgren/lgtmfaster/internal/ui/components"
@@ -1775,7 +1776,7 @@ func (m Model) openCommentsMarkdown() (Model, tea.Cmd) {
 
 	logger.LogFileWrite(file.Name())
 	path := file.Name()
-	return m, tea.ExecProcess(editorCommand(path), func(err error) tea.Msg {
+	return m, tea.ExecProcess(editor.Command(path), func(err error) tea.Msg {
 		return CommentsMarkdownClosedMsg{path: path, err: err}
 	})
 }

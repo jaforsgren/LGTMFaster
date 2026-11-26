@@ -23,6 +23,15 @@ const workItemIDSeparators = ", "
 
 const workItemIDPrefix = "#"
 
+// FormatWorkItemIDs writes work item numbers the way ParseWorkItemIDs reads them.
+func FormatWorkItemIDs(ids []int) string {
+	formatted := make([]string, 0, len(ids))
+	for _, id := range ids {
+		formatted = append(formatted, strconv.Itoa(id))
+	}
+	return strings.Join(formatted, workItemIDSeparators)
+}
+
 // ParseWorkItemIDs reads the work item numbers typed as "1234, #5678", each once, in order. Empty
 // text is no numbers.
 func ParseWorkItemIDs(text string) ([]int, error) {

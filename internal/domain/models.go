@@ -228,6 +228,10 @@ type PRIdentifier struct {
 	Number     int
 }
 
+func (pr PullRequest) Identifier() PRIdentifier {
+	return PRIdentifier{Repository: pr.Repository.FullName, Number: pr.Number}
+}
+
 type PRGroup struct {
 	PATName   string
 	PATID     string

@@ -66,7 +66,7 @@ func lookupWorkItemIDs(ctx context.Context, provider domain.Provider, pr domain.
 	if provider == nil {
 		return nil, errors.New(noProviderMessage)
 	}
-	return provider.ListLinkedWorkItemIDs(ctx, prIdentifier(pr))
+	return provider.ListLinkedWorkItemIDs(ctx, pr.Identifier())
 }
 
 func (m Model) handlePRWorkItemIDsLoaded(msg PRWorkItemIDsLoadedMsg) (Model, tea.Cmd) {

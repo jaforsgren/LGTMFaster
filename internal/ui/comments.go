@@ -35,7 +35,7 @@ func (m Model) loadPRListComments() tea.Cmd {
 	provider := m.getProviderForPR(*pr)
 	ctx, selected := m.ctx, *pr
 	return func() tea.Msg {
-		comments, err := provider.GetComments(ctx, prIdentifier(selected))
+		comments, err := provider.GetComments(ctx, selected.Identifier())
 		return PRCommentThreadsLoadedMsg{prKey: selected.Key(), threads: domain.SummarizeThreads(comments), err: err}
 	}
 }
