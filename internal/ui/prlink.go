@@ -26,13 +26,12 @@ func (m Model) selectedPR() *domain.PullRequest {
 // handleYankPrefixKey starts a yank motion; the next key picks what is copied (yp: the PR link;
 // in the pipeline logs yy: the step's log, yY: the run's logs).
 func handleYankPrefixKey(m Model) (Model, tea.Cmd) {
-	m.yankPending = true
+	m.pendingPrefix = keyYankPrefix
 	return m, nil
 }
 
 // completeYank runs the yank motion key finishes and reports whether key was one.
 func (m Model) completeYank(key string) (Model, tea.Cmd, bool) {
-	m.yankPending = false
 	var cmd tea.Cmd
 	switch {
 	case m.state == ViewPipelineLog && key == keyYankStepLog:

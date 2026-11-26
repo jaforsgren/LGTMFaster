@@ -585,6 +585,13 @@ func (cr *CommandRegistry) registerKeyBindings() {
 			AvailableIn: []ViewState{ViewPRList, ViewDashboard},
 		},
 		{
+			Keys:        []string{keyNewPRPrefix},
+			Description: "New pull request",
+			ShortHelp:   keyNewPRPrefix + keyNewPR,
+			Handler:     handleNewPRPrefixKey,
+			AvailableIn: []ViewState{ViewPRList, ViewDashboard},
+		},
+		{
 			Keys:        []string{keyYankPrefix},
 			Description: "Copy step log / run logs",
 			ShortHelp:   keyYankPrefix + keyYankStepLog + "/" + keyYankPrefix + keyYankRunLogs,

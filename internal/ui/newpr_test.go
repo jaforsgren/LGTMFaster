@@ -144,3 +144,53 @@ func TestPRCommand_RejectsAnArgumentThatIsNotABranch(t *testing.T) {
 		t.Errorf("expected the usage hint, got %q", m.statusBar.Message())
 	}
 }
+
+func TestNewPRKeys_OpenTheCommandBarOnPRAndFetchRecentBranches(t *testing.T) {
+	for _, view := range []ViewState{ViewPRList, ViewDashboard} {
+		m := newPRTestModel(t, &mockProvider{pushedBranches: recentTestBranches()})
+		m.state = view
+
+		m, _ = pressKey(t, m, keyNewPRPrefix)
+		m, cmd := pressKey(t, m, keyNewPR)
+
+		if !m.commandBar.IsActive() {
+			t.Fatalf("view %v: expected pr to open the command bar", view)
+		}
+		if got := m.commandBar.Input(); got != prCommandName+" " {
+			t.Errorf("view %v: expected %q, got %q", view, prCommandName+" ", got)
+		}
+		if !m.recentBranches.loading || cmd == nil {
+			t.Errorf("view %v: expected the recent branches fetched", view)
+		}
+		if m.pendingPrefix != "" {
+			t.Errorf("view %v: expected the prefix finished", view)
+		}
+	}
+}
+
+func TestNewPRPrefix_AnotherKeyDropsItAndRunsAsUsual(t *testing.T) {
+	m, repository := sortTestModel(t)
+
+	m, _ = pressKey(t, m, keyNewPRPrefix)
+	m, _ = pressKey(t, m, "2")
+
+	if m.pendingPrefix != "" {
+		t.Error("expected the prefix dropped")
+	}
+	if m.commandBar.IsActive() {
+		t.Error("expected the command bar closed")
+	}
+	if repository.settings.PRSortMode != domain.PRSortTitle {
+		t.Errorf("expected the key to sort as usual, got %q", repository.settings.PRSortMode)
+	}
+}
+
+func TestNewPRShortcut_ShownInTheTopBar(t *testing.T) {
+	registry := NewCommandRegistry()
+	for _, view := range []ViewState{ViewPRList, ViewDashboard} {
+		shortcuts := strings.Join(registry.GetContextualShortcuts(view, false), "\n")
+		if !strings.Contains(shortcuts, "<"+keyNewPRPrefix+keyNewPR+"> New pull request") {
+			t.Errorf("view %v: expected the pr shortcut listed, got %q", view, shortcuts)
+		}
+	}
+}

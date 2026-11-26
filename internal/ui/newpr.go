@@ -318,3 +318,26 @@ func (m Model) handlePullRequestCreated(msg PullRequestCreatedMsg) (Model, tea.C
 	inspected, cmd := m.inspectPR(msg.pr)
 	return inspected, tea.Batch(cmd, clearStatusAfterDelay(4*time.Second))
 }
+
+// handleNewPRPrefixKey starts the pr sequence, which opens the command bar on ":pr ".
+func handleNewPRPrefixKey(m Model) (Model, tea.Cmd) {
+	m.pendingPrefix = keyNewPRPrefix
+	return m, nil
+}
+
+func (m Model) completeNewPR(key string) (Model, tea.Cmd, bool) {
+	if key != keyNewPR {
+		return m, nil, false
+	}
+	m, cmd := m.openNewPRCommand()
+	return m, cmd, true
+}
+
+// openNewPRCommand opens the command bar on ":pr " and fetches the recent branches it suggests.
+func (m Model) openNewPRCommand() (Model, tea.Cmd) {
+	m.commandBar.Activate()
+	m.commandBar.SetInput(prCommandName + " ")
+	m.recentBranches.query = ""
+	m, cmd := m.ensureRecentBranches()
+	return m.updateCommandCompletion(), cmd
+}

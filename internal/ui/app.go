@@ -125,8 +125,9 @@ type Model struct {
 	resume *domain.Session
 	// lastSession is the session saved when the app last quit, which :session resumes.
 	lastSession *domain.Session
-	// yankPending is set by y in the PR list and dashboard, waiting for the key that names what to copy.
-	yankPending bool
+	// pendingPrefix is the first key of a two-key sequence (yp, pr, yy, ...), waiting for the key
+	// that completes it.
+	pendingPrefix string
 }
 
 func NewModel(repository domain.Repository) Model {
@@ -524,9 +525,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.state == ViewPRInspect && !isDiffMotionKey(key) {
 			m.prInspect.ResetMotion()
 		}
-		if m.yankPending {
-			var yanked bool
-			if m, cmd, yanked = m.completeYank(key); yanked {
+		if m.pendingPrefix != "" {
+			var completed bool
+			if m, cmd, completed = m.completePrefix(key); completed {
 				return m, cmd
 			}
 		}
