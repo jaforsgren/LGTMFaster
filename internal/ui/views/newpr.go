@@ -19,6 +19,7 @@ const (
 	newPRFieldTarget newPRField = iota
 	newPRFieldTitle
 	newPRFieldDraft
+	newPRFieldWorkItems
 	newPRFieldDescription
 	newPRFieldCount
 )
@@ -36,7 +37,7 @@ const (
 const (
 	newPRLabelWidth      = 13
 	newPRBoxChromeRows   = 4
-	newPRFixedRows       = 14
+	newPRFixedRows       = 15
 	newPRMinTextareaRows = 3
 	newPRBoxInset        = 4
 	newPRInputInset      = newPRLabelWidth + 8
@@ -50,6 +51,7 @@ const (
 	newPRTitleText       = "New Pull Request"
 	newPRSourceFormat    = "%s : %s"
 	newPRPushedAgoFormat = "  (pushed %s)"
+	newPRWorkItemsHint   = "numbers to link, e.g. 1234, 5678"
 )
 
 var (
@@ -67,6 +69,7 @@ type NewPRViewModel struct {
 	branch      domain.PushedBranch
 	target      branchPicker
 	title       textinput.Model
+	workItems   textinput.Model
 	description textarea.Model
 	isDraft     bool
 	focus       newPRField
@@ -79,12 +82,15 @@ func NewNewPRView() *NewPRViewModel {
 	title := textinput.New()
 	title.Prompt = ""
 	title.CharLimit = newPRTitleCharLimit
+	workItems := textinput.New()
+	workItems.Prompt = ""
+	workItems.Placeholder = newPRWorkItemsHint
 	description := textarea.New()
 	description.Placeholder = "Describe the change..."
 	description.CharLimit = newPRCharLimit
 	description.ShowLineNumbers = false
 
-	return &NewPRViewModel{target: newBranchPicker(), title: title, description: description}
+	return &NewPRViewModel{target: newBranchPicker(), title: title, workItems: workItems, description: description}
 }
 
 func (m *NewPRViewModel) SetSize(width, height int) {
@@ -93,6 +99,7 @@ func (m *NewPRViewModel) SetSize(width, height int) {
 	inputWidth := max(width-newPRInputInset, minPaneSize)
 	m.target.SetWidth(inputWidth)
 	m.title.Width = inputWidth
+	m.workItems.Width = inputWidth
 	m.description.SetWidth(max(width-newPRBoxInset*2, minPaneSize))
 	m.description.SetHeight(max(height-newPRFixedRows-branchDropdownRows, newPRMinTextareaRows))
 }
@@ -102,6 +109,7 @@ func (m *NewPRViewModel) Activate(branch domain.PushedBranch) {
 	m.branch = branch
 	m.target.Reset(branch.Branch)
 	m.title.SetValue(TitleFromBranch(branch.Branch))
+	m.workItems.SetValue("")
 	m.description.SetValue("")
 	m.isDraft = false
 	m.active = true
@@ -112,6 +120,7 @@ func (m *NewPRViewModel) Deactivate() {
 	m.active = false
 	m.target.Blur()
 	m.title.Blur()
+	m.workItems.Blur()
 	m.description.Blur()
 }
 
@@ -160,6 +169,11 @@ func (m *NewPRViewModel) Request() (domain.NewPullRequest, error) {
 	}, nil
 }
 
+// WorkItemIDs are the work items to link once the pull request is created.
+func (m *NewPRViewModel) WorkItemIDs() ([]int, error) {
+	return domain.ParseWorkItemIDs(m.workItems.Value())
+}
+
 // HandleKey moves between and edits the fields, and reports what the app should do.
 func (m *NewPRViewModel) HandleKey(msg tea.KeyMsg) (NewPRAction, tea.Cmd) {
 	switch msg.String() {
@@ -195,6 +209,14 @@ func (m *NewPRViewModel) HandleKey(msg tea.KeyMsg) (NewPRAction, tea.Cmd) {
 			m.isDraft = !m.isDraft
 		}
 		return NewPRActionNone, nil
+	case newPRFieldWorkItems:
+		if msg.String() == "enter" {
+			m.focusField(newPRFieldDescription)
+			return NewPRActionNone, nil
+		}
+		var cmd tea.Cmd
+		m.workItems, cmd = m.workItems.Update(msg)
+		return NewPRActionNone, cmd
 	default:
 		var cmd tea.Cmd
 		m.description, cmd = m.description.Update(msg)
@@ -220,12 +242,15 @@ func (m *NewPRViewModel) focusField(field newPRField) {
 	m.focus = field
 	m.target.Blur()
 	m.title.Blur()
+	m.workItems.Blur()
 	m.description.Blur()
 	switch field {
 	case newPRFieldTarget:
 		m.target.Focus()
 	case newPRFieldTitle:
 		m.title.Focus()
+	case newPRFieldWorkItems:
+		m.workItems.Focus()
 	case newPRFieldDescription:
 		m.description.Focus()
 	}
@@ -248,7 +273,8 @@ func (m *NewPRViewModel) View() string {
 	b.WriteString(m.label("Into", m.focus == newPRFieldTarget) + m.target.View() + "\n")
 	b.WriteString(m.renderDropdown())
 	b.WriteString(m.label("Title", m.focus == newPRFieldTitle) + m.title.View() + "\n")
-	b.WriteString(m.label("Status", m.focus == newPRFieldDraft) + m.renderDraft() + "\n\n")
+	b.WriteString(m.label("Status", m.focus == newPRFieldDraft) + m.renderDraft() + "\n")
+	b.WriteString(m.label("Work items", m.focus == newPRFieldWorkItems) + m.workItems.View() + "\n\n")
 	b.WriteString(m.label("Description", m.focus == newPRFieldDescription) + "\n")
 	b.WriteString(m.description.View())
 	b.WriteString("\n\n")

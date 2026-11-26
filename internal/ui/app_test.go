@@ -193,6 +193,8 @@ type mockProvider struct {
 	linkedWorkItemIDs  map[int][]int
 	assignedWorkItems  []domain.WorkItem
 	linkedWorkItemID   int
+	linkWorkItemCalls  []int
+	linkWorkItemErrs   map[int]error
 	closedPRs          []domain.PullRequest
 	mergeRuns          []domain.PipelineRun
 	mergeRunsErr       error
@@ -284,7 +286,8 @@ func (m *mockProvider) ListAssignedWorkItems(ctx context.Context, identifier dom
 
 func (m *mockProvider) LinkWorkItem(ctx context.Context, identifier domain.PRIdentifier, workItemID int) error {
 	m.linkedWorkItemID = workItemID
-	return nil
+	m.linkWorkItemCalls = append(m.linkWorkItemCalls, workItemID)
+	return m.linkWorkItemErrs[workItemID]
 }
 
 func (m *mockProvider) ListMergeRuns(ctx context.Context, merge domain.MergeCommit) ([]domain.PipelineRun, error) {

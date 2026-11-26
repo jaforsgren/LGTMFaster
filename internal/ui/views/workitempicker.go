@@ -22,10 +22,14 @@ const (
 const (
 	workItemPickerTitleFormat = "Link a work item to #%d %s"
 	workItemPickerHelp        = "type to filter | ↑/↓: move | enter: link | esc: cancel"
-	workItemPickerFilterHint  = "id, type, title or state"
+	workItemPickerFilterHint  = "number to link any work item, or id, type, title or state"
 	loadingAssignedText       = "Loading your open bugs, tasks and user stories..."
 	noAssignedText            = "Nothing to link: no open bugs, tasks or user stories are assigned to you."
 	noAssignedMatchText       = "No work items match the filter."
+	alreadyLinkedFormat       = "#%d is already linked."
+	linkByNumberText          = "link this work item by its number"
+	linkByNumberIcon          = "+"
+	workItemIcon              = "●"
 	workItemPickerInset       = 4
 	// workItemPickerChromeRows is the box's border and padding, title, filter, header and help.
 	workItemPickerChromeRows = 12
@@ -42,13 +46,17 @@ var workItemPickerBoxStyle = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()
 type WorkItemPickerViewModel struct {
 	pr        domain.PullRequest
 	workItems []domain.WorkItem
+	linked    map[int]bool
 	visible   []domain.WorkItem
-	loaded    bool
-	filter    listFilter
-	cursor    listCursor
-	active    bool
-	width     int
-	height    int
+	// typed is the work item number the filter holds, offered first even when it is not assigned
+	// to the user; 0 when the filter is not a number.
+	typed  int
+	loaded bool
+	filter listFilter
+	cursor listCursor
+	active bool
+	width  int
+	height int
 }
 
 func NewWorkItemPickerView() *WorkItemPickerViewModel {
@@ -61,11 +69,14 @@ func (m *WorkItemPickerViewModel) SetSize(width, height int) {
 	m.cursor.SetVisibleRows(height - workItemPickerChromeRows)
 }
 
-// Activate opens the picker for the pull request, empty until SetWorkItems.
-func (m *WorkItemPickerViewModel) Activate(pr domain.PullRequest) {
+// Activate opens the picker for the pull request and the work items already linked to it, empty
+// until SetWorkItems.
+func (m *WorkItemPickerViewModel) Activate(pr domain.PullRequest, linked map[int]bool) {
 	m.pr = pr
 	m.workItems = nil
+	m.linked = linked
 	m.visible = nil
+	m.typed = 0
 	m.loaded = false
 	m.filter.Clear()
 	m.filter.Activate()
@@ -88,10 +99,10 @@ func (m *WorkItemPickerViewModel) PRKey() string {
 }
 
 // SetWorkItems lists the work items that are not linked yet.
-func (m *WorkItemPickerViewModel) SetWorkItems(workItems []domain.WorkItem, linked map[int]bool) {
+func (m *WorkItemPickerViewModel) SetWorkItems(workItems []domain.WorkItem) {
 	m.workItems = make([]domain.WorkItem, 0, len(workItems))
 	for _, workItem := range workItems {
-		if !linked[workItem.ID] {
+		if !m.linked[workItem.ID] {
 			m.workItems = append(m.workItems, workItem)
 		}
 	}
@@ -129,13 +140,36 @@ func (m *WorkItemPickerViewModel) HandleKey(msg tea.KeyMsg) (WorkItemPickerActio
 }
 
 func (m *WorkItemPickerViewModel) rebuild() {
+	m.typed = typedWorkItemID(m.filter.Text())
 	m.visible = m.visible[:0]
+	if m.typed != 0 && !m.linked[m.typed] {
+		m.visible = append(m.visible, m.typedWorkItem())
+	}
 	for _, workItem := range m.workItems {
-		if m.filter.Matches(strconv.Itoa(workItem.ID), workItem.Type, workItem.Title, workItem.State) {
+		if workItem.ID != m.typed && m.filter.Matches(strconv.Itoa(workItem.ID), workItem.Type, workItem.Title, workItem.State) {
 			m.visible = append(m.visible, workItem)
 		}
 	}
 	m.cursor.Clamp(len(m.visible))
+}
+
+// typedWorkItemID is the one work item number the text holds, or 0.
+func typedWorkItemID(text string) int {
+	ids, err := domain.ParseWorkItemIDs(text)
+	if err != nil || len(ids) != 1 {
+		return 0
+	}
+	return ids[0]
+}
+
+// typedWorkItem is the assigned work item with the typed number, or one known only by it.
+func (m *WorkItemPickerViewModel) typedWorkItem() domain.WorkItem {
+	for _, workItem := range m.workItems {
+		if workItem.ID == m.typed {
+			return workItem
+		}
+	}
+	return domain.WorkItem{ID: m.typed}
 }
 
 func (m *WorkItemPickerViewModel) View() string {
@@ -151,29 +185,46 @@ func (m *WorkItemPickerViewModel) View() string {
 	b.WriteString("\n\n")
 
 	switch {
+	case m.typed != 0 && m.linked[m.typed]:
+		b.WriteString(listMutedStyle.Render(fmt.Sprintf(alreadyLinkedFormat, m.typed)))
+	case len(m.visible) > 0:
+		b.WriteString(m.renderRows(innerWidth))
 	case !m.loaded:
 		b.WriteString(listMutedStyle.Render(loadingAssignedText))
 	case len(m.workItems) == 0:
 		b.WriteString(listMutedStyle.Render(noAssignedText))
-	case len(m.visible) == 0:
-		b.WriteString(listMutedStyle.Render(noAssignedMatchText))
 	default:
-		columns := []listColumn{
-			{"#", workItemIDWidth},
-			{"Type", workItemTypeWidth},
-			{"Title", flexColumnWidth(innerWidth, workItemIDWidth+workItemTypeWidth+workItemStateWidth+workItemColumnSpacing, minWorkItemTitleWidth)},
-			{"State", workItemStateWidth},
-		}
-		b.WriteString(renderListRows(columns, len(m.visible), m.cursor, func(i int) listRow {
-			workItem := m.visible[i]
-			return listRow{
-				icon:   renderListIcon("●", workItemTypeColor(workItem.Type)),
-				values: []string{strconv.Itoa(workItem.ID), workItem.Type, workItem.Title, workItem.State},
-				style:  listRowStyle,
-			}
-		}))
+		b.WriteString(listMutedStyle.Render(noAssignedMatchText))
 	}
 	b.WriteString("\n")
 	b.WriteString(listMutedStyle.Render(workItemPickerHelp))
 	return workItemPickerBoxStyle.Width(innerWidth).Render(b.String())
+}
+
+func (m *WorkItemPickerViewModel) renderRows(innerWidth int) string {
+	columns := []listColumn{
+		{"#", workItemIDWidth},
+		{"Type", workItemTypeWidth},
+		{"Title", flexColumnWidth(innerWidth, workItemIDWidth+workItemTypeWidth+workItemStateWidth+workItemColumnSpacing, minWorkItemTitleWidth)},
+		{"State", workItemStateWidth},
+	}
+	return renderListRows(columns, len(m.visible), m.cursor, func(i int) listRow {
+		workItem := m.visible[i]
+		if isKnownOnlyByNumber(workItem) {
+			return listRow{
+				icon:   renderListIcon(linkByNumberIcon, workItemTypeColor(workItem.Type)),
+				values: []string{strconv.Itoa(workItem.ID), "", listMutedStyle.Render(linkByNumberText), ""},
+				style:  listRowStyle,
+			}
+		}
+		return listRow{
+			icon:   renderListIcon(workItemIcon, workItemTypeColor(workItem.Type)),
+			values: []string{strconv.Itoa(workItem.ID), workItem.Type, workItem.Title, workItem.State},
+			style:  listRowStyle,
+		}
+	})
+}
+
+func isKnownOnlyByNumber(workItem domain.WorkItem) bool {
+	return workItem == domain.WorkItem{ID: workItem.ID}
 }

@@ -73,7 +73,7 @@ func handleLinkWorkItemKey(m Model) (Model, tea.Cmd) {
 		m.statusBar.SetMessage(noProviderMessage, true)
 		return m, nil
 	}
-	m.workItemPickerView.Activate(*pr)
+	m.workItemPickerView.Activate(*pr, m.prInspect.LinkedWorkItemIDs())
 	ctx, inspected := m.ctx, *pr
 	return m, func() tea.Msg {
 		workItems, err := provider.ListAssignedWorkItems(ctx, prIdentifier(inspected))
@@ -90,7 +90,7 @@ func (m Model) handleAssignedWorkItemsLoaded(msg AssignedWorkItemsLoadedMsg) (Mo
 		m.statusBar.SetMessage(fmt.Sprintf("Failed to load your work items: %v", msg.err), true)
 		return m, nil
 	}
-	m.workItemPickerView.SetWorkItems(msg.workItems, m.prInspect.LinkedWorkItemIDs())
+	m.workItemPickerView.SetWorkItems(msg.workItems)
 	return m, nil
 }
 

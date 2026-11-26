@@ -170,3 +170,81 @@ func TestWorkItemsPane_IsClosedWhenAPullRequestIsOpened(t *testing.T) {
 		t.Error("expected a newly opened pull request to hide the work items pane")
 	}
 }
+
+func typeInPicker(t *testing.T, m Model, text string) Model {
+	t.Helper()
+	for _, r := range text {
+		m, _ = pressKey(t, m, string(r))
+	}
+	return m
+}
+
+func TestWorkItemPicker_LinksAWorkItemByItsNumberWhenItIsNotAssigned(t *testing.T) {
+	provider := &mockProvider{assignedWorkItems: []domain.WorkItem{{ID: 30, Type: "Bug", Title: "Crash on save"}}}
+	m, _ := workItemTestModel(t, provider)
+	m, cmd := pressKey(t, m, keyLinkWorkItem)
+	m = runMsg(t, m, cmd)
+
+	m = typeInPicker(t, m, "1234")
+	if !strings.Contains(m.View(), "link this work item by its number") {
+		t.Error("expected the typed number offered")
+	}
+	m, cmd = pressKey(t, m, keyEnter)
+	m = runMsg(t, m, cmd)
+
+	if provider.linkedWorkItemID != 1234 {
+		t.Errorf("expected work item 1234 linked, got %d", provider.linkedWorkItemID)
+	}
+}
+
+func TestWorkItemPicker_LinksATypedNumberBeforeTheAssignedItemsLoad(t *testing.T) {
+	provider := &mockProvider{}
+	m, _ := workItemTestModel(t, provider)
+	m, _ = pressKey(t, m, keyLinkWorkItem)
+
+	m = typeInPicker(t, m, "#77")
+	m, cmd := pressKey(t, m, keyEnter)
+	m = runMsg(t, m, cmd)
+
+	if provider.linkedWorkItemID != 77 {
+		t.Errorf("expected work item 77 linked, got %d", provider.linkedWorkItemID)
+	}
+}
+
+func TestWorkItemPicker_TypedNumberOfAnAssignedItemPicksThatItem(t *testing.T) {
+	provider := &mockProvider{assignedWorkItems: []domain.WorkItem{
+		{ID: 3120, Type: "Task", Title: "Contains the digits"},
+		{ID: 12, Type: "Bug", Title: "Exact match"},
+	}}
+	m, _ := workItemTestModel(t, provider)
+	m, cmd := pressKey(t, m, keyLinkWorkItem)
+	m = runMsg(t, m, cmd)
+
+	m = typeInPicker(t, m, "12")
+	if selected := m.workItemPickerView.Selected(); selected == nil || selected.Title != "Exact match" {
+		t.Fatalf("expected the item numbered 12 first, got %+v", selected)
+	}
+	if !strings.Contains(m.View(), "Contains the digits") {
+		t.Error("expected the other matches still listed")
+	}
+}
+
+func TestWorkItemPicker_TypedNumberThatIsLinkedIsNotOffered(t *testing.T) {
+	linked := domain.WorkItem{ID: 12, Type: "Task", Title: "Build the login form"}
+	provider := &mockProvider{linkedWorkItems: []domain.WorkItem{linked}}
+	m, _ := workItemTestModel(t, provider)
+	m, cmd := pressKey(t, m, keyTogglePane)
+	m = runMsg(t, m, cmd)
+	m, cmd = pressKey(t, m, keyLinkWorkItem)
+	m = runMsg(t, m, cmd)
+
+	m = typeInPicker(t, m, "12")
+	if !strings.Contains(m.View(), "#12 is already linked.") {
+		t.Error("expected the picker to say it is linked")
+	}
+	m, _ = pressKey(t, m, keyEnter)
+
+	if provider.linkedWorkItemID != 0 {
+		t.Errorf("expected nothing linked, got %d", provider.linkedWorkItemID)
+	}
+}

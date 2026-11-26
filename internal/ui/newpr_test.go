@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -132,6 +134,77 @@ func TestNewPR_CreatesThePullRequestAndOpensIt(t *testing.T) {
 	}
 	if msg.pr.PATID != testPATID {
 		t.Error("expected the created pull request tagged with its PAT")
+	}
+}
+
+func newPRFormTestModel(t *testing.T, provider *mockProvider) Model {
+	t.Helper()
+	provider.branches = domain.RepositoryBranches{Default: "main", Names: []string{"main", "feature/login"}}
+	if provider.createdPR == nil {
+		provider.createdPR = &domain.PullRequest{Number: 7, Title: "Login", Repository: domain.Repo{FullName: "Proj/api"}}
+	}
+	m := newPRTestModel(t, provider)
+	m.recentBranches = recentBranches{branches: recentTestBranches(), fetchedAt: time.Now()}
+	m, cmd := handlePRCommand(m, []string{"Proj/api:feature/login"})
+	m, _ = m.handleNewPRBranchesLoaded(cmd().(NewPRBranchesLoadedMsg))
+	return m
+}
+
+// typeWorkItems moves from the title, where the form opens, to the work items field and types.
+func typeWorkItems(t *testing.T, m Model, text string) Model {
+	t.Helper()
+	for range 2 {
+		m, _ = m.handleNewPRKey(tea.KeyMsg{Type: tea.KeyTab})
+	}
+	m, _ = m.handleNewPRKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(text)})
+	return m
+}
+
+func TestNewPR_LinksTheTypedWorkItemsOnceCreated(t *testing.T) {
+	provider := &mockProvider{}
+	m := typeWorkItems(t, newPRFormTestModel(t, provider), "1234, #5678")
+
+	m, cmd := m.handleNewPRKey(tea.KeyMsg{Type: tea.KeyCtrlS})
+	msg := cmd().(PullRequestCreatedMsg)
+	m, _ = m.handlePullRequestCreated(msg)
+
+	if !slices.Equal(provider.linkWorkItemCalls, []int{1234, 5678}) {
+		t.Errorf("expected 1234 and 5678 linked, got %v", provider.linkWorkItemCalls)
+	}
+	if msg := m.statusBar.Message(); msg != "Created pull request #7 from Proj/api:feature/login" {
+		t.Errorf("expected only the creation reported, got %q", msg)
+	}
+}
+
+func TestNewPR_ReportsTheWorkItemsThatCouldNotBeLinked(t *testing.T) {
+	provider := &mockProvider{linkWorkItemErrs: map[int]error{1234: errors.New("does not exist")}}
+	m := typeWorkItems(t, newPRFormTestModel(t, provider), "1234 5678")
+
+	m, cmd := m.handleNewPRKey(tea.KeyMsg{Type: tea.KeyCtrlS})
+	m, _ = m.handlePullRequestCreated(cmd().(PullRequestCreatedMsg))
+
+	if !slices.Equal(provider.linkWorkItemCalls, []int{1234, 5678}) {
+		t.Errorf("expected every work item tried, got %v", provider.linkWorkItemCalls)
+	}
+	if msg := m.statusBar.Message(); !strings.Contains(msg, "Created pull request #7") || !strings.Contains(msg, "could not link #1234: does not exist") {
+		t.Errorf("expected the PR created and the failed link reported, got %q", msg)
+	}
+	if m.state != ViewPRInspect {
+		t.Errorf("expected the new pull request opened, got state %v", m.state)
+	}
+}
+
+func TestNewPR_RejectsWorkItemsThatAreNotNumbers(t *testing.T) {
+	provider := &mockProvider{}
+	m := typeWorkItems(t, newPRFormTestModel(t, provider), "login")
+
+	m, cmd := m.handleNewPRKey(tea.KeyMsg{Type: tea.KeyCtrlS})
+
+	if cmd != nil || provider.lastNewPR != nil {
+		t.Error("expected nothing created")
+	}
+	if !m.newPRView.IsActive() || !strings.Contains(m.statusBar.Message(), "not a work item number") {
+		t.Errorf("expected the form kept open with the error, got %q", m.statusBar.Message())
 	}
 }
 

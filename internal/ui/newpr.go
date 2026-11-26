@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"strings"
@@ -36,6 +37,13 @@ type NewPRBranchesLoadedMsg struct {
 type PullRequestCreatedMsg struct {
 	pr     domain.PullRequest
 	branch domain.PushedBranch
+	// linkFailures are the work items asked for in the form that could not be linked.
+	linkFailures []workItemLinkFailure
+}
+
+type workItemLinkFailure struct {
+	workItemID int
+	err        error
 }
 
 // recentBranches is what :pr suggests: the user's recently pushed branches across every selected
@@ -292,6 +300,11 @@ func (m Model) submitNewPR() (Model, tea.Cmd) {
 		m.statusBar.SetMessage(err.Error(), true)
 		return m, nil
 	}
+	workItemIDs, err := m.newPRView.WorkItemIDs()
+	if err != nil {
+		m.statusBar.SetMessage(err.Error(), true)
+		return m, nil
+	}
 
 	branch := m.newPRView.Branch()
 	provider := m.getProviderForPAT(branch.PATID)
@@ -304,8 +317,20 @@ func (m Model) submitNewPR() (Model, tea.Cmd) {
 		}
 		pr.PATID = branch.PATID
 		pr.ProviderType = provider.GetType()
-		return PullRequestCreatedMsg{pr: *pr, branch: branch}
+		return PullRequestCreatedMsg{pr: *pr, branch: branch, linkFailures: linkWorkItems(ctx, provider, prIdentifier(*pr), workItemIDs)}
 	}
+}
+
+// linkWorkItems links every work item it can, so one that does not exist leaves the others linked.
+func linkWorkItems(ctx context.Context, provider domain.Provider, identifier domain.PRIdentifier, workItemIDs []int) []workItemLinkFailure {
+	var failures []workItemLinkFailure
+	for _, workItemID := range workItemIDs {
+		if err := provider.LinkWorkItem(ctx, identifier, workItemID); err != nil {
+			logger.LogError("LINK_WORK_ITEM", fmt.Sprintf("#%d", workItemID), err)
+			failures = append(failures, workItemLinkFailure{workItemID: workItemID, err: err})
+		}
+	}
+	return failures
 }
 
 // handlePullRequestCreated opens the new pull request; the PR list is reloaded the next time it is
@@ -314,9 +339,22 @@ func (m Model) handlePullRequestCreated(msg PullRequestCreatedMsg) (Model, tea.C
 	m.newPRView.Deactivate()
 	m.prCache = nil
 	m.recentBranches.fetchedAt = time.Time{}
-	m.statusBar.SetMessage(fmt.Sprintf("Created pull request #%d from %s", msg.pr.Number, msg.branch.Key()), false)
+	created := fmt.Sprintf("Created pull request #%d from %s", msg.pr.Number, msg.branch.Key())
 	inspected, cmd := m.inspectPR(msg.pr)
+	if len(msg.linkFailures) > 0 {
+		inspected.statusBar.SetMessage(created+", but "+describeLinkFailures(msg.linkFailures), true)
+		return inspected, cmd
+	}
+	inspected.statusBar.SetMessage(created, false)
 	return inspected, tea.Batch(cmd, clearStatusAfterDelay(4*time.Second))
+}
+
+func describeLinkFailures(failures []workItemLinkFailure) string {
+	described := make([]string, 0, len(failures))
+	for _, failure := range failures {
+		described = append(described, fmt.Sprintf("could not link #%d: %v", failure.workItemID, failure.err))
+	}
+	return strings.Join(described, "; ")
 }
 
 // handleNewPRPrefixKey starts the pr sequence, which opens the command bar on ":pr ".
